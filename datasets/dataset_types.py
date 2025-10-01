@@ -1409,3 +1409,24 @@ class MswildProcessParams(BaseProcessParams):
 
     corpus_dir: Pathlike = None
     splits: Optional[Dict[str, str]] = None
+
+
+# ============================================================================
+# VOXCONVERSE DATASET
+# ============================================================================
+
+
+@dataclass
+class VoxconverseDownloadParams(BaseDownloadParams):
+    """Download parameters for VoxConverse dataset"""
+
+    download_dev: bool = True
+    download_test: bool = True
+
+
+@dataclass
+class VoxconverseProcessParams(BaseProcessParams):
+    """Process parameters for VoxConverse dataset"""
+
+    corpus_dir: Pathlike = None
+    splits: Optional[Dict[str, str]] = None

@@ -15,7 +15,7 @@ Use Lhotse built-in recipes to download, preprocess, and generate manifests.
 
 For datasets requiring custom manifest scripts:
 
-[] MSDWild
+[x] MSDWild
 
 [] VoxConverse
 

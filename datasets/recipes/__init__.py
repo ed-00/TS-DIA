@@ -12,7 +12,13 @@ Currently empty but ready for future expansion.
 # Future modules can be added here for dataset-specific processing
 
 from .mswild import download_mswild, prepare_mswild
+from .voxconverse import download_voxconverse, prepare_voxconverse
 
-__all__ = ["download_mswild", "prepare_mswild"]
+__all__ = [
+    "download_mswild",
+    "prepare_mswild",
+    "download_voxconverse",
+    "prepare_voxconverse",
+]
 
 __version__ = "0.1.0"
