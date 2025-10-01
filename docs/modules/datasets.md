@@ -26,7 +26,7 @@ cut_sets = DatasetManager.load_datasets(datasets=configs)
 
 # Process the CutSets
 for cut_set in cut_sets:
-    print(f"CutSet: {cut_set.describe()}")
+    cut_set.describe()
 ```
 
 ## Configuration
@@ -209,7 +209,7 @@ cut_sets = DatasetManager.load_datasets(datasets=configs)
 
 # Use CutSets for diarization
 for cut_set in cut_sets:
-    print(f"Dataset: {cut_set.describe()}")
+    cut_set.describe()
 ```
 
 ### Advanced Configuration

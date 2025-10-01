@@ -44,5 +44,3 @@ This project is released under the terms of the license in `LICENSE`.
 
 ### Acknowledgements
 Developed in collaboration with Språkbanken and KTH. Mentorship by Jens Edlund (Språkbanken Tal; Division of Speech, Music and Hearing, KTH).
-
-

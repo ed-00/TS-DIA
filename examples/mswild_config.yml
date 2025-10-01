@@ -1,0 +1,35 @@
+# MSDWILD Dataset Configuration Example
+# This file demonstrates how to configure MSDWILD dataset using the TS-DIA dataset management system
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+
+datasets:
+  - name: mswild
+    download_params:
+      download_audio: true    # Download audio files (required, ~7.56 GB)
+      download_video: false   # Skip video files (optional, ~43.14 GB)
+      download_faces: false  # Skip cropped faces (optional, ~14.49 GB)
+    process_params:
+      splits:
+        train: "few_train"
+        dev: "few_val"
+        test: "many_val"
+
+# Alternative configuration with custom paths
+# datasets:
+#   - name: mswild
+#     download_params:
+#       target_dir: /path/to/custom/data/mswild
+#       download_audio: true
+#       download_video: true   # Include video files
+#       download_faces: true    # Include cropped faces
+#     process_params:
+#       corpus_dir: /path/to/custom/data/mswild
+#       output_dir: /path/to/custom/manifests/mswild
+#       splits:
+#         train: "few_train"
+#         dev: "few_val"
+#         test: "many_val"

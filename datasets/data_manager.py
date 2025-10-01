@@ -329,7 +329,7 @@ class DatasetManager:
 
             # Process each CutSet
             for cut_set in cut_sets:
-                print(f"CutSet: {cut_set.describe()}")
+                cut_set.describe()
             ```
         """
         params = LoadDatasetsParams(**kwargs)

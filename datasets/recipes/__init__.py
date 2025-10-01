@@ -11,6 +11,8 @@ Currently empty but ready for future expansion.
 # This package is currently empty but ready for custom recipes
 # Future modules can be added here for dataset-specific processing
 
-__all__ = []
+from .mswild import download_mswild, prepare_mswild
+
+__all__ = ["download_mswild", "prepare_mswild"]
 
 __version__ = "0.1.0"

@@ -1387,3 +1387,25 @@ class YesnoProcessParams(BaseProcessParams):
         return {
             k: v for k, v in self.__dict__.items() if v is not None and k != "num_jobs"
         }
+
+
+# ============================================================================
+# MSDWILD DATASET
+# ============================================================================
+
+
+@dataclass
+class MswildDownloadParams(BaseDownloadParams):
+    """Download parameters for MSDWILD dataset"""
+
+    download_audio: bool = True
+    download_video: bool = False
+    download_faces: bool = False
+
+
+@dataclass
+class MswildProcessParams(BaseProcessParams):
+    """Process parameters for MSDWILD dataset"""
+
+    corpus_dir: Pathlike = None
+    splits: Optional[Dict[str, str]] = None

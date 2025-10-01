@@ -1,13 +1,13 @@
 To-Do List: Diarization Dataset Preparation
 For datasets already supported with Lhotse recipes:
 
-[] AMI Corpus
+[x] AMI Corpus
 
-[] ICSI Meeting Corpus
+[x] ICSI Meeting Corpus
 
-[] AISHELL-4
+[x] AISHELL-4
 
-[] Earnings-21
+[x] Earnings-21
 
 Actions:
 
