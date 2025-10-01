@@ -52,11 +52,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import lhotse as lh
+import recipes
+from dataset_types import LoadDatasetsParams
 from lhotse import CutSet, RecordingSet, SupervisionSet
-
-from . import recipes
-from .dataset_types import LoadDatasetsParams
-from .parse_args import datasets_manager_parser
+from parse_args import datasets_manager_parser
 
 
 def __is_custom_recipe(dataset_name: str) -> bool:
@@ -69,7 +68,12 @@ def __is_custom_recipe(dataset_name: str) -> bool:
     Returns:
         True if custom recipe exists, False otherwise
     """
-    return dataset_name in recipes.__all__
+    download_function_name = f"download_{dataset_name}"
+    process_function_name = f"prepare_{dataset_name}"
+    return (
+        download_function_name in recipes.__all__
+        and process_function_name in recipes.__all__
+    )
 
 
 def __is_implemented_dataset(dataset_name: str) -> bool:

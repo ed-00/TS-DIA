@@ -1,3 +1,4 @@
 
 lhotse==1.31.1
 yamlargparse==1.31.1
+gdown==5.2.0

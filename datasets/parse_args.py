@@ -52,9 +52,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Type, Union
 
 import yaml
-from yamlargparse import ArgumentParser
-
-from .dataset_types import (
+from dataset_types import (
     # Download params
     AdeptDownloadParams,
     # Process params
@@ -176,6 +174,7 @@ from .dataset_types import (
     YesnoDownloadParams,
     YesnoProcessParams,
 )
+from yamlargparse import ArgumentParser
 
 # Dataset name to dataclass mapping
 DATASET_DOWNLOAD_PARAMS_MAP: Dict[str, Type[BaseDownloadParams]] = {

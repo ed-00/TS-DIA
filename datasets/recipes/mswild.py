@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path
 from typing import Dict, Optional
 
+import gdown
 from lhotse import fix_manifests, validate_recordings_and_supervisions
 from lhotse.audio import Recording, RecordingSet
 from lhotse.supervision import SupervisionSegment, SupervisionSet
@@ -41,31 +42,32 @@ def download_mswild(
     Download the MSDWILD dataset.
 
     Args:
-        target_dir: Directory where the dataset will be downloaded
+        target_dir: Base directory where datasets are stored (will create mswild subdirectory)
         force_download: If True, re-download even if files exist
         download_audio: If True, download audio files (required for basic functionality)
         download_video: If True, download video files (optional, large ~43GB)
         download_faces: If True, download cropped faces (optional, ~14GB)
     """
-    target_dir = Path(target_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
+    # Create dataset-specific directory
+    dataset_dir = Path(target_dir) / "mswild"
+    dataset_dir.mkdir(parents=True, exist_ok=True)
 
-    completed_detector = target_dir / ".completed"
+    completed_detector = dataset_dir / ".completed"
 
     if not completed_detector.is_file() or force_download:
         logging.info("Downloading MSDWILD dataset...")
 
         # Download RTTM annotations (always needed)
         logging.info("Downloading RTTM annotations...")
-        resumable_download(RTTM_ZIP_URL, target_dir / "annotations.zip")
-        with zipfile.ZipFile(target_dir / "annotations.zip") as zip_f:
-            zip_f.extractall(target_dir)
+        resumable_download(RTTM_ZIP_URL, dataset_dir / "annotations.zip")
+        with zipfile.ZipFile(dataset_dir / "annotations.zip") as zip_f:
+            zip_f.extractall(dataset_dir)
 
         # Move RTTM files to the main directory
-        annotations_dir = target_dir / "MSDWILD-master"
+        annotations_dir = dataset_dir / "MSDWILD-master"
         if annotations_dir.exists():
             # Copy RTTM files
-            rttm_dir = target_dir / "rttms"
+            rttm_dir = dataset_dir / "rttms"
             rttm_dir.mkdir(exist_ok=True)
             if (annotations_dir / "rttms").exists():
                 shutil.copytree(annotations_dir / "rttms", rttm_dir, dirs_exist_ok=True)
@@ -73,20 +75,59 @@ def download_mswild(
             # Clean up
             shutil.rmtree(annotations_dir)
 
-        # Download audio files if requested
-        if download_audio:
-            logging.info("Downloading audio files...")
-            audio_zip_path = target_dir / "wavs.zip"
-            resumable_download(AUDIO_ZIP_URL, audio_zip_path)
+            # Download audio files if requested
+            if download_audio:
+                logging.info("Downloading audio files...")
+                audio_zip_path = dataset_dir / "wavs.zip"
 
-            # Extract audio files
-            wavs_dir = target_dir / "wavs"
-            wavs_dir.mkdir(exist_ok=True)
-            with zipfile.ZipFile(audio_zip_path) as zip_f:
-                zip_f.extractall(wavs_dir)
+                # Check if audio zip already exists and is complete
+                if audio_zip_path.exists() and audio_zip_path.stat().st_size > 0:
+                    logging.info(f"Audio zip already exists: {audio_zip_path}")
+                else:
+                    # Use gdown to download from Google Drive with retry logic
+                    max_retries = 3
+                    for attempt in range(max_retries):
+                        try:
+                            logging.info(
+                                f"Download attempt {attempt + 1}/{max_retries}"
+                            )
+                            gdown.download(
+                                "https://drive.google.com/uc?id=1I5qfuPPGBM9keJKz0VN-OYEeRMJ7dgpl",
+                                str(audio_zip_path),
+                                quiet=False,
+                            )
+                            break
+                        except Exception as e:
+                            logging.warning(
+                                f"Download attempt {attempt + 1} failed: {e}"
+                            )
+                            if attempt < max_retries - 1:
+                                logging.info("Retrying download...")
+                                if audio_zip_path.exists():
+                                    audio_zip_path.unlink()  # Remove partial file
+                            else:
+                                logging.error(
+                                    "All download attempts failed. Please download manually."
+                                )
+                                logging.error(
+                                    "Manual download URL: https://drive.google.com/file/d/1I5qfuPPGBM9keJKz0VN-OYEeRMJ7dgpl"
+                                )
+                                raise
 
-            # Clean up zip file
-            audio_zip_path.unlink()
+                # Extract audio files
+                wavs_dir = dataset_dir / "wavs"
+                wavs_dir.mkdir(exist_ok=True)
+
+                # Check if extraction is needed
+                if not any(wavs_dir.iterdir()):
+                    logging.info("Extracting audio files...")
+                    with zipfile.ZipFile(audio_zip_path) as zip_f:
+                        zip_f.extractall(wavs_dir)
+                else:
+                    logging.info("Audio files already extracted")
+
+                # Clean up zip file
+                audio_zip_path.unlink()
 
         # Download video files if requested
         if download_video:
@@ -109,10 +150,11 @@ def download_mswild(
             )
 
         # Clean up
-        (target_dir / "annotations.zip").unlink(missing_ok=True)
+        (dataset_dir / "annotations.zip").unlink(missing_ok=True)
         completed_detector.touch()
 
     logging.info("MSDWILD download completed.")
+    return dataset_dir
 
 
 def prepare_mswild(
@@ -158,34 +200,56 @@ def prepare_mswild(
 
         recordings = []
         supervisions = []
+        processed_audio_ids = set()  # Track processed audio files to avoid duplicates
 
         for rttm_file in tqdm(rttm_files, desc=f"Processing {split_name}"):
-            # Extract audio file name from RTTM file
-            audio_file = corpus_dir / "wavs" / f"{rttm_file.stem}.wav"
+            # Read RTTM file to get audio IDs and segments
+            audio_segments = {}  # audio_id -> list of segments
 
-            # Check if audio file exists
-            if not audio_file.exists():
-                logging.warning(f"Audio file not found: {audio_file}")
-                continue
+            with open(rttm_file, "r") as f:
+                for line in f:
+                    if line.startswith("SPEAKER"):
+                        parts = line.split()
+                        if len(parts) >= 8:
+                            audio_id = parts[1]
+                            start = float(parts[3])
+                            duration = float(parts[4])
+                            speaker = parts[7]
 
-            # Create recording
-            recording = Recording.from_file(audio_file)
-            recordings.append(recording)
+                            if audio_id not in audio_segments:
+                                audio_segments[audio_id] = []
+                            audio_segments[audio_id].append((start, duration, speaker))
 
-            # Read RTTM file and create supervisions
-            for segment_idx, (start, duration, speaker) in enumerate(
-                _read_rttm(rttm_file)
-            ):
-                supervisions.append(
-                    SupervisionSegment(
-                        id=f"{rttm_file.stem}-{segment_idx}",
-                        recording_id=rttm_file.stem,
-                        start=start,
-                        duration=duration,
-                        channel=0,
-                        speaker=speaker,
+            # Process each audio file referenced in the RTTM
+            for audio_id, segments in audio_segments.items():
+                # Skip if we've already processed this audio file
+                if audio_id in processed_audio_ids:
+                    continue
+
+                audio_file = corpus_dir / "wavs" / "wav" / f"{audio_id}.wav"
+
+                # Check if audio file exists
+                if not audio_file.exists():
+                    logging.warning(f"Audio file not found: {audio_file}")
+                    continue
+
+                # Create recording
+                recording = Recording.from_file(audio_file)
+                recordings.append(recording)
+                processed_audio_ids.add(audio_id)
+
+                # Create supervisions for this audio file
+                for segment_idx, (start, duration, speaker) in enumerate(segments):
+                    supervisions.append(
+                        SupervisionSegment(
+                            id=f"{audio_id}-{segment_idx}",
+                            recording_id=audio_id,
+                            start=start,
+                            duration=duration,
+                            channel=0,
+                            speaker=speaker,
+                        )
                     )
-                )
 
         if not recordings:
             logging.warning(f"No recordings found for {split_name} split")
