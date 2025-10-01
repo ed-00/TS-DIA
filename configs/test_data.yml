@@ -1,0 +1,26 @@
+# Global configuration
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+
+datasets:
+  - name: yesno
+
+other_params:
+  num_workers: 4
+  pin_memory: true
+  validation_split: 0.1
+  test_split: 0.1
+
+something_else:
+  another_param: true
+  another_param2: 10
+  another_param3: 10.0
+  another_param4: 10.0
+  another_param5: 10.0
+  another_param6: 10.0
+  another_param7: 10.0
+  another_param8: 10.0
+  another_param9: 10.0
+  another_param10: 10.0

@@ -1,9 +1,6 @@
 {
     "name": "TS-DIA",
-    "build": {
-        "context": "..",
-        "dockerfile": "Dockerfile"
-    },
+    "image": "mcr.microsoft.com/devcontainers/python:3.11-bullseye",
     "shutdownAction": "none",
     "features": {
         "ghcr.io/devcontainers/features/common-utils:2": {
@@ -14,7 +11,7 @@
             "username": "chicken-nugget"
         }
     },
-    "postCreateCommand": "pre-commit install --install-hooks --overwrite || true",
+    "postCreateCommand": "pip install -r requirements-dev.txt && pip install -r requirements.txt && pre-commit install --install-hooks --overwrite || true",
     "customizations": {
         "vscode": {
             "extensions": [

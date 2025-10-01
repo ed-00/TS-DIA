@@ -1,1 +1,16 @@
 docs/.obsidian/*
+
+*.jsonl.gz
+*.jsonl
+*.json
+*.jsonl.gz
+*.jsonl
+*.json
+*.jsonl.gz
+*.jsonl
+*.json
+*.jsonl.gz
+**/*.pyc
+
+data/
+
