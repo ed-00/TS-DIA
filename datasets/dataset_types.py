@@ -1430,3 +1430,24 @@ class VoxconverseProcessParams(BaseProcessParams):
 
     corpus_dir: Pathlike = None
     splits: Optional[Dict[str, str]] = None
+
+
+# ============================================================================
+# AVA-AVD DATASET
+# ============================================================================
+
+
+@dataclass
+class AvaAvdDownloadParams(BaseDownloadParams):
+    """Download parameters for AVA-AVD dataset"""
+
+    download_annotations: bool = True
+    download_videos: bool = True
+
+
+@dataclass
+class AvaAvdProcessParams(BaseProcessParams):
+    """Process parameters for AVA-AVD dataset"""
+
+    corpus_dir: Pathlike = None
+    splits: Optional[Dict[str, str]] = None

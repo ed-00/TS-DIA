@@ -11,6 +11,7 @@ Currently empty but ready for future expansion.
 # This package is currently empty but ready for custom recipes
 # Future modules can be added here for dataset-specific processing
 
+from .ava_avd import download_ava_avd, prepare_ava_avd
 from .mswild import download_mswild, prepare_mswild
 from .voxconverse import download_voxconverse, prepare_voxconverse
 
@@ -19,6 +20,8 @@ __all__ = [
     "prepare_mswild",
     "download_voxconverse",
     "prepare_voxconverse",
+    "download_ava_avd",
+    "prepare_ava_avd",
 ]
 
 __version__ = "0.1.0"

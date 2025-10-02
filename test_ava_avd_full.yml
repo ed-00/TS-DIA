@@ -1,0 +1,16 @@
+# Test configuration for AVA-AVD dataset (full download with videos)
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: true
+
+datasets:
+  - name: ava_avd
+    download_params:
+      download_annotations: true
+      download_videos: false  # Download videos for full testing
+    process_params:
+      splits:
+        train: "train"
+        val: "val"
+        test: "test"

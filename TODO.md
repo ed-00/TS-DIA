@@ -17,7 +17,7 @@ For datasets requiring custom manifest scripts:
 
 [x] MSDWild
 
-[] VoxConverse
+[x] VoxConverse
 
 [] AVA-AVD
 
