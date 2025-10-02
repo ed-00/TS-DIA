@@ -12,6 +12,7 @@ Currently empty but ready for future expansion.
 # Future modules can be added here for dataset-specific processing
 
 from .ava_avd import download_ava_avd, prepare_ava_avd
+from .libriheavy_mix import download_libriheavy_mix, prepare_libriheavy_mix
 from .mswild import download_mswild, prepare_mswild
 from .voxconverse import download_voxconverse, prepare_voxconverse
 
@@ -22,6 +23,8 @@ __all__ = [
     "prepare_voxconverse",
     "download_ava_avd",
     "prepare_ava_avd",
+    "download_libriheavy_mix",
+    "prepare_libriheavy_mix",
 ]
 
 __version__ = "0.1.0"

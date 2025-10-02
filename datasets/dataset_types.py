@@ -1451,3 +1451,33 @@ class AvaAvdProcessParams(BaseProcessParams):
 
     corpus_dir: Pathlike = None
     splits: Optional[Dict[str, str]] = None
+
+
+# ============================================================================
+# LIBRIHEAVY MIX DATASET
+# ============================================================================
+
+
+@dataclass
+class LibriheavyMixDownloadParams(BaseDownloadParams):
+    """Download parameters for LibriheavyMix dataset"""
+
+    dataset_parts: Union[str, List[str]] = "small"
+    speaker_counts: Union[int, List[int]] = field(
+        default_factory=lambda: [1, 2, 3, 4]
+    )  # Number of speakers per mixture
+    cache_dir: Optional[Pathlike] = None
+
+
+@dataclass
+class LibriheavyMixProcessParams(BaseProcessParams):
+    """Process parameters for LibriheavyMix dataset"""
+
+    corpus_dir: Pathlike = None
+    dataset_parts: Union[str, List[str]] = "small"
+    speaker_counts: Union[int, List[int]] = field(
+        default_factory=lambda: [1, 2, 3, 4]
+    )  # Number of speakers per mixture
+    splits: Optional[Dict[str, str]] = None
+    min_speakers: int = 1  # Minimum number of speakers
+    max_speakers: int = 4  # Maximum number of speakers

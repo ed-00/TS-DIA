@@ -52,7 +52,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Type, Union
 
 import yaml
-from dataset_types import (
+from yamlargparse import ArgumentParser
+
+from .dataset_types import (
     # Download params
     AdeptDownloadParams,
     # Process params
@@ -114,6 +116,8 @@ from dataset_types import (
     IcsiProcessParams,
     LibricssDownloadParams,
     LibricssProcessParams,
+    LibriheavyMixDownloadParams,
+    LibriheavyMixProcessParams,
     LibrimixDownloadParams,
     LibrimixProcessParams,
     LibrispeechDownloadParams,
@@ -176,7 +180,6 @@ from dataset_types import (
     YesnoDownloadParams,
     YesnoProcessParams,
 )
-from yamlargparse import ArgumentParser
 
 # Dataset name to dataclass mapping
 DATASET_DOWNLOAD_PARAMS_MAP: Dict[str, Type[BaseDownloadParams]] = {
@@ -208,6 +211,7 @@ DATASET_DOWNLOAD_PARAMS_MAP: Dict[str, Type[BaseDownloadParams]] = {
     "icsi": IcsiDownloadParams,
     "libricss": LibricssDownloadParams,
     "librimix": LibrimixDownloadParams,
+    "libriheavy_mix": LibriheavyMixDownloadParams,
     "librispeech": LibrispeechDownloadParams,
     "libritts": LibrittsDownloadParams,
     "librittsr": LibrittsrDownloadParams,
@@ -235,7 +239,6 @@ DATASET_DOWNLOAD_PARAMS_MAP: Dict[str, Type[BaseDownloadParams]] = {
     "this_american_life": ThisAmericanLifeDownloadParams,
     "timit": TimitDownloadParams,
     "uwb_atcc": UwbAtccDownloadParams,
-    "voxconverse": VoxconverseDownloadParams,
     "voxpopuli": VoxpopuliDownloadParams,
     "xbmu_amdo31": XbmuAmdo31DownloadParams,
     "yesno": YesnoDownloadParams,
@@ -270,6 +273,7 @@ DATASET_PROCESS_PARAMS_MAP: Dict[str, Type[BaseProcessParams]] = {
     "icsi": IcsiProcessParams,
     "libricss": LibricssProcessParams,
     "librimix": LibrimixProcessParams,
+    "libriheavy_mix": LibriheavyMixProcessParams,
     "librispeech": LibrispeechProcessParams,
     "libritts": LibrittsProcessParams,
     "librittsr": LibrittsrProcessParams,
@@ -298,7 +302,6 @@ DATASET_PROCESS_PARAMS_MAP: Dict[str, Type[BaseProcessParams]] = {
     "this_american_life": ThisAmericanLifeProcessParams,
     "timit": TimitProcessParams,
     "uwb_atcc": UwbAtccProcessParams,
-    "voxconverse": VoxconverseProcessParams,
     "voxpopuli": VoxpopuliProcessParams,
     "xbmu_amdo31": XbmuAmdo31ProcessParams,
     "yesno": YesnoProcessParams,

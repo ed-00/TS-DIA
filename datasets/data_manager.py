@@ -52,10 +52,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import lhotse as lh
-import recipes
-from dataset_types import LoadDatasetsParams
 from lhotse import CutSet, RecordingSet, SupervisionSet
-from parse_args import datasets_manager_parser
+
+from . import recipes
+from .dataset_types import LoadDatasetsParams
+from .parse_args import datasets_manager_parser
 
 
 def __is_custom_recipe(dataset_name: str) -> bool:
