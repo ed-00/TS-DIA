@@ -15,3 +15,5 @@ docs/.obsidian/*
 data/
 
 manifests/
+
+cache/

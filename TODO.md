@@ -19,9 +19,9 @@ For datasets requiring custom manifest scripts:
 
 [x] VoxConverse
 
-[] AVA-AVD
+[x] AVA-AVD
 
-[] LibriheavyMix
+[x] LibriheavyMix
 
 [] M3SD
 
