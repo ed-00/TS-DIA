@@ -47,14 +47,7 @@ Functions:
     select_recipe: Select appropriate recipe for dataset
 """
 
-from .data_manager import (
-    # Core classes
-    DatasetManager,
-    import_recipe,
-    # Utility functions
-    list_available_datasets,
-    select_recipe,
-)
+from . import recipes
 from .dataset_types import (
     DatasetConfig,
     GlobalConfig,
@@ -71,15 +64,12 @@ __all__ = [
     "DatasetConfig",
     "LoadDatasetsParams",
     "GlobalConfig",
-    "DatasetManager",
     # Configuration functions
     "parse_dataset_configs",
     "validate_dataset_config",
     "datasets_manager_parser",
-    # Utility functions
-    "list_available_datasets",
-    "import_recipe",
-    "select_recipe",
+    # Subpackages
+    "recipes",
 ]
 
 __version__ = "0.1.0"

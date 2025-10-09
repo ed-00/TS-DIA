@@ -1,0 +1,34 @@
+# Test Ego4D Configuration
+# This configuration tests the Ego4D recipe with all parameters
+
+# Global configuration
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+
+# Dataset configurations
+datasets:
+  - name: ego4d
+    download_params:
+      # Access key - set in environment variable EGO4D_ACCESS_KEY
+      access_key: null  # Will load from EGO4D_ACCESS_KEY environment variable
+      
+      # Dataset parts to download - these get injected into the ego4d CLI command
+      dataset_parts: ["clips", "annotations"]  # Focus on audio-visual data
+      
+      install_cli: true  # Install Ego4D CLI if not available
+      timeout: 3600  # 1 hour timeout for testing
+      env_file: "./.env"  # Path to .env file
+    process_params:
+      extract_audio: true  # Extract audio from video files
+      audio_sample_rate: 16000  # Standard sample rate for speech
+      min_segment_duration: 0.5  # Minimum segment duration in seconds
+      max_segment_duration: 30.0  # Maximum segment duration in seconds
+
+# Other parameters
+other_params:
+  num_workers: 2
+  pin_memory: true
+  validation_split: 0.1
+  test_split: 0.1

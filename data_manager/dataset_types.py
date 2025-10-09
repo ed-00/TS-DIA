@@ -1364,6 +1364,36 @@ class XbmuAmdo31ProcessParams(BaseProcessParams):
 
 
 # ============================================================================
+# EGO4D DATASET
+# ============================================================================
+
+
+@dataclass
+class Ego4dDownloadParams(BaseDownloadParams):
+    """Download parameters for EGO4D dataset"""
+
+    # AWS credentials are loaded from environment variables:
+    # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+    dataset_parts: Optional[List[str]] = None  # Defaults to clips and annotations
+    install_cli: bool = True  # Whether to install Ego4D CLI if not available
+    timeout: int = 3600  # Timeout for download operations in seconds
+    env_file: Optional[Pathlike] = None  # Path to .env file for environment variables
+
+
+@dataclass
+class Ego4dProcessParams(BaseProcessParams):
+    """Process parameters for EGO4D dataset"""
+
+    corpus_dir: Pathlike = None
+    extract_audio: bool = True  # Extract audio from video files
+    audio_sample_rate: int = 16000  # Sample rate for extracted audio
+    min_segment_duration: float = 0.5  # Minimum segment duration in seconds
+    max_segment_duration: float = 30.0  # Maximum segment duration in seconds
+    max_clips: int = 0  # 0 means no limit; otherwise limit number of clips
+    annotation_subset: Optional[str] = None  # e.g., "av" to target AV annotations
+
+
+# ============================================================================
 # YESNO DATASET
 # ============================================================================
 
@@ -1406,27 +1436,6 @@ class MswildDownloadParams(BaseDownloadParams):
 @dataclass
 class MswildProcessParams(BaseProcessParams):
     """Process parameters for MSDWILD dataset"""
-
-    corpus_dir: Pathlike = None
-    splits: Optional[Dict[str, str]] = None
-
-
-# ============================================================================
-# VOXCONVERSE DATASET
-# ============================================================================
-
-
-@dataclass
-class VoxconverseDownloadParams(BaseDownloadParams):
-    """Download parameters for VoxConverse dataset"""
-
-    download_dev: bool = True
-    download_test: bool = True
-
-
-@dataclass
-class VoxconverseProcessParams(BaseProcessParams):
-    """Process parameters for VoxConverse dataset"""
 
     corpus_dir: Pathlike = None
     splits: Optional[Dict[str, str]] = None

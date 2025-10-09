@@ -1,4 +1,5 @@
-To-Do List: Diarization Dataset Preparation
+# To-Do List: Diarization Dataset Preparation
+
 For datasets already supported with Lhotse recipes:
 
 [x] AMI Corpus
@@ -22,8 +23,6 @@ For datasets requiring custom manifest scripts:
 [x] AVA-AVD
 
 [x] LibriheavyMix
-
-[] M3SD
 
 [] Ego4D Audio Diarization
 

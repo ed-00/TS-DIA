@@ -54,9 +54,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import lhotse as lh
 from lhotse import CutSet, RecordingSet, SupervisionSet
 
-from . import recipes
-from .dataset_types import LoadDatasetsParams
-from .parse_args import datasets_manager_parser
+from data_manager import recipes
+from data_manager.dataset_types import LoadDatasetsParams
+from data_manager.parse_args import datasets_manager_parser
 
 
 def __is_custom_recipe(dataset_name: str) -> bool:

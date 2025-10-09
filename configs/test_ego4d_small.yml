@@ -1,0 +1,36 @@
+# Test Ego4D Configuration - Small Subset
+# This configuration tests the Ego4D recipe with a minimal dataset
+
+# Global configuration
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: true  # Force download for testing
+
+# Dataset configurations
+datasets:
+  - name: ego4d
+    download_params:
+      # AWS credentials - set in environment variables
+      # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+      
+      # Small dataset parts for testing
+      dataset_parts: ["clips", "annotations"]
+      
+      install_cli: true  # Install Ego4D CLI if not available
+      timeout: 1800  # 30 minutes timeout for testing
+      env_file: "./.env"  # Path to .env file
+    process_params:
+      extract_audio: true  # Extract audio from video files
+      audio_sample_rate: 16000  # Standard sample rate for speech
+      min_segment_duration: 0.5  # Minimum segment duration in seconds
+      max_segment_duration: 30.0  # Maximum segment duration in seconds
+      max_clips: 10
+      annotation_subset: "av"
+
+# Other parameters
+other_params:
+  num_workers: 1  # Single worker for testing
+  pin_memory: false  # Disable for testing
+  validation_split: 0.0  # No validation split for testing
+  test_split: 0.0  # No test split for testing

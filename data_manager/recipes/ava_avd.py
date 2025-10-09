@@ -21,7 +21,7 @@ def download_ava_avd(
     force_download: bool = False,
     download_annotations: bool = True,
     download_videos: bool = True,
-):
+) -> Pathlike:
     """
     Download the AVA-AVD dataset.
 
@@ -124,7 +124,7 @@ def prepare_ava_avd(
     corpus_dir: Pathlike,
     output_dir: Optional[Pathlike] = None,
     splits: Optional[Dict[str, str]] = None,
-):
+) -> Dict[str, Dict[str, RecordingSet | SupervisionSet]]:
     """
     Prepare the AVA-AVD dataset for use with lhotse.
 

@@ -1,0 +1,46 @@
+# Ego4D Dataset Configuration Example
+# Simple configuration for Ego4D dataset with audio diarization focus
+
+# Global configuration
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+
+# Dataset configurations
+datasets:
+  - name: ego4d
+    download_params:
+      # AWS credentials - set in environment variables
+      # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+      
+      # Dataset parts to download - these get injected into the ego4d CLI command
+      dataset_parts: ["av_", "annotations"]  # Focus on audio-visual data
+      
+      install_cli: true  # Install Ego4D CLI if not available
+      timeout: 7200  # 2 hours timeout for large downloads
+      env_file: "./configs/.env"  # Path to .env file (optional)
+    process_params:
+      extract_audio: true  # Extract audio from video files
+      audio_sample_rate: 16000  # Standard sample rate for speech
+      min_segment_duration: 0.5  # Minimum segment duration in seconds
+      max_segment_duration: 30.0  # Maximum segment duration in seconds
+
+# Other parameters
+other_params:
+  num_workers: 4
+  pin_memory: true
+  validation_split: 0.1
+  test_split: 0.1
+
+# Usage:
+# 1. Set your Ego4D access key in environment or .env file:
+#    export EGO4D_ACCESS_KEY="your_access_key_here"
+#    OR create .env file with: EGO4D_ACCESS_KEY=your_access_key_here
+#
+# 2. Run: python -m datasets.data_manager --config configs/ego4d_example.yml
+#
+# 3. The system will:
+#    - Download clips and annotations using ego4d CLI
+#    - Extract audio from video files for diarization
+#    - Generate Lhotse manifests for audio processing

@@ -182,7 +182,52 @@ The system supports 50+ speech datasets via Lhotse integration, including:
 - **ICSI**: Meeting recordings
 - **CHIME6**: Multi-channel speech enhancement
 - **YesNo**: Binary classification dataset
+- **Ego4D**: First-person video dataset with audio diarization support
 - And many more...
+
+### Ego4D Dataset
+
+The Ego4D dataset is a large-scale egocentric video dataset that includes audio-visual data from first-person perspectives. This recipe focuses on extracting and processing audio data for speaker diarization tasks.
+
+#### Features
+- **Audio Extraction**: Automatic extraction of audio from video files
+- **Voice Activity Processing**: Processing of voice activity annotations
+- **Dataset Parts Injection**: Proper injection of dataset parts into ego4d CLI command
+- **Environment Variable Support**: Secure access key management with python-dotenv
+
+#### Usage
+```yaml
+# Configuration example
+datasets:
+  - name: ego4d
+    download_params:
+      access_key: null  # Load from EGO4D_ACCESS_KEY environment variable
+      dataset_parts: ["clips", "annotations"]  # Injected into ego4d CLI
+      install_cli: true
+      timeout: 3600
+    process_params:
+      extract_audio: true
+      audio_sample_rate: 16000
+      min_segment_duration: 0.5
+      max_segment_duration: 30.0
+```
+
+#### Environment Setup
+```bash
+# Set your AWS credentials for Ego4D access
+export AWS_ACCESS_KEY_ID="your_aws_access_key_id_here"
+export AWS_SECRET_ACCESS_KEY="your_aws_secret_access_key_here"
+
+# Or create .env file
+echo "AWS_ACCESS_KEY_ID=your_aws_access_key_id_here" > .env
+echo "AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key_here" >> .env
+```
+
+#### Command Execution
+The recipe executes the following ego4d CLI command:
+```bash
+ego4d --output_directory=./data --datasets=clips annotations --yes
+```
 
 ## Command Line Usage
 

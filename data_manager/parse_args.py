@@ -54,7 +54,7 @@ from typing import Any, Dict, List, Type, Union
 import yaml
 from yamlargparse import ArgumentParser
 
-from .dataset_types import (
+from data_manager.dataset_types import (
     # Download params
     AdeptDownloadParams,
     # Process params
@@ -100,6 +100,8 @@ from .dataset_types import (
     EarsProcessParams,
     EdaccDownloadParams,
     EdaccProcessParams,
+    Ego4dDownloadParams,
+    Ego4dProcessParams,
     FleursDownloadParams,
     FleursProcessParams,
     GigastDownloadParams,
@@ -201,6 +203,7 @@ DATASET_DOWNLOAD_PARAMS_MAP: Dict[str, Type[BaseDownloadParams]] = {
     "earnings21": Earnings21DownloadParams,
     "earnings22": Earnings22DownloadParams,
     "ears": EarsDownloadParams,
+    "ego4d": Ego4dDownloadParams,
     "edacc": EdaccDownloadParams,
     "fleurs": FleursDownloadParams,
     "gigast": GigastDownloadParams,
@@ -263,6 +266,7 @@ DATASET_PROCESS_PARAMS_MAP: Dict[str, Type[BaseProcessParams]] = {
     "earnings21": Earnings21ProcessParams,
     "earnings22": Earnings22ProcessParams,
     "ears": EarsProcessParams,
+    "ego4d": Ego4dProcessParams,
     "edacc": EdaccProcessParams,
     "fleurs": FleursProcessParams,
     "gigast": GigastProcessParams,
