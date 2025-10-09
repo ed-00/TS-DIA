@@ -24,7 +24,7 @@ For datasets requiring custom manifest scripts:
 
 [x] LibriheavyMix
 
-[] Ego4D Audio Diarization
+[x] Ego4D Audio Diarization
 
 Actions:
 
@@ -37,3 +37,18 @@ Parse diarization/segment annotations (RTTM, CSV, JSON, etc.).
 Convert to Lhotse’s manifest format (or, for AV data, consider extension).
 
 (Optional) Contribute new Lhotse recipe if workflow is generally useful
+
+
+Implement the transformer modules and training loop.
+[x] Multi-head attention module
+[x] Cross-attention module
+[ ] RoPE module
+[ ] Transformer encoder module
+[ ] Transformer decoder module
+[ ] Transformer encoder-decoder module with cross-attention and RoPE and multi-head attention and cross-attention
+
+
+
+
+
+
