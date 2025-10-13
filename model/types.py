@@ -11,7 +11,7 @@ for model initialization.
 """
 
 from dataclasses import dataclass
-from typing import Literal, TypedDict
+from typing import Literal
 
 from torch import device
 
@@ -25,7 +25,7 @@ PositionalEncodingType = Literal["rope", "sinusoidal", "learnable", "none"]
 
 
 @dataclass
-class TransformerSharedParams(TypedDict):
+class TransformerSharedParams:
     """
     Shared parameters for all transformer modules.
 
@@ -54,8 +54,7 @@ class MultiHeadAttentionParams(TransformerSharedParams):
     """
     Parameters for multi-head attention modules.
 
-    Extends TransformerSharedParams with attention-specific configuration.
-    Used to initialize MultiHeadAttention and CrossAttention modules.
+    Inherits: d_model, device, batch_size from TransformerSharedParams
 
     Attributes:
         num_heads: int
@@ -85,8 +84,7 @@ class FeedForwardParams(TransformerSharedParams):
     """
     Parameters for feed-forward network modules.
 
-    Extends TransformerSharedParams with feed-forward specific configuration.
-    Used to initialize FeedForward modules in transformer blocks.
+    Inherits: d_model, device, batch_size from TransformerSharedParams
 
     Attributes:
         activation: ActivationFunctions
@@ -111,8 +109,7 @@ class PositionalEncodingParams(TransformerSharedParams):
     """
     Parameters for positional encoding modules.
 
-    Defines configuration for various positional encoding strategies used to
-    inject position information into transformer models.
+    Inherits: d_model, device, batch_size from TransformerSharedParams
 
     Attributes:
         encoding_type: PositionalEncodingType
@@ -125,11 +122,6 @@ class PositionalEncodingParams(TransformerSharedParams):
             Maximum sequence length supported by the positional encoding.
             For RoPE, this determines the frequency range.
             For learnable/sinusoidal, this is the vocabulary size.
-        d_model: int
-            Model dimension. For RoPE, this should match the head dimension.
-            For sinusoidal/learnable, this is the embedding dimension.
-        device: device
-            Device (CPU/GPU) for tensor allocation.
         theta: float
             Base value for frequency computation in RoPE and sinusoidal encodings.
             Default is 10000.0 (from original Transformer paper).
@@ -137,11 +129,11 @@ class PositionalEncodingParams(TransformerSharedParams):
 
     encoding_type: PositionalEncodingType
     max_seq_len: int
-    theta: float = 10000.0  # type: ignore
+    theta: float = 10000.0
 
 
 @dataclass
-class NormalizationParams(TypedDict):
+class NormalizationParams:
     """
     Parameters for normalization wrapper modules.
 
@@ -164,3 +156,97 @@ class NormalizationParams(TypedDict):
     dim: int
     fn: callable
     eps: float = 1e-5
+
+
+@dataclass
+class PerformerLayerParams(TransformerSharedParams):
+    """
+    Parameters for a single Performer transformer layer.
+
+    Universal layer that can be used as:
+    - Encoder layer (self-attention only)
+    - Decoder layer (causal self-attention + cross-attention)
+
+    Inherits: d_model, device, batch_size from TransformerSharedParams
+
+    Attributes:
+        num_heads: int
+            Number of attention heads
+        d_ff: int
+            Feed-forward expansion factor (hidden dim = d_model * d_ff)
+        dropout: float
+            Dropout rate for attention and feed-forward
+        attention_type: AttentionType
+            Type of attention: "softmax", "linear", or "causal_linear"
+        activation: ActivationFunctions
+            Activation function for feed-forward network
+        use_cross_attention: bool
+            If True, add cross-attention sublayer (for decoder). Default False.
+        use_rezero: bool
+            If True, use ReZero instead of LayerNorm. Default False.
+        use_scalenorm: bool
+            If True, use PreScaleNorm instead of LayerNorm. Default False.
+        nb_features: int | None
+            Number of random features for linear attention. Default None (auto).
+    """
+
+    num_heads: int
+    d_ff: int
+    dropout: float
+    attention_type: AttentionType = "softmax"
+    activation: ActivationFunctions = None
+    use_cross_attention: bool = False
+    use_rezero: bool = False
+    use_scalenorm: bool = False
+    nb_features: int | None = None
+
+
+@dataclass
+class PerformerParams(TransformerSharedParams):
+    """
+    Parameters for complete Performer model (encoder, decoder, or encoder-decoder).
+
+    Stacks multiple Performer layers into a complete transformer.
+    Can be used for encoder-only, decoder-only, or encoder-decoder architectures.
+
+    Inherits: d_model, device, batch_size from TransformerSharedParams
+
+    Attributes:
+        num_layers: int
+            Number of transformer layers to stack
+        num_heads: int
+            Number of attention heads per layer
+        d_ff: int
+            Feed-forward expansion factor
+        dropout: float
+            Dropout rate for attention and feed-forward
+        attention_type: AttentionType
+            Type of attention mechanism
+        activation: ActivationFunctions
+            Activation function for feed-forward
+        use_cross_attention: bool
+            Add cross-attention sublayers (for decoder). Default False.
+        use_rezero: bool
+            Use ReZero normalization. Default False.
+        use_scalenorm: bool
+            Use PreScaleNorm normalization. Default False.
+        nb_features: int | None
+            Number of random features for linear attention
+        feature_redraw_interval: int | None
+            Redraw projections every N iterations. None = never redraw.
+        auto_check_redraw: bool
+            Automatically check and redraw projections. Default True.
+    """
+
+    num_layers: int
+    num_heads: int
+    d_ff: int
+    dropout: float
+    attention_type: AttentionType = "softmax"
+    activation: ActivationFunctions = None
+    use_cross_attention: bool = False
+    use_rezero: bool = False
+    use_scalenorm: bool = False
+    nb_features: int | None = None
+    feature_redraw_interval: int | None = 1000
+    auto_check_redraw: bool = True

@@ -255,8 +255,15 @@ class CrossAttention(MultiHeadAttention):
                 num_heads: int
                 dropout: float
                 batch_size: int
+                attention_type: AttentionType - defaults to "softmax"
+                nb_features: int | None - for linear attention
         """
-        super(CrossAttention, self).__init__()
+        if "attention_type" not in kwargs:
+            kwargs["attention_type"] = "softmax"
+        if "nb_features" not in kwargs:
+            kwargs["nb_features"] = None
+
+        super(CrossAttention, self).__init__(**kwargs)
 
     def forward(self, q: torch.Tensor, kv: torch.Tensor) -> torch.Tensor:
         """

@@ -10,6 +10,7 @@ and multiply it with the other half for improved expressiveness in neural networ
 """
 
 from enum import Enum
+
 from torch import Tensor, nn
 
 
@@ -104,6 +105,7 @@ class ActivationFunctions(Enum):
         activation = ActivationFunctions.GEGLU.value()
         output = activation(input_tensor)
     """
+
     RELU = nn.ReLU
     SILU = nn.SiLU
     GELU = nn.GELU
@@ -112,8 +114,18 @@ class ActivationFunctions(Enum):
     SWIGLU = SwiGLU
 
 
-def _is_glu(activation: ActivationFunctions):
-    if ActivationFunctions.RELU:
-        return False
-    return True
+def _is_glu(activation: ActivationFunctions) -> bool:
+    """
+    Check if an activation function is a GLU variant.
 
+    Args:
+        activation: ActivationFunctions enum member to check
+
+    Returns:
+        bool: True if the activation is a GLU variant (GeGLU, ReGLU, SwiGLU), False otherwise
+    """
+    return activation in (
+        ActivationFunctions.GEGLU,
+        ActivationFunctions.REGLU,
+        ActivationFunctions.SWIGLU,
+    )

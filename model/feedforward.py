@@ -62,8 +62,14 @@ class FeedForward(nn.Module):
         """
         super(FeedForward, self).__init__()
         self.kwargs = kwargs
-        self.w_1 = nn.Linear(kwargs["d_model"], kwargs["d_model"] * kwargs["d_ff"])
-        self.activation_fn = kwargs["activation"].value()()
+
+        # For GLU variants, w_1 needs to output 2x for the gate
+        multiplier = 2 if _is_glu(kwargs["activation"]) else 1
+        self.w_1 = nn.Linear(
+            kwargs["d_model"], kwargs["d_model"] * kwargs["d_ff"] * multiplier
+        )
+
+        self.activation_fn = kwargs["activation"].value()
         self.dropout = nn.Dropout(kwargs["dropout"])
         self.w_2 = nn.Linear(kwargs["d_model"] * kwargs["d_ff"], kwargs["d_model"])
 
@@ -72,9 +78,9 @@ class FeedForward(nn.Module):
         Forward pass of the feed-forward network.
 
         Applies the two-layer feed-forward transformation with activation and dropout.
-        Handles both standard activations and GLU-based activations differently:
+        Handles both standard activations and GLU-based activations:
         - For standard activations: x -> w_1 -> activation -> dropout -> w_2
-        - For GLU activations: x -> w_1 -> [chunk into (x,v)] -> activation(x) * v -> dropout -> w_2
+        - For GLU activations: x -> w_1 (outputs 2x) -> GLU (chunks & gates) -> dropout -> w_2
 
         Args:
             x: Tensor of shape (batch_size, seq_len, d_model)
@@ -84,13 +90,13 @@ class FeedForward(nn.Module):
             Tensor of shape (batch_size, seq_len, d_model)
                 Output tensor after feed-forward transformation
         """
-        if _is_glu(self.kwargs["activation"]):
-            x, v = self.w_1(x).chunk(2, dim=-1)
-            x = self.activation_fn(x) * v
-        else:
-            x = self.w_1(x)
-            x = self.activation_fn(x)
+        # w_1 projection (outputs 2x features for GLU variants)
+        x = self.w_1(x)
 
+        # Apply activation (GLU variants chunk internally)
+        x = self.activation_fn(x)
+
+        # Dropout and final projection
         x = self.dropout(x)
         x = self.w_2(x)
         return x
