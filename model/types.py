@@ -11,11 +11,14 @@ for model initialization.
 """
 
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from torch import device
 
 from .activations import ActivationFunctions
+
+# Attention type options
+AttentionType = Literal["softmax", "linear", "causal_linear"]
 
 
 @dataclass
@@ -58,10 +61,20 @@ class MultiHeadAttentionParams(TransformerSharedParams):
         dropout: float
             Dropout rate applied to attention weights and output for regularization.
             Value should be between 0.0 and 1.0.
+        attention_type: AttentionType
+            Type of attention mechanism to use. Options:
+            - "softmax": Standard scaled dot-product attention (O(n²) complexity)
+            - "linear": Linear attention with kernel approximation (O(n) complexity)
+            - "causal_linear": Causal linear attention for autoregressive tasks
+        nb_features: int | None
+            Number of random features for linear attention kernel approximation.
+            If None, defaults to d_head * log(d_head). Only used when attention_type is "linear" or "causal_linear".
     """
 
     num_heads: int
     dropout: float
+    attention_type: AttentionType = "softmax"
+    nb_features: int | None = None 
 
 
 @dataclass

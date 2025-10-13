@@ -10,7 +10,6 @@ and multiply it with the other half for improved expressiveness in neural networ
 """
 
 from enum import Enum
-
 from torch import Tensor, nn
 
 
