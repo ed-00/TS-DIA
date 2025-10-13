@@ -1,0 +1,41 @@
+# Example Model Configuration
+# This file demonstrates the model configuration format for the factory pattern
+
+model:
+  model_type: encoder_decoder  # Options: encoder, decoder, encoder_decoder
+  name: my_translator
+  
+  # Global configuration applied to both encoder and decoder
+  global_config:
+    dropout: 0.1
+    batch_size: 32
+    d_ff: 4
+    device: cpu  # or cuda, cuda:0, etc.
+  
+  # Encoder configuration
+  encoder:
+    d_model: 512
+    num_layers: 6
+    num_heads: 8
+    attention_type: linear  # Options: softmax, linear, causal_linear
+    activation: GEGLU  # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
+    nb_features: 256  # For linear attention
+    use_rezero: false  # Options: true/false
+    use_scalenorm: false  # Options: true/false
+    feature_redraw_interval: 1000  # For linear attention
+    auto_check_redraw: true
+  
+  # Decoder configuration
+  decoder:
+    d_model: 512
+    num_layers: 6
+    num_heads: 8
+    attention_type: causal_linear
+    activation: SWIGLU
+    nb_features: 256
+    use_cross_attention: true  # true for encoder-decoder, false for decoder-only
+    use_rezero: false
+    use_scalenorm: false
+    feature_redraw_interval: 1000
+    auto_check_redraw: true
+
