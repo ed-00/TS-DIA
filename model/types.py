@@ -20,6 +20,9 @@ from .activations import ActivationFunctions
 # Attention type options
 AttentionType = Literal["softmax", "linear", "causal_linear"]
 
+# Positional encoding type options
+PositionalEncodingType = Literal["rope", "sinusoidal", "learnable", "none"]
+
 
 @dataclass
 class TransformerSharedParams(TypedDict):
@@ -74,7 +77,7 @@ class MultiHeadAttentionParams(TransformerSharedParams):
     num_heads: int
     dropout: float
     attention_type: AttentionType = "softmax"
-    nb_features: int | None = None 
+    nb_features: int | None = None
 
 
 @dataclass
@@ -101,3 +104,63 @@ class FeedForwardParams(TransformerSharedParams):
     activation: ActivationFunctions
     d_ff: int
     dropout: float
+
+
+@dataclass
+class PositionalEncodingParams(TransformerSharedParams):
+    """
+    Parameters for positional encoding modules.
+
+    Defines configuration for various positional encoding strategies used to
+    inject position information into transformer models.
+
+    Attributes:
+        encoding_type: PositionalEncodingType
+            Type of positional encoding to use:
+            - "rope": Rotary Position Embedding (RoPE) - relative position encoding
+            - "sinusoidal": Fixed sinusoidal encoding from original Transformer
+            - "learnable": Learned absolute position embeddings
+            - "none": No positional encoding
+        max_seq_len: int
+            Maximum sequence length supported by the positional encoding.
+            For RoPE, this determines the frequency range.
+            For learnable/sinusoidal, this is the vocabulary size.
+        d_model: int
+            Model dimension. For RoPE, this should match the head dimension.
+            For sinusoidal/learnable, this is the embedding dimension.
+        device: device
+            Device (CPU/GPU) for tensor allocation.
+        theta: float
+            Base value for frequency computation in RoPE and sinusoidal encodings.
+            Default is 10000.0 (from original Transformer paper).
+    """
+
+    encoding_type: PositionalEncodingType
+    max_seq_len: int
+    theta: float = 10000.0  # type: ignore
+
+
+@dataclass
+class NormalizationParams(TypedDict):
+    """
+    Parameters for normalization wrapper modules.
+
+    Defines configuration for normalization techniques that wrap transformer
+    sublayers (attention and feed-forward networks). These normalizations are
+    applied before the sublayer computation (pre-norm architecture).
+
+    Attributes:
+        dim: int
+            Dimension of the input features to normalize. Typically d_model.
+        fn: callable
+            The function or module to wrap with normalization. This is usually
+            an attention layer or feed-forward network that will be called
+            after normalization is applied.
+        eps: float
+            Small epsilon value for numerical stability in normalization.
+            Only used for PreScaleNorm. Default is 1e-5.
+    """
+
+    dim: int
+    fn: callable
+    eps: float = 1e-5
