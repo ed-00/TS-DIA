@@ -236,6 +236,11 @@ class PerformerParams(TransformerSharedParams):
             Redraw projections every N iterations. None = never redraw.
         auto_check_redraw: bool
             Automatically check and redraw projections. Default True.
+        num_classes: int | None
+            Number of output classes for classification tasks. If specified,
+            adds a linear projection layer: d_model -> num_classes.
+            Used for sequence/token classification (e.g., diarization, NER).
+            Default None (no output projection).
     """
 
     num_layers: int
@@ -250,3 +255,4 @@ class PerformerParams(TransformerSharedParams):
     nb_features: int | None = None
     feature_redraw_interval: int | None = 1000
     auto_check_redraw: bool = True
+    num_classes: int | None = None

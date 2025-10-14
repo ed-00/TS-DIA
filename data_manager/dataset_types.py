@@ -42,7 +42,7 @@ Example:
 
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
 from lhotse.utils import Pathlike
 
@@ -72,21 +72,167 @@ class BaseProcessParams(ABC):
 
 
 # ============================================================================
+# Feature Configuration
+# ============================================================================
+
+
+@dataclass
+class FeatureConfig:
+    """
+    Feature extraction configuration for audio processing.
+
+    This dataclass defines all parameters for extracting acoustic features
+    from audio data using Lhotse. It supports multiple feature types (fbank, mfcc, spectrogram)
+    and provides comprehensive control over feature extraction.
+
+    Attributes:
+        feature_type: Type of features to extract ('fbank', 'mfcc', 'spectrogram')
+
+        # Basic parameters
+        sampling_rate: Target sampling rate in Hz
+        frame_length: Frame/window length in seconds (default: 25ms)
+        frame_shift: Frame shift/hop length in seconds (default: 10ms)
+
+        # Window and FFT parameters
+        round_to_power_of_two: Round window size to power of 2
+        remove_dc_offset: Remove DC offset before processing
+        preemph_coeff: Pre-emphasis coefficient (typically 0.97)
+        window_type: Window function type ('povey', 'hanning', 'hamming', etc.)
+        dither: Dithering factor for numerical stability
+        snip_edges: Whether to snip edges during feature extraction
+
+        # Energy parameters
+        energy_floor: Floor value for energy computation
+        raw_energy: Use raw energy (before windowing)
+        use_energy: Use energy instead of C0 for MFCC
+        use_fft_mag: Use FFT magnitude instead of power
+
+        # Mel filterbank parameters
+        low_freq: Lower frequency bound in Hz
+        high_freq: Upper frequency bound in Hz (-400 means nyquist - 400)
+        num_filters: Number of triangular mel filters (for spectrogram)
+        torchaudio_compatible_mel_scale: Use torchaudio-compatible mel scale
+        num_mel_bins: Number of mel-frequency bins (for fbank/mfcc)
+        norm_filters: Normalize mel filter weights
+
+        # MFCC-specific parameters
+        num_ceps: Number of cepstral coefficients (MFCC only)
+        cepstral_lifter: Cepstral liftering coefficient (MFCC only)
+
+        # Feature computation and storage parameters
+        storage_path: Path to store features (None for in-memory)
+        num_jobs: Number of parallel jobs for feature extraction
+        storage_type: Storage format ('lilcom_chunky', 'lilcom_files', 'numpy', 'hdf5')
+        mix_eagerly: Whether to mix cuts eagerly during extraction
+        progress_bar: Show progress bar during feature extraction
+
+        # Hardware
+        device: Device for computation ('cpu', 'cuda')
+
+    Example:
+        ```python
+        # Default fbank configuration
+        config = FeatureConfig()
+
+        # Custom MFCC with full control
+        config = FeatureConfig(
+            feature_type='mfcc',
+            num_mel_bins=40,
+            num_ceps=13,
+            use_energy=True,
+            preemph_coeff=0.97,
+            window_type='hamming'
+        )
+        ```
+    """
+
+    # Feature type
+    feature_type: Literal["fbank", "mfcc", "spectrogram"] = "fbank"
+
+    # Basic parameters
+    sampling_rate: int = 16000
+    frame_length: float = 0.025  # 25ms
+    frame_shift: float = 0.01  # 10ms
+
+    # Window and FFT parameters
+    round_to_power_of_two: bool = True
+    remove_dc_offset: bool = True
+    preemph_coeff: float = 0.97
+    window_type: str = "povey"
+    dither: float = 0.0
+    snip_edges: bool = False
+
+    # Energy parameters
+    energy_floor: float = 1e-10  # EPSILON
+    raw_energy: bool = True
+    use_energy: bool = False
+    use_fft_mag: bool = False
+
+    # Mel filterbank parameters
+    low_freq: float = 20.0
+    high_freq: float = -400.0  # -400 means nyquist - 400
+    num_filters: int = 23
+    torchaudio_compatible_mel_scale: bool = True
+    num_mel_bins: Optional[int] = 80
+    norm_filters: bool = False
+
+    # MFCC-specific parameters
+    num_ceps: int = 13
+    cepstral_lifter: int = 22
+
+    # Feature computation and storage parameters
+    storage_path: Optional[str] = None  # Path to store features (None = in-memory)
+    num_jobs: Optional[int] = 1  # Number of parallel jobs for feature extraction
+    storage_type: str = "lilcom_chunky"  # Storage type: 'lilcom_chunky', 'lilcom_files', 'numpy', 'hdf5'
+    mix_eagerly: bool = True  # Whether to mix cuts eagerly during feature extraction
+    progress_bar: bool = True  # Show progress bar during feature extraction
+
+    # Hardware
+    device: str = "cpu"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for function calls"""
+        return {k: v for k, v in self.__dict__.items() if v is not None}
+
+
+# ============================================================================
 # Global Configuration
 # ============================================================================
 
 
 @dataclass
 class GlobalConfig:
-    """Global configuration for all datasets"""
+    """
+    Global configuration for all datasets.
+
+    This configuration provides default settings that apply to all datasets
+    in the pipeline, including data directories and feature extraction parameters.
+
+    Attributes:
+        corpus_dir: Directory where raw dataset files are stored
+        output_dir: Directory for output manifests
+        force_download: Force re-download of datasets
+        features: Feature extraction configuration
+    """
 
     corpus_dir: str = "./data"
     output_dir: str = "./manifests"
     force_download: bool = False
+    features: FeatureConfig = field(default_factory=FeatureConfig)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for function calls"""
-        return {k: v for k, v in self.__dict__.items() if v is not None}
+        result = {
+            k: v for k, v in self.__dict__.items() if v is not None and k != "features"
+        }
+        # Include individual feature fields for backward compatibility
+        if self.features:
+            result.update(self.features.to_dict())
+        return result
+
+    def get_feature_config(self) -> FeatureConfig:
+        """Get feature extraction configuration"""
+        return self.features
 
 
 # ============================================================================

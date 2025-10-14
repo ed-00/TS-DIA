@@ -297,7 +297,7 @@ class DatasetManager:
     """
 
     @staticmethod
-    def load_datasets(**kwargs) -> List[CutSet]:
+    def load_datasets(**kwargs) -> Dict[str, Dict[str, CutSet]]:
         """
         Load datasets and convert all manifest formats to CutSets for diarization tasks.
 
@@ -305,7 +305,7 @@ class DatasetManager:
         1. Downloads datasets if needed
         2. Processes datasets to generate manifests
         3. Converts manifests to Lhotse CutSets
-        4. Returns list of CutSets ready for diarization tasks
+        4. Returns structured dictionary of CutSets organized by dataset and split
 
         Args:
             **kwargs: Keyword arguments passed to LoadDatasetsParams, including:
@@ -318,7 +318,9 @@ class DatasetManager:
                 test_split: Test split ratio (default: 0.1)
 
         Returns:
-            List[CutSet]: List of CutSet objects, one per dataset split
+            Dict[str, Dict[str, CutSet]]: Dictionary mapping dataset names to split dictionaries.
+                Structure: {dataset_name: {split_name: CutSet}}
+                Example: {"ami": {"train": CutSet(...), "dev": CutSet(...)}}
 
         Raises:
             ValueError: If dataset has no download or process function
@@ -332,16 +334,16 @@ class DatasetManager:
             configs = parse_dataset_configs('configs/my_datasets.yml')
             cut_sets = DatasetManager.load_datasets(datasets=configs)
 
-            # Process each CutSet
-            for cut_set in cut_sets:
-                cut_set.describe()
+            # Access specific dataset and split
+            train_cuts = cut_sets["ami"]["train"]
+            dev_cuts = cut_sets["ami"]["dev"]
             ```
         """
         params = LoadDatasetsParams(**kwargs)
         recipes = [
             (import_recipe(dataset.name), dataset) for dataset in params.datasets
         ]
-        cut_sets = []
+        all_cut_sets = {}
 
         for recipe in recipes:
             (process_function, download_function), dataset = recipe
@@ -367,13 +369,70 @@ class DatasetManager:
 
                 manifests = process_function(**process_kwargs)
 
-                # Convert manifests to CutSet(s)
-                dataset_cut_sets = DatasetManager._manifests_to_cutsets(
+                # Convert manifests to structured CutSet dictionary
+                dataset_cut_sets = DatasetManager._manifests_to_cutsets_dict(
                     manifests, dataset.name
                 )
-                cut_sets.extend(dataset_cut_sets)
+                all_cut_sets[dataset.name] = dataset_cut_sets
 
-        return cut_sets
+        return all_cut_sets
+
+    @staticmethod
+    def _manifests_to_cutsets_dict(
+        manifests: Any, dataset_name: str
+    ) -> Dict[str, CutSet]:
+        """
+        Convert any manifest format to a dictionary of CutSets organized by split.
+
+        Returns:
+            Dict[str, CutSet]: Dictionary mapping split names to CutSets
+                Example: {"train": CutSet(...), "dev": CutSet(...), "test": CutSet(...)}
+        """
+        if manifests is None:
+            raise ValueError(f"Dataset {dataset_name} has no manifests")
+
+        # If manifests is already a dict with splits
+        if isinstance(manifests, dict):
+            # Check if it's a nested dict (split-based)
+            if all(isinstance(v, dict) for v in manifests.values()):
+                # Nested dict format - has splits with manifests
+                result = {}
+                for split_name, split_manifests in manifests.items():
+                    # Convert split manifests to CutSet
+                    cut_sets_list = DatasetManager._manifests_to_cutsets(
+                        split_manifests, f"{dataset_name}_{split_name}"
+                    )
+                    # Take first CutSet (should only be one per split)
+                    if cut_sets_list:
+                        result[split_name] = cut_sets_list[0]
+                return result
+
+            # Check if it contains RecordingSet/SupervisionSet directly
+            elif any(
+                isinstance(v, (RecordingSet, SupervisionSet, CutSet))
+                for v in manifests.values()
+            ):
+                # Single split dict - convert to CutSet and return as "train"
+                cut_sets_list = DatasetManager._manifests_to_cutsets(
+                    manifests, dataset_name
+                )
+                return {"train": cut_sets_list[0]} if cut_sets_list else {}
+
+        # For non-dict formats (tuple, single RecordingSet, etc.), convert and return as "train"
+        cut_sets_list = DatasetManager._manifests_to_cutsets(manifests, dataset_name)
+        if not cut_sets_list:
+            return {}
+
+        # If we got multiple CutSets from a non-dict format, name them sequentially
+        if len(cut_sets_list) == 1:
+            return {"train": cut_sets_list[0]}
+        else:
+            # Multiple cuts - try to infer split names or use sequential naming
+            split_names = ["train", "dev", "test"]
+            return {
+                split_names[i] if i < len(split_names) else f"split_{i}": cutset
+                for i, cutset in enumerate(cut_sets_list)
+            }
 
     @staticmethod
     def _manifests_to_cutsets(manifests: Any, dataset_name: str) -> List[CutSet]:

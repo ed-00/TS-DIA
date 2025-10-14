@@ -330,10 +330,11 @@ class Performer(nn.Module):
 
 class PerformerEncoder(Performer):
     """
-    Performer encoder with optional final normalization.
+    Performer encoder with optional final normalization and output projection.
 
     Encoder-only architecture for bidirectional encoding of input sequences.
     Uses self-attention without cross-attention.
+    Can include a task-specific output projection for classification tasks.
     """
 
     def __init__(self, **kwargs: Unpack[PerformerParams]):
@@ -343,6 +344,7 @@ class PerformerEncoder(Performer):
         Args:
             kwargs: PerformerParams - see Performer for details
                 Note: use_cross_attention will be forced to False
+                num_classes: int | None - if provided, adds output projection layer
         """
         # Ensure encoder doesn't have cross-attention
         kwargs["use_cross_attention"] = False
@@ -353,6 +355,13 @@ class PerformerEncoder(Performer):
             self.final_norm = nn.LayerNorm(kwargs["d_model"])
         else:
             self.final_norm = None
+
+        # Optional output projection for classification tasks
+        num_classes = kwargs.get("num_classes")
+        if num_classes is not None:
+            self.output_proj = nn.Linear(kwargs["d_model"], num_classes)
+        else:
+            self.output_proj = None
 
     def forward(self, x: Tensor, mask: Tensor | None = None, **kwargs) -> Tensor:
         """
@@ -366,7 +375,8 @@ class PerformerEncoder(Performer):
             **kwargs: Additional arguments
 
         Returns:
-            Tensor of shape (batch_size, seq_len, d_model)
+            Tensor of shape (batch_size, seq_len, d_model) or
+            Tensor of shape (batch_size, seq_len, num_classes) if output_proj exists
                 Encoded representations
         """
         x = super().forward(x, self_attn_mask=mask, **kwargs)
@@ -374,6 +384,10 @@ class PerformerEncoder(Performer):
         # Apply final normalization if using LayerNorm
         if self.final_norm is not None:
             x = self.final_norm(x)
+
+        # Apply output projection if exists
+        if self.output_proj is not None:
+            x = self.output_proj(x)
 
         return x
 

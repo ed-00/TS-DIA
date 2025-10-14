@@ -1,0 +1,50 @@
+# =============================================================================
+# Simple Training Configuration
+# =============================================================================
+# Minimal training configuration with only essential settings
+
+training:
+  # Basic settings
+  epochs: 10
+  batch_size: 32
+  random_seed: 42
+  
+  # Optimizer
+  optimizer:
+    type: adamw
+    lr: 1e-4
+    weight_decay: 0.01
+  
+  # Scheduler
+  scheduler:
+    type: cosine
+    min_lr: 1e-6
+    warmup_steps: 500
+  
+  # Gradient settings
+  gradient_clipping: 1.0
+  gradient_accumulation_steps: 1
+  mixed_precision: false
+  
+  # Loss
+  loss:
+    main: cross_entropy
+  
+  # Checkpointing
+  checkpoint:
+    save_dir: ./checkpoints/simple_experiment
+    interval: 1000
+    save_total_limit: 3
+  
+  # Logging
+  logging:
+    interval: 100
+    tensorboard: true
+    wandb: false
+    log_metrics: [loss, accuracy]
+  
+  # Performance
+  performance:
+    num_workers: 2
+    pin_memory: true
+

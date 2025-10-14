@@ -89,6 +89,7 @@ from data_manager.dataset_types import (
     CmuIndicProcessParams,
     DailyTalkDownloadParams,
     DailyTalkProcessParams,
+    # Core configs
     DatasetConfig,
     DipcoDownloadParams,
     DipcoProcessParams,
@@ -102,10 +103,12 @@ from data_manager.dataset_types import (
     EdaccProcessParams,
     Ego4dDownloadParams,
     Ego4dProcessParams,
+    FeatureConfig,
     FleursDownloadParams,
     FleursProcessParams,
     GigastDownloadParams,
     GigastProcessParams,
+    GlobalConfig,
     GridDownloadParams,
     GridProcessParams,
     HeroicoDownloadParams,
@@ -440,13 +443,77 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
     if not datasets_config:
         raise DatasetConfigError("'datasets' list cannot be empty")
 
-    # Extract global configuration
-    global_config = config_data.get("global_config", {})
+    # Extract and parse global configuration
+    global_config_dict = config_data.get("global_config", None)
+
+    if global_config_dict is None:
+        raise DatasetConfigError(
+            "Missing 'global_config' section in configuration. "
+            "Please provide at least: corpus_dir, output_dir, and feature extraction settings."
+        )
+
+    # Create FeatureConfig from global_config
+    feature_params = {}
+    feature_fields = {
+        "feature_type",
+        "sampling_rate",
+        "frame_length",
+        "frame_shift",
+        "round_to_power_of_two",
+        "remove_dc_offset",
+        "preemph_coeff",
+        "window_type",
+        "dither",
+        "snip_edges",
+        "energy_floor",
+        "raw_energy",
+        "use_energy",
+        "use_fft_mag",
+        "low_freq",
+        "high_freq",
+        "num_filters",
+        "torchaudio_compatible_mel_scale",
+        "num_mel_bins",
+        "norm_filters",
+        "num_ceps",
+        "cepstral_lifter",
+        "storage_path",
+        "num_jobs",
+        "storage_type",
+        "mix_eagerly",
+        "progress_bar",
+        "device",
+    }
+
+    for key in feature_fields:
+        if key in global_config_dict:
+            feature_params[key] = global_config_dict[key]
+
+    # Always create FeatureConfig (with defaults if no params provided)
+    try:
+        features = FeatureConfig(**feature_params)
+    except Exception as e:
+        raise DatasetConfigError(f"Invalid feature configuration: {e}")
+
+    # Create GlobalConfig (never None)
+    try:
+        global_config_obj = GlobalConfig(
+            corpus_dir=global_config_dict.get("corpus_dir", "./data"),
+            output_dir=global_config_dict.get("output_dir", "./manifests"),
+            force_download=global_config_dict.get("force_download", False),
+            features=features,
+        )
+    except Exception as e:
+        raise DatasetConfigError(f"Invalid global configuration: {e}")
 
     validated_configs = []
     for i, dataset_config in enumerate(datasets_config):
         try:
-            validated_config = validate_dataset_config(dataset_config, global_config)
+            validated_config = validate_dataset_config(
+                dataset_config, global_config_dict
+            )
+            # Attach the GlobalConfig object to each dataset config
+            validated_config.global_config = global_config_obj
             validated_configs.append(validated_config)
         except DatasetConfigError as e:
             raise DatasetConfigError(f"Error in dataset configuration {i + 1}: {e}")

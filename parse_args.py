@@ -147,6 +147,8 @@ def parse_config(
     if "model" in config_data:
         try:
             model_config = parse_model_config(config_path)
+            if model_config is None:
+                raise ModelConfigError("Model configuration parsing returned None")
         except ModelConfigError as e:
             raise ModelConfigError(f"Model configuration error: {e}")
 
@@ -155,73 +157,229 @@ def parse_config(
     if "datasets" in config_data:
         try:
             dataset_configs = parse_dataset_configs(config_path)
+            if dataset_configs is None or len(dataset_configs) == 0:
+                raise DatasetConfigError(
+                    "Dataset configuration parsing returned empty result"
+                )
+
+            # Validate that all configs have global_config attached
+            for i, config in enumerate(dataset_configs):
+                if not hasattr(config, "global_config") or config.global_config is None:
+                    raise DatasetConfigError(
+                        f"Dataset config {i + 1} ({config.name}) missing global_config. "
+                        "Ensure global_config section is present in YAML."
+                    )
         except DatasetConfigError as e:
             raise DatasetConfigError(f"Dataset configuration error: {e}")
 
-    # Warn if neither section is present
+    # Require at least one section to be present
     if model_config is None and dataset_configs is None:
-        print(
-            "Warning: Configuration file contains neither 'model' nor 'datasets' sections. "
-            "At least one is recommended."
+        raise ConfigError(
+            "Configuration file must contain at least one of: 'model' or 'datasets' sections. "
+            "Please add the required configuration."
         )
 
     return model_config, dataset_configs
 
 
-def combined_parser():
+def unified_parser():
     """
-    Parse command line arguments for combined model and dataset configuration.
+    Unified argument parser for model, dataset, and training configuration.
+
+    All configuration comes from YAML file only, no CLI overrides.
 
     Returns:
-        Tuple of (args, model_config, dataset_configs) where:
+        Tuple of (args, model_config, dataset_configs, training_config) where:
         - args: Parsed command line arguments
         - model_config: ModelConfig object (None if not in YAML)
         - dataset_configs: List of DatasetConfig objects (None if not in YAML)
+        - training_config: TrainingConfig object (None if not in YAML)
 
     Example:
         ```bash
-        # Parse configuration with both model and datasets
+        # Parse full configuration
         python parse_args.py --config configs/experiment.yml
 
-        # Also works with only model or only datasets in YAML
-        python parse_args.py --config configs/model_only.yml
-        python parse_args.py --config configs/datasets_only.yml
+        # Parse specific sections only
+        python parse_args.py --config configs/experiment.yml --model-only
         ```
     """
-    parser = ArgumentParser(
-        description="Combined Model and Dataset Configuration Parser"
+    from dacite import from_dict
+
+    from training.config import (
+        CheckpointConfig,
+        DistributedConfig,
+        EarlyStoppingConfig,
+        LoggingConfig,
+        LossConfig,
+        PerformanceConfig,
+        TrainingConfig,
+        ValidationConfig,
     )
+    from training.parse_training_args import (
+        TrainingConfigError,
+        _validate_optimizer_config,
+        _validate_scheduler_config,
+    )
+
+    parser = ArgumentParser(
+        description="Unified Model, Dataset, and Training Configuration Parser"
+    )
+
+    # Required arguments
     parser.add_argument(
         "--config",
         type=str,
         required=True,
-        help='Path to YAML configuration file (can contain "model:" and/or "datasets:" sections)',
+        help='Path to YAML configuration file (can contain "model:", "datasets:", and/or "training:" sections)',
     )
+
+    # Section filters
     parser.add_argument(
         "--model-only",
         action="store_true",
-        help="Only parse model configuration (ignore datasets)",
+        help="Only parse model configuration (ignore datasets and training)",
     )
     parser.add_argument(
         "--data-only",
         action="store_true",
-        help="Only parse dataset configuration (ignore model)",
+        help="Only parse dataset configuration (ignore model and training)",
+    )
+    parser.add_argument(
+        "--training-only",
+        action="store_true",
+        help="Only parse training configuration (ignore model and datasets)",
     )
 
     args = parser.parse_args()
 
     try:
+        # Parse base configuration from YAML
         model_config, dataset_configs = parse_config(args.config)
+
+        # Parse training config if present
+        training_config = None
+        config_path = Path(args.config)
+        with open(config_path, "r") as f:
+            config_data = yaml.safe_load(f)
+
+        if "training" in config_data:
+            training_dict = config_data["training"]
+
+            # Validate required training fields
+            if "optimizer" not in training_dict:
+                raise TrainingConfigError(
+                    "Training configuration missing required 'optimizer' section"
+                )
+            if "scheduler" not in training_dict:
+                raise TrainingConfigError(
+                    "Training configuration missing required 'scheduler' section"
+                )
+
+            # Parse nested configurations
+            optimizer_config = _validate_optimizer_config(
+                training_dict.pop("optimizer")
+            )
+            if optimizer_config is None:
+                raise TrainingConfigError(
+                    "Optimizer configuration parsing returned None"
+                )
+
+            scheduler_config = _validate_scheduler_config(
+                training_dict.pop("scheduler")
+            )
+            if scheduler_config is None:
+                raise TrainingConfigError(
+                    "Scheduler configuration parsing returned None"
+                )
+
+            # Parse optional nested configurations
+            early_stopping_config = None
+            if "early_stopping" in training_dict:
+                early_stopping_config = from_dict(
+                    data_class=EarlyStoppingConfig,
+                    data=training_dict.pop("early_stopping"),
+                )
+
+            validation_config = None
+            if "validation" in training_dict:
+                validation_config = from_dict(
+                    data_class=ValidationConfig, data=training_dict.pop("validation")
+                )
+
+            checkpoint_config = None
+            if "checkpoint" in training_dict:
+                checkpoint_config = from_dict(
+                    data_class=CheckpointConfig, data=training_dict.pop("checkpoint")
+                )
+
+            loss_config = None
+            if "loss" in training_dict:
+                loss_config = from_dict(
+                    data_class=LossConfig, data=training_dict.pop("loss")
+                )
+
+            distributed_config = None
+            if "distributed" in training_dict:
+                distributed_config = from_dict(
+                    data_class=DistributedConfig, data=training_dict.pop("distributed")
+                )
+
+            logging_config = None
+            if "logging" in training_dict:
+                logging_config = from_dict(
+                    data_class=LoggingConfig, data=training_dict.pop("logging")
+                )
+
+            performance_config = None
+            if "performance" in training_dict:
+                performance_config = from_dict(
+                    data_class=PerformanceConfig, data=training_dict.pop("performance")
+                )
+
+            # Create training config
+            training_config = TrainingConfig(
+                optimizer=optimizer_config,
+                scheduler=scheduler_config,
+                early_stopping=early_stopping_config,
+                validation=validation_config,
+                checkpoint=checkpoint_config,
+                loss=loss_config,
+                distributed=distributed_config,
+                logging=logging_config,
+                performance=performance_config,
+                **training_dict,
+            )
 
         # Apply filters based on flags
         if args.model_only:
             dataset_configs = None
+            training_config = None
         if args.data_only:
             model_config = None
+            training_config = None
+        if args.training_only:
+            model_config = None
+            dataset_configs = None
 
-        return args, model_config, dataset_configs
-    except (ConfigError, ModelConfigError, DatasetConfigError) as e:
+        return args, model_config, dataset_configs, training_config
+    except (
+        ConfigError,
+        ModelConfigError,
+        DatasetConfigError,
+        TrainingConfigError,
+    ) as e:
         parser.error(str(e))
+
+
+def combined_parser():
+    """
+    Legacy parser for backward compatibility.
+
+    Use unified_parser() for new code.
+    """
+    args, model_config, dataset_configs, _ = unified_parser()
+    return args, model_config, dataset_configs
 
 
 def create_example_config(output_path: Union[str, Path] = "configs/example.yml"):

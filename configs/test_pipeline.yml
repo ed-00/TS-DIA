@@ -1,0 +1,116 @@
+# Quick Test Configuration for Training Pipeline
+# Uses yesno dataset which is already available
+# =============================================================================
+
+# Model Configuration
+model:
+  model_type: encoder
+  name: test_diarization_model
+  
+  global_config:
+    dropout: 0.1
+    batch_size: 2
+    d_ff: 4
+    device: cpu
+  
+  encoder:
+    d_model: 128
+    num_layers: 2
+    num_heads: 4
+    attention_type: softmax
+    activation: GELU
+    nb_features: 64
+
+# Dataset Configuration
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (unified for all datasets)
+  # Feature type
+  feature_type: fbank  # Options: fbank, mfcc, spectrogram
+  
+  # Basic parameters
+  num_mel_bins: 80  # Number of mel-frequency bins
+  frame_length: 0.025  # Frame length in seconds (25ms)
+  frame_shift: 0.01  # Frame shift in seconds (10ms)
+  sampling_rate: 16000  # Target sampling rate
+  
+  # Advanced parameters (optional, sensible defaults provided)
+  dither: 0.0  # Dithering factor
+  snip_edges: false  # Whether to snip edges
+  preemph_coeff: 0.97  # Pre-emphasis coefficient
+  window_type: povey  # Window type: povey, hanning, hamming
+  
+  # Feature computation
+  storage_path: null  # null = in-memory, or path to store features
+  num_jobs: 1  # Number of parallel jobs
+  progress_bar: true  # Show progress bar
+
+datasets:
+  - name: yesno
+
+# Training Configuration
+training:
+  # Basic settings
+  epochs: 1
+  batch_size: 2
+  random_seed: 42
+  max_steps: 5  # Very small for quick test
+  
+  # Optimizer
+  optimizer:
+    type: adam
+    lr: 0.001
+    weight_decay: 0.0
+    betas: [0.9, 0.999]
+  
+  # Scheduler
+  scheduler:
+    type: constant
+    min_lr: 0.0001
+    warmup_steps: 0
+  
+  # Training behavior
+  gradient_clipping: 1.0
+  gradient_accumulation_steps: 1
+  mixed_precision: false
+  
+  # Loss configuration
+  loss:
+    main: cross_entropy
+    reduction: mean
+  
+  # Validation
+  validation:
+    interval: 3
+    batch_size: 2
+  
+  # Checkpointing
+  checkpoint:
+    save_dir: ./test_checkpoints/pipeline_test
+    interval: 3
+    save_total_limit: 1
+    snapshot_optimizer: false
+    snapshot_scheduler: false
+    snapshot_features: false
+  
+  # Logging (via Accelerate)
+  logging:
+    interval: 1
+    tensorboard: false
+    wandb: false
+    log_metrics: [loss]
+    log_model: false
+  
+  # Performance
+  performance:
+    num_workers: 0
+    pin_memory: false
+  
+  # Diarization settings
+  eval_knobs:
+    label_type: binary
+    max_duration: null
+

@@ -50,6 +50,7 @@ Functions:
 from . import recipes
 from .dataset_types import (
     DatasetConfig,
+    FeatureConfig,
     GlobalConfig,
     LoadDatasetsParams,
 )
