@@ -16,7 +16,6 @@
         "vscode": {
             "extensions": [
                 "codezombiech.gitignore",
-                "DavidAnson.vscode-markdownlint",
                 "donjayamanne.githistory",
                 "donjayamanne.python-environment-manager",
                 "donjayamanne.vscode-default-python-kernel",
@@ -34,7 +33,6 @@
                 "ms-vsliveshare.vsliveshare",
                 "njpwerner.autodocstring",
                 "redhat.vscode-yaml",
-                "streetsidesoftware.code-spell-checker",
                 "timonwong.shellcheck",
                 "charliermarsh.ruff",
                 "grapecity.gc-excelviewer"
