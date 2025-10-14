@@ -2,6 +2,13 @@
 
 This document describes the comprehensive training pipeline for deep learning models with full support for distributed training, mixed precision, and diarization tasks.
 
+## 📚 Documentation Index
+
+- **[Configuration Concepts](./configuration-concepts.md)** - Understand the configuration system design
+- **[Configuration Examples](./configuration-examples.md)** - Practical examples for common use cases
+- **[Comprehensive Reference](../../configs/comprehensive_all_options.yml)** - All available configuration options
+- **This Document** - Training pipeline overview and API reference
+
 ## Overview
 
 The training pipeline provides:
@@ -28,6 +35,8 @@ torchrun --nproc_per_node=4 train.py --config configs/training_example.yml
 ```
 
 ## Configuration
+
+> 📖 **Detailed Documentation**: See [Configuration Concepts](./configuration-concepts.md) for system design and [Configuration Examples](./configuration-examples.md) for practical examples.
 
 All configuration comes from YAML files with three main sections:
 
@@ -332,7 +341,11 @@ training:
 
 ### Full Configuration
 
-See `configs/training_example.yml` for a complete example with all features enabled.
+See the following for comprehensive examples:
+- **[Configuration Examples](./configuration-examples.md)** - Practical configurations for different use cases
+- **[configs/comprehensive_all_options.yml](../../configs/comprehensive_all_options.yml)** - Complete reference with all options
+- **[configs/training_example.yml](../../configs/training_example.yml)** - Typical full-featured setup
+- **[configs/training_simple.yml](../../configs/training_simple.yml)** - Minimal essential configuration
 
 ## Extending the Pipeline
 
@@ -403,4 +416,28 @@ Install with:
 ```bash
 pip install -r requirements.txt
 ```
+
+## Additional Resources
+
+### Configuration Documentation
+- [Configuration Concepts](./configuration-concepts.md) - System design and best practices
+- [Configuration Examples](./configuration-examples.md) - Real-world configuration examples
+- [Comprehensive Reference](../../configs/comprehensive_all_options.yml) - All available options
+
+### Example Configurations
+Located in `configs/`:
+- **`comprehensive_all_options.yml`** - Complete reference with every option documented
+- **`training_simple.yml`** - Minimal configuration
+- **`training_example.yml`** - Typical full-featured setup
+- **`encoder_model.yml`** - Encoder-only architecture example
+- **`decoder_model.yml`** - Decoder-only architecture example
+- **`encoder_decoder_model.yml`** - Encoder-decoder architecture example
+- **`full_experiment.yml`** - Complete experiment with model + data + training
+- **`training_minimal.yml`** - Quick test configuration
+
+### Model Documentation
+- [Model Factory Guide](../overview/MODEL_FACTORY_GUIDE.md)
+- [Encoder-Decoder Guide](../overview/ENCODER_DECODER_GUIDE.md)
+- [Normalization Guide](../overview/normalization_guide.md)
+- [Positional Encoding Guide](../overview/positional_encoding_guide.md)
 

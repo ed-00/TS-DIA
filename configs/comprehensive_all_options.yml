@@ -1,0 +1,384 @@
+# =============================================================================
+# COMPREHENSIVE CONFIGURATION WITH ALL POSSIBLE OPTIONS
+# =============================================================================
+# This is a complete reference configuration demonstrating EVERY available
+# configuration option in the TS-DIA training pipeline.
+#
+# Use this as a reference when creating your own configs.
+# Most options have sensible defaults and don't need to be specified.
+#
+# Sections:
+#   1. Model Configuration (encoder, decoder, encoder_decoder)
+#   2. Global Dataset Configuration
+#   3. Dataset-Specific Configuration
+#   4. Training Configuration (optimizer, scheduler, losses, etc.)
+# =============================================================================
+
+# =============================================================================
+# SECTION 1: MODEL CONFIGURATION
+# =============================================================================
+# The model section defines the architecture of your transformer model.
+# Three model types are supported:
+#   - encoder: for classification, embedding, feature extraction
+#   - decoder: for language modeling, autoregressive generation
+#   - encoder_decoder: for translation, summarization, seq2seq tasks
+
+model:
+  model_type: encoder_decoder  # Options: encoder, decoder, encoder_decoder
+  name: comprehensive_example_model
+  
+  # ---------------------------------------------------------------------------
+  # Global Configuration (shared across encoder and decoder)
+  # ---------------------------------------------------------------------------
+  global_config:
+    dropout: 0.1              # Dropout probability (0.0 - 1.0)
+    batch_size: 32            # Batch size for training
+    d_ff: 4                   # Feed-forward expansion factor (hidden_dim = d_model * d_ff)
+    device: cpu               # Device: cpu, cuda, cuda:0, cuda:1, etc.
+  
+  # ---------------------------------------------------------------------------
+  # Encoder Configuration (for encoder and encoder_decoder models)
+  # ---------------------------------------------------------------------------
+  encoder:
+    # Core architecture parameters
+    d_model: 512              # Model dimension / embedding size
+    num_layers: 6             # Number of encoder layers
+    num_heads: 8              # Number of attention heads (must divide d_model)
+    
+    # Attention configuration
+    attention_type: linear    # Options: softmax, linear, causal_linear
+    nb_features: 256          # Number of random features for linear attention (None = auto)
+    
+    # Activation function
+    activation: GEGLU         # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
+    
+    # Normalization options
+    use_rezero: false         # Use ReZero instead of LayerNorm
+    use_scalenorm: false      # Use PreScaleNorm instead of LayerNorm
+    
+    # Linear attention feature management
+    feature_redraw_interval: 1000  # Redraw random features every N steps (None = never)
+    auto_check_redraw: true        # Automatically check when to redraw
+    
+    # Classification head (optional)
+    num_classes: null         # Number of output classes (None = no classification head)
+  
+  # ---------------------------------------------------------------------------
+  # Decoder Configuration (for decoder and encoder_decoder models)
+  # ---------------------------------------------------------------------------
+  decoder:
+    # Core architecture parameters
+    d_model: 512              # Model dimension (should match encoder for encoder_decoder)
+    num_layers: 6             # Number of decoder layers
+    num_heads: 8              # Number of attention heads
+    
+    # Attention configuration
+    attention_type: causal_linear  # Options: softmax, linear, causal_linear
+    nb_features: 256          # Number of random features for linear attention
+    
+    # Activation function
+    activation: SWIGLU        # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
+    
+    # Cross-attention (for encoder-decoder)
+    use_cross_attention: true # true for encoder_decoder, false for decoder-only LM
+    
+    # Normalization options
+    use_rezero: false         # Use ReZero instead of LayerNorm
+    use_scalenorm: false      # Use PreScaleNorm instead of LayerNorm
+    
+    # Linear attention feature management
+    feature_redraw_interval: 1000  # Redraw random features every N steps
+    auto_check_redraw: true        # Automatically check when to redraw
+    
+    # Classification head (optional)
+    num_classes: null         # Number of output classes (None = no classification head)
+
+# =============================================================================
+# SECTION 2: GLOBAL DATASET CONFIGURATION
+# =============================================================================
+# Global configuration applies defaults to all datasets
+
+global_config:
+  # Directory configuration
+  corpus_dir: ./data              # Root directory for dataset storage
+  output_dir: ./manifests         # Directory for manifest files
+  force_download: false           # Force re-download of datasets
+  
+  # ---------------------------------------------------------------------------
+  # Feature Extraction Configuration (COMPREHENSIVE)
+  # ---------------------------------------------------------------------------
+  # Feature type
+  feature_type: fbank               # Options: fbank, mfcc, spectrogram
+  
+  # Basic audio parameters
+  sampling_rate: 16000              # Target sampling rate in Hz
+  frame_length: 0.025               # Frame/window length in seconds (25ms)
+  frame_shift: 0.01                 # Frame shift/hop length in seconds (10ms)
+  
+  # Window and FFT parameters
+  round_to_power_of_two: true       # Round window size to power of 2
+  remove_dc_offset: true            # Remove DC offset before processing
+  preemph_coeff: 0.97               # Pre-emphasis coefficient
+  window_type: povey                # Window function: povey, hanning, hamming, blackman
+  dither: 0.0                       # Dithering factor for numerical stability
+  snip_edges: false                 # Whether to snip edges during feature extraction
+  
+  # Energy parameters
+  energy_floor: 0.0000000001        # Floor value for energy computation (1e-10)
+  raw_energy: true                  # Use raw energy (before windowing)
+  use_energy: false                 # Use energy instead of C0 for MFCC
+  use_fft_mag: false                # Use FFT magnitude instead of power
+  
+  # Mel filterbank parameters
+  low_freq: 20.0                    # Lower frequency bound in Hz
+  high_freq: -400.0                 # Upper frequency bound (-400 = nyquist - 400)
+  num_filters: 23                   # Number of triangular mel filters (for spectrogram)
+  num_mel_bins: 80                  # Number of mel-frequency bins (for fbank/mfcc)
+  torchaudio_compatible_mel_scale: true  # Use torchaudio-compatible mel scale
+  norm_filters: false               # Normalize mel filter weights
+  
+  # MFCC-specific parameters
+  num_ceps: 13                      # Number of cepstral coefficients (MFCC only)
+  cepstral_lifter: 22               # Cepstral liftering coefficient (MFCC only)
+  
+  # Feature computation and storage
+  storage_path: null                # Path to store features (None = in-memory)
+  num_jobs: 1                       # Number of parallel jobs for extraction
+  storage_type: lilcom_chunky       # Options: lilcom_chunky, lilcom_files, numpy, hdf5
+  mix_eagerly: true                 # Whether to mix cuts eagerly during extraction
+  progress_bar: true                # Show progress bar during feature extraction
+  
+  # Hardware
+  device: cpu                       # Device for computation: cpu, cuda
+
+# =============================================================================
+# SECTION 3: DATASET CONFIGURATION
+# =============================================================================
+# List of datasets to load and process
+
+datasets:
+  # Example 1: Simple dataset with defaults
+  - name: yesno
+  
+  # Example 2: Dataset with custom download parameters
+  - name: librispeech
+    download_params:
+      target_dir: ./data/librispeech
+      force_download: false
+      dataset_parts: mini_librispeech  # LibriSpeech-specific parameter
+  
+  # Example 3: Dataset with custom processing parameters
+  - name: timit
+    process_params:
+      corpus_dir: ./data/timit
+      output_dir: ./manifests/timit
+      num_phones: 48                   # TIMIT-specific parameter
+  
+  # Example 4: Dataset with both download and process params
+  - name: ami
+    download_params:
+      target_dir: ./data/ami
+      force_download: false
+    process_params:
+      corpus_dir: ./data/ami
+      output_dir: ./manifests/ami
+      mic: ihm                         # AMI-specific: ihm, sdm, mdm
+      download_url: https://example.com/ami  # Custom download URL
+
+# =============================================================================
+# SECTION 4: TRAINING CONFIGURATION (COMPREHENSIVE)
+# =============================================================================
+# Complete training pipeline configuration with all options
+
+training:
+  # ---------------------------------------------------------------------------
+  # Basic Training Settings
+  # ---------------------------------------------------------------------------
+  epochs: 100                       # Number of training epochs
+  batch_size: 32                    # Training batch size
+  random_seed: 42                   # Random seed for reproducibility
+  max_steps: null                   # Maximum training steps (null = use epochs)
+  
+  # ---------------------------------------------------------------------------
+  # Optimizer Configuration
+  # ---------------------------------------------------------------------------
+  optimizer:
+    type: adamw                     # Options: adam, adamw, sgd, adagrad, rmsprop, adadelta
+    lr: 0.0001                      # Learning rate
+    weight_decay: 0.01              # Weight decay / L2 regularization
+    betas: [0.9, 0.999]             # Beta parameters for Adam-style optimizers
+    epsilon: 0.00000001             # Epsilon for numerical stability (1e-8)
+    amsgrad: false                  # Use AMSGrad variant for Adam
+    momentum: null                  # Momentum for SGD (0.0 - 1.0)
+    nesterov: false                 # Use Nesterov momentum for SGD
+  
+  # ---------------------------------------------------------------------------
+  # Learning Rate Scheduler Configuration
+  # ---------------------------------------------------------------------------
+  scheduler:
+    type: cosine                    # Options: cosine, linear, exponential, step, plateau, constant
+    min_lr: 0.000001                # Minimum learning rate
+    max_lr: null                    # Maximum learning rate (for cyclic schedulers)
+    warmup_steps: 1000              # Number of warmup steps
+    decay_steps: 10000              # Number of decay steps
+    num_cycles: 1                   # Number of cycles (for cosine with restarts)
+    step_size: null                 # Step size for StepLR scheduler
+    gamma: 0.1                      # Multiplicative factor for decay
+    patience: null                  # Patience for ReduceLROnPlateau
+    mode: min                       # Mode for ReduceLROnPlateau: min or max
+  
+  # ---------------------------------------------------------------------------
+  # Gradient Management
+  # ---------------------------------------------------------------------------
+  gradient_clipping: 1.0            # Max gradient norm (null to disable)
+  gradient_accumulation_steps: 4    # Number of gradient accumulation steps
+  
+  # ---------------------------------------------------------------------------
+  # Mixed Precision Training
+  # ---------------------------------------------------------------------------
+  mixed_precision: true             # Enable mixed precision training (FP16/BF16)
+  amp_loss_scale: null              # Loss scaling for AMP (null = dynamic scaling)
+  
+  # ---------------------------------------------------------------------------
+  # Performer-Specific Settings
+  # ---------------------------------------------------------------------------
+  feature_redraw_interval: 100      # Redraw projection matrices every N steps
+  fixed_projection: false           # Use fixed projection for Performer
+  
+  # ---------------------------------------------------------------------------
+  # Loss Configuration
+  # ---------------------------------------------------------------------------
+  loss:
+    main: cross_entropy             # Options: cross_entropy, mse, mae, bce, bce_with_logits
+    label_smoothing: 0.1            # Label smoothing factor (0.0 = no smoothing)
+    reduction: mean                 # Options: mean, sum, none
+    
+    # Auxiliary losses (optional)
+    auxiliary:
+      norm_reg: 0.1                 # L2 norm regularization weight
+      contrastive: 0.2              # Contrastive loss weight
+    
+    # Focal loss parameters (for imbalanced datasets)
+    focal_alpha: null               # Alpha parameter for focal loss
+    focal_gamma: null               # Gamma parameter for focal loss
+  
+  # ---------------------------------------------------------------------------
+  # Validation Configuration
+  # ---------------------------------------------------------------------------
+  validation:
+    interval: 500                   # Validate every N steps
+    batch_size: 64                  # Validation batch size
+    metric_for_best_model: val_loss # Metric to track for best model
+    greater_is_better: false        # Whether higher metric is better
+  
+  # ---------------------------------------------------------------------------
+  # Early Stopping Configuration
+  # ---------------------------------------------------------------------------
+  early_stopping:
+    patience: 5                     # Number of epochs to wait for improvement
+    metric: val_loss                # Metric to monitor
+    min_delta: 0.001                # Minimum change to qualify as improvement
+    mode: min                       # Direction: min or max
+    restore_best_weights: true      # Restore model to best checkpoint on early stop
+  
+  # ---------------------------------------------------------------------------
+  # Checkpoint Configuration
+  # ---------------------------------------------------------------------------
+  checkpoint:
+    save_dir: ./checkpoints/comprehensive_experiment
+    interval: 1000                  # Save checkpoint every N steps
+    save_total_limit: 5             # Maximum number of checkpoints to keep
+    resume: null                    # Path to checkpoint to resume from
+    snapshot_optimizer: true        # Save optimizer state
+    snapshot_scheduler: true        # Save scheduler state
+    snapshot_features: true         # Save Performer feature matrices
+    save_best_only: false           # Only save best checkpoint
+    monitor_metric: val_loss        # Metric to monitor for best checkpoint
+  
+  # ---------------------------------------------------------------------------
+  # Distributed Training Configuration
+  # ---------------------------------------------------------------------------
+  distributed:
+    backend: nccl                   # Options: nccl, gloo, mpi
+    world_size: 1                   # Total number of processes
+    local_rank: 0                   # Local rank of current process
+    sync_gradient_barrier: true     # Synchronize gradients across processes
+    find_unused_parameters: false   # Find unused parameters in DDP
+    gradient_as_bucket_view: false  # Optimize DDP memory usage
+    static_graph: false             # Use static graph optimization in DDP
+  
+  # ---------------------------------------------------------------------------
+  # Logging Configuration
+  # ---------------------------------------------------------------------------
+  logging:
+    interval: 50                    # Log every N steps
+    tensorboard: true               # Enable TensorBoard logging
+    wandb: false                    # Enable Weights & Biases logging
+    wandb_project: ts-dia-training  # WandB project name
+    wandb_entity: null              # WandB entity/team name
+    log_metrics: [loss, accuracy, memory, compute_time]  # Metrics to log
+    log_model: true                 # Log model architecture
+    log_gradients: false            # Log gradient statistics
+  
+  # ---------------------------------------------------------------------------
+  # Performance Optimization Configuration
+  # ---------------------------------------------------------------------------
+  performance:
+    num_workers: 4                  # Number of DataLoader worker processes
+    pin_memory: true                # Pin memory for faster GPU transfer
+    batch_shim: false               # Use batch shim for irregular batch sizes
+    prefetch_factor: 2              # Number of batches to prefetch per worker
+    persistent_workers: true        # Keep workers alive between epochs
+    compile_model: false            # Use torch.compile (PyTorch 2.0+)
+  
+  # ---------------------------------------------------------------------------
+  # Callbacks (Advanced)
+  # ---------------------------------------------------------------------------
+  callbacks:
+    - gradient_clipping             # Gradient clipping callback
+    # - pruning                     # Model pruning callback
+    # - freeze_layers               # Layer freezing callback
+    # - dynamic_lr                  # Dynamic learning rate adjustment
+  
+  # ---------------------------------------------------------------------------
+  # Profiling (for performance analysis)
+  # ---------------------------------------------------------------------------
+  profiling: false                  # Enable PyTorch profiler
+  
+  # ---------------------------------------------------------------------------
+  # Evaluation Knobs (for inference and diarization)
+  # ---------------------------------------------------------------------------
+  eval_knobs:
+    batch_size: 128                 # Batch size for evaluation/inference
+    beam_width: 5                   # Beam width for beam search
+    sliding_window: 512             # Sliding window size for long sequences
+    
+    # Diarization-specific settings
+    label_type: binary              # Options: binary, speaker_id, custom
+    max_duration: null              # Maximum duration per batch (null = no limit)
+  
+  # ---------------------------------------------------------------------------
+  # Hyperparameter Tuning (Advanced, optional)
+  # ---------------------------------------------------------------------------
+  tuning:
+    library: null                   # Options: raytune, optuna, null
+    search_space:
+      # Uncomment to enable hyperparameter search
+      # lr: [0.00001, 0.0001, 0.0005]
+      # batch_size: [32, 64]
+      # dropout: [0.1, 0.2, 0.3]
+
+# =============================================================================
+# END OF CONFIGURATION
+# =============================================================================
+# This configuration demonstrates every available option in the TS-DIA
+# training pipeline. When creating your own configs, you only need to specify
+# the options you want to change from the defaults.
+#
+# For simpler configurations, see:
+#   - configs/training_simple.yml (minimal training config)
+#   - configs/decoder_model.yml (decoder-only model)
+#   - configs/encoder_model.yml (encoder-only model)
+#   - configs/training_example.yml (typical training setup)
+# =============================================================================
+

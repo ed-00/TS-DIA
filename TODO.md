@@ -42,13 +42,7 @@ Convert to Lhotse’s manifest format (or, for AV data, consider extension).
 Implement the transformer modules and training loop.
 [x] Multi-head attention module
 [x] Cross-attention module
-[ ] RoPE module
-[ ] Transformer encoder module
-[ ] Transformer decoder module
-[ ] Transformer encoder-decoder module with cross-attention and RoPE and multi-head attention and cross-attention
-
-
-
-
-
-
+[x] RoPE module
+[x] Transformer encoder module
+[x] Transformer decoder module
+[x] Transformer encoder-decoder module with cross-attention and RoPE and multi-head attention and cross-attention

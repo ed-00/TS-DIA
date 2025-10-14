@@ -16,7 +16,7 @@ model:
     attention_type: causal_linear
     activation: SWIGLU
     nb_features: 256
-    use_cross_attention: false  # No cross-attention for decoder-only LM
+    use_cross_attention: false
     feature_redraw_interval: 1000
     auto_check_redraw: true
 
