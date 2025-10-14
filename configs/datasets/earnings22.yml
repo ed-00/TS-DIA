@@ -1,0 +1,32 @@
+# Earnings-22 Financial Domain Dataset
+# Extended earnings calls corpus
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#earnings-22
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for financial ASR)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: earnings22
+    download_params:
+      # Download URL (auto-detected if null)
+      url: null
+    
+    process_params:
+      # Text normalization for financial entities
+      normalize_text: false
+

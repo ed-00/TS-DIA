@@ -1,0 +1,48 @@
+# ICSI Meeting Corpus Configuration
+# 72 hours of natural meeting recordings
+# Documentation: docs/datasets/recipes/icsi.md
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for diarization)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  dither: 0.0
+  snip_edges: false
+  preemph_coeff: 0.97
+  window_type: povey
+  low_freq: 20.0
+  high_freq: -400.0
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: icsi
+    download_params:
+      # Microphone type: ihm (individual headset), mdm (multiple distant)
+      mic: ihm
+      url: http://groups.inf.ed.ac.uk/ami
+      audio_dir: null  # Auto-downloaded
+      transcripts_dir: null  # Auto-downloaded
+    
+    process_params:
+      # Microphone type to process
+      mic: ihm
+      
+      # Text normalization
+      # Options: none, upper, kaldi
+      normalize_text: kaldi
+      
+      # Audio format conversion
+      save_to_wav: false  # Convert SPH files to WAV if needed
+

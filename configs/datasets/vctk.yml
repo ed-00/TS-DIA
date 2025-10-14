@@ -1,0 +1,41 @@
+# VCTK Multi-Speaker TTS Corpus
+# English multi-speaker corpus with various accents
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#vctk
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for TTS)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 48000  # VCTK native sampling rate
+  dither: 0.0
+  snip_edges: false
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: vctk
+    download_params:
+      # Use Edinburgh VCTK URL
+      use_edinburgh_vctk_url: false
+      
+      # Custom URL (if not using default)
+      url: null
+    
+    process_params:
+      # Use Edinburgh VCTK URL
+      use_edinburgh_vctk_url: false
+      
+      # Microphone ID
+      # Options: mic1, mic2
+      mic_id: mic2
+

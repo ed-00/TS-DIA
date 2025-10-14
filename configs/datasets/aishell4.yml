@@ -1,0 +1,38 @@
+# AISHELL-4 Mandarin Meeting Corpus
+# 120 hours of Mandarin meeting recordings with 8-channel array
+# Documentation: docs/datasets/recipes/aishell-4.md
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for diarization)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  dither: 0.0
+  snip_edges: false
+  preemph_coeff: 0.97
+  window_type: povey
+  low_freq: 20.0
+  high_freq: -400.0
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: aishell4
+    download_params:
+      # Base URL for downloads
+      base_url: http://www.openslr.org/resources
+    
+    process_params:
+      # Chinese text normalization
+      normalize_text: false  # Set true to normalize Chinese characters
+

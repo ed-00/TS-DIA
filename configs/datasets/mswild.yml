@@ -1,0 +1,44 @@
+# MSDWILD Multi-modal Speaker Diarization Dataset
+# Multi-modal dataset with audio, video, and face crops
+# Documentation: docs/datasets/recipes/mswild.md
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for diarization)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  dither: 0.0
+  snip_edges: false
+  preemph_coeff: 0.97
+  window_type: povey
+  low_freq: 20.0
+  high_freq: -400.0
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: mswild
+    download_params:
+      # Multi-modal data downloads
+      download_audio: true  # ~7.56 GB (required)
+      download_video: false  # ~43.14 GB (manual download required)
+      download_faces: false  # ~14.49 GB (manual download required)
+    
+    process_params:
+      # Split name to RTTM pattern mapping
+      # Default: {"train": "few_train", "dev": "few_val", "test": "many_val"}
+      splits:
+        train: few_train
+        dev: few_val
+        test: many_val
+

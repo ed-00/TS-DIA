@@ -1,0 +1,65 @@
+# Ego4D Audio Diarization Configuration
+# Egocentric video dataset with audio diarization annotations
+# Documentation: docs/datasets/recipes/ego4d.md
+#
+# IMPORTANT: Requires AWS credentials from Ego4D registration
+# Set environment variables:
+#   export AWS_ACCESS_KEY_ID="your_key_id"
+#   export AWS_SECRET_ACCESS_KEY="your_secret_key"
+# Or create .env file in project root
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for diarization)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  dither: 0.0
+  snip_edges: false
+  preemph_coeff: 0.97
+  window_type: povey
+  low_freq: 20.0
+  high_freq: -400.0
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: ego4d
+    download_params:
+      # Dataset parts to download
+      # Options: clips, annotations, metadata, takes, captures, etc.
+      dataset_parts: ["clips", "annotations"]
+      
+      # Auto-install Ego4D CLI if not available
+      install_cli: true
+      
+      # Download timeout (seconds)
+      timeout: 3600
+      
+      # Path to .env file for environment variables
+      env_file: null  # Use .env in project root or environment variables
+    
+    process_params:
+      # Audio extraction settings
+      extract_audio: true
+      audio_sample_rate: 16000
+      
+      # Segment duration constraints
+      min_segment_duration: 0.5  # seconds
+      max_segment_duration: 30.0  # seconds
+      
+      # Limit number of clips for testing (0 = no limit)
+      max_clips: 0
+      
+      # Filter annotations by type (e.g., "av" for audio-visual)
+      annotation_subset: null  # null = all annotations
+

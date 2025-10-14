@@ -1,0 +1,30 @@
+# MAGICDATA Mandarin Read Speech Corpus
+# Mandarin reading corpus for ASR
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#magicdata
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for Mandarin ASR)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: magicdata
+    download_params:
+      # Base URL for download
+      base_url: http://www.openslr.org/resources
+    
+    process_params: {}
+

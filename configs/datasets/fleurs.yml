@@ -1,0 +1,34 @@
+# FLEURS Multi-lingual Speech Dataset
+# Few-shot Learning Evaluation of Universal Representations of Speech
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#fleurs
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for multi-lingual ASR)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: fleurs
+    download_params:
+      # Languages to download
+      # Options: all, or list of language codes
+      # Examples: en_us, es_419, fr_fr, de_de, ja_jp, zh_cn, etc.
+      languages: all
+    
+    process_params:
+      # Languages to process
+      languages: all
+

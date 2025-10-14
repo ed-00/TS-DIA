@@ -1,0 +1,32 @@
+# YesNo Hebrew Words Dataset
+# Simple binary classification dataset
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#yesno
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (MFCC for simple classification)
+  feature_type: mfcc
+  num_mel_bins: 40
+  num_ceps: 13
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 8000  # YesNo native sampling rate
+  use_energy: true
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: yesno
+    download_params:
+      # Download URL (auto-detected if null)
+      url: null
+    
+    process_params: {}
+

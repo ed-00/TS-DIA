@@ -1,0 +1,45 @@
+# LibriTTS Multi-Speaker TTS Corpus
+# Multi-speaker TTS corpus derived from LibriSpeech
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#libritts
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for TTS)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 24000  # LibriTTS native sampling rate
+  dither: 0.0
+  snip_edges: false
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: libritts
+    download_params:
+      # Use LibriTTS-R (cleaned version)
+      use_librittsr: false
+      
+      # Dataset parts to download
+      # Options: all, dev-clean, dev-other, test-clean, test-other,
+      #          train-clean-100, train-clean-360, train-other-500
+      dataset_parts: all
+      
+      # Base URL
+      base_url: http://www.openslr.org/resources
+    
+    process_params:
+      # Dataset parts to process
+      dataset_parts: all
+      
+      # Link to previous utterance metadata
+      link_previous_utt: false
+

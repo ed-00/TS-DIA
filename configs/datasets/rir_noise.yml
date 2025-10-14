@@ -1,0 +1,33 @@
+# RIR Noise - Room Impulse Response Dataset
+# Room impulse responses and noise for reverberation augmentation
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#rir-noise
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (typically not needed for augmentation)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: rir_noise
+    download_params:
+      # Download URL (auto-detected if null)
+      url: null
+    
+    process_params:
+      # Parts to process
+      # Options: point_noise, iso_noise, real_rir, sim_rir
+      parts: ["point_noise", "iso_noise", "real_rir", "sim_rir"]
+

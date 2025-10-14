@@ -1,0 +1,40 @@
+# AliMeeting Mandarin Meeting Corpus
+# Mandarin meeting corpus from Alibaba
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#alimeeting
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for Mandarin meeting diarization)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: ali_meeting
+    download_params:
+      # Base URL for download
+      base_url: https://speech-lab-share-data.oss-cn-shanghai.aliyuncs.com/
+    
+    process_params:
+      # Microphone type
+      # Options: far (distant microphone), near (close microphone)
+      mic: far
+      
+      # Text normalization
+      # Options: none, kaldi, m2met
+      normalize_text: none
+      
+      # Save mono channel version
+      save_mono: false
+

@@ -1,0 +1,41 @@
+# LibriMix Speech Separation Dataset
+# Two-speaker mixture dataset based on LibriSpeech
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#librimix
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for speech separation)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: librimix
+    download_params:
+      # Download URL for MiniLibriMix
+      url: https://zenodo.org/record/3871592/files/MiniLibriMix.zip
+    
+    process_params:
+      # Path to LibriMix CSV metadata
+      librimix_csv: null
+      
+      # Use precomputed mixtures
+      with_precomputed_mixtures: false
+      
+      # Sampling rate
+      sampling_rate: 16000
+      
+      # Minimum segment duration in seconds
+      min_segment_seconds: 3.0
+

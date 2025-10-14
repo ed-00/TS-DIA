@@ -1,0 +1,37 @@
+# DIPCO Dinner Party Corpus
+# Conversational speech in dinner party scenario
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#dipco
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for conversational speech)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: dipco
+    download_params: {}
+    
+    process_params:
+      # Microphone type: mdm (multiple distant microphone)
+      mic: mdm
+      
+      # Text normalization
+      # Options: none, kaldi
+      normalize_text: kaldi
+      
+      # Use CHiME-7 offset
+      use_chime7_offset: false
+

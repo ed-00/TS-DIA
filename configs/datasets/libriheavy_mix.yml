@@ -1,0 +1,56 @@
+# LibriheavyMix Overlapped Speech Dataset
+# Synthetic dataset with 1-4 speaker mixtures for overlapped speech
+# Documentation: docs/datasets/recipes/libriheavy-mix.md
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for diarization)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  dither: 0.0
+  snip_edges: false
+  preemph_coeff: 0.97
+  window_type: povey
+  low_freq: 20.0
+  high_freq: -400.0
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: libriheavy_mix
+    download_params:
+      # Dataset splits to download
+      # Options: small (~100h), medium (~900h), large (~9000h), dev, test
+      dataset_parts: small
+      
+      # Number of speakers per mixture
+      # Options: 1, 2, 3, 4 (can be int or list)
+      speaker_counts: [1, 2, 3, 4]
+      
+      # HuggingFace cache directory
+      cache_dir: null
+    
+    process_params:
+      # Dataset splits to process
+      dataset_parts: small
+      
+      # Speaker counts to process
+      speaker_counts: [1, 2, 3, 4]
+      
+      # Speaker filtering
+      min_speakers: 1
+      max_speakers: 4
+      
+      # Custom split mapping (optional)
+      splits: null
+

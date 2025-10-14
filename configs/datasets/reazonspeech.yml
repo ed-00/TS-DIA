@@ -1,0 +1,36 @@
+# ReazonSpeech Japanese ASR Corpus
+# Large-scale Japanese speech corpus
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#reazonspeech
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for Japanese ASR)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: reazonspeech
+    download_params:
+      # Dataset parts to download
+      # Options: auto (all available parts)
+      dataset_parts: auto
+      
+      # Number of parallel download jobs
+      num_jobs: 1
+    
+    process_params:
+      # Number of parallel processing jobs
+      num_jobs: 1
+

@@ -1,0 +1,38 @@
+# Earnings-21 Financial Domain Dataset
+# 39 hours of earnings calls for financial domain ASR and diarization
+# Documentation: docs/datasets/recipes/earnings-21.md
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for diarization)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  dither: 0.0
+  snip_edges: false
+  preemph_coeff: 0.97
+  window_type: povey
+  low_freq: 20.0
+  high_freq: -400.0
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: earnings21
+    download_params:
+      # Download URL (auto-detected if null)
+      url: null
+    
+    process_params:
+      # Text normalization for financial entities
+      normalize_text: false  # Keep entities and numbers intact
+

@@ -1,0 +1,35 @@
+# Speech Commands Dataset
+# Keyword spotting dataset
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#speech-commands
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (MFCC for keyword spotting)
+  feature_type: mfcc
+  num_mel_bins: 40
+  num_ceps: 13
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  use_energy: true
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: speechcommands
+    download_params:
+      # Speech Commands version
+      # Options: 1, 2
+      speechcommands_version: "2"
+    
+    process_params:
+      # Speech Commands version to process
+      speechcommands_version: "2"
+

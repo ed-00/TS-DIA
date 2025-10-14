@@ -1,0 +1,54 @@
+# LibriSpeech ASR Corpus
+# Large-scale English speech recognition corpus
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#librispeech
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for ASR)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  dither: 0.0
+  snip_edges: false
+  preemph_coeff: 0.97
+  window_type: povey
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: librispeech
+    download_params:
+      # Dataset parts to download
+      # Options: mini_librispeech, dev-clean, dev-other, test-clean, test-other,
+      #          train-clean-100, train-clean-360, train-other-500
+      dataset_parts: mini_librispeech
+      
+      # Download alignments
+      alignments: false
+      
+      # Base URL
+      base_url: http://www.openslr.org/resources
+      
+      # Alignments URL (if alignments: true)
+      alignments_url: null
+    
+    process_params:
+      # Dataset parts to process (auto = use downloaded parts)
+      dataset_parts: auto
+      
+      # Text normalization
+      # Options: none, upper, lower, kaldi
+      normalize_text: none
+      
+      # Path to alignments directory (if downloaded)
+      alignments_dir: null
+

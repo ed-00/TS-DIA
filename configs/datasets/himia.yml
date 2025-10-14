@@ -1,0 +1,37 @@
+# HI-MIA Hindi Meeting Corpus
+# Hindi conversational speech corpus
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#himia
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for Hindi ASR)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: himia
+    download_params:
+      # Dataset parts to download
+      # Options: auto (all available parts)
+      dataset_parts: auto
+      
+      # Base URL
+      base_url: http://www.openslr.org/resources
+    
+    process_params:
+      # Dataset parts to process
+      # Options: auto (use downloaded parts)
+      dataset_parts: auto
+

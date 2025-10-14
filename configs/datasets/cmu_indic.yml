@@ -1,0 +1,33 @@
+# CMU Indic TTS Corpus
+# Indian language TTS corpus
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#cmu-indic
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for TTS)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: cmu_indic
+    download_params:
+      # Speakers to download (null = all speakers)
+      speakers: null
+      
+      # Base URL for download
+      base_url: null
+    
+    process_params: {}
+

@@ -1,0 +1,55 @@
+# CHiME-6 Conversational Speech Recognition Challenge
+# Multi-channel far-field conversational speech
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#chime6
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for far-field ASR)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: chime6
+    download_params: {}
+    
+    process_params:
+      # Dataset parts to process
+      # Options: all, train, dev, eval
+      dataset_parts: all
+      
+      # Microphone type: mdm (multiple distant microphone)
+      mic: mdm
+      
+      # Use reference array
+      use_reference_array: false
+      
+      # Perform array synchronization
+      perform_array_sync: false
+      
+      # Verify MD5 checksums
+      verify_md5_checksums: false
+      
+      # Number of threads per job
+      num_threads_per_job: 1
+      
+      # Path to sox binary
+      sox_path: /usr/bin/sox
+      
+      # Text normalization
+      normalize_text: kaldi
+      
+      # Use CHiME-7 split
+      use_chime7_split: false
+

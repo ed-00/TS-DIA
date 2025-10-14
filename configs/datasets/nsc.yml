@@ -1,0 +1,32 @@
+# NSC - National Speech Corpus (Singapore)
+# Singapore English speech corpus
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#nsc
+# Note: No download function - manual download required
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for Singapore English ASR)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: nsc
+    # No download_params - manual download required
+    
+    process_params:
+      # Dataset part to process
+      # Options: PART3_SameCloseMic, etc.
+      dataset_part: PART3_SameCloseMic
+

@@ -2,6 +2,12 @@
 
 The `datasets` module provides a comprehensive dataset management system for the TS-DIA project, supporting both typed and dictionary-based configuration approaches with global defaults.
 
+## Quick Links
+
+- **[📖 Complete Parameters Guide](PARAMETERS_GUIDE.md)** - Comprehensive reference for all dataset parameters and feature extraction
+- **[📁 Ready-to-Use YAML Configs](../../configs/datasets/)** - Individual configuration files for 50+ datasets
+- **[📚 Dataset Recipes](recipes/)** - Detailed documentation for each dataset
+
 ## Overview
 
 This module offers a unified interface for downloading, processing, and managing speech datasets for diarization tasks. It integrates with Lhotse to support 50+ speech datasets and provides a flexible configuration system that eliminates repetition through global defaults.

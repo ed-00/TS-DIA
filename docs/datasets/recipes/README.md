@@ -2,6 +2,11 @@
 
 This directory contains comprehensive documentation for all dataset recipes supported by the TS-DIA data manager.
 
+## Quick Links
+
+- **[📖 Comprehensive Parameters Guide](../PARAMETERS_GUIDE.md)** - Complete reference for all dataset parameters and feature extraction
+- **[📁 Ready-to-Use YAML Configs](../../../configs/datasets/)** - Individual configuration files for all 50+ datasets
+
 ## Overview
 
 The data manager supports two types of datasets:
@@ -203,8 +208,42 @@ To add a new dataset recipe:
 
 Each dataset has its own license. Please review individual dataset documentation for license terms before use.
 
+## Configuration Resources
+
+### Complete Parameters Reference
+
+For a comprehensive guide to all dataset parameters, feature extraction settings, and configuration options:
+
+**[📖 Dataset Parameters Guide](../PARAMETERS_GUIDE.md)**
+
+This guide includes:
+- Complete parameter reference for all 50+ datasets
+- Feature extraction parameters (fbank, MFCC, spectrogram)
+- Storage and computation options
+- Common patterns and integration examples
+
+### Ready-to-Use YAML Configurations
+
+Individual YAML configuration files for every supported dataset are available in `configs/datasets/`:
+
+```bash
+configs/datasets/
+├── ami.yml
+├── voxconverse.yml
+├── icsi.yml
+├── ego4d.yml
+├── libriheavy_mix.yml
+├── librispeech.yml
+├── timit.yml
+├── ... (50+ datasets)
+```
+
+Simply copy the configuration you need into your training config file.
+
 ## Related Documentation
 
+- [Comprehensive Parameters Guide](../PARAMETERS_GUIDE.md) - **Start here for parameter reference**
+- [Ready-to-Use YAML Configs](../../../configs/datasets/) - Individual dataset configs
 - [Data Manager Overview](../../datasets.md)
 - [Dataset Configuration Guide](../../datasets.md#configuration)
 - [Dataset Types Reference](../../dataset_types.md)

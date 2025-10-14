@@ -1,0 +1,32 @@
+# VoxCeleb2 Speaker Recognition Dataset
+# Extended speaker identification dataset
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#voxceleb
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for speaker recognition)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  dither: 0.0
+  snip_edges: false
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: voxceleb2
+    download_params: {}
+    
+    # Note: VoxCeleb processing combines voxceleb1 and voxceleb2
+    # Use voxceleb2_root in process_params
+    process_params: {}
+

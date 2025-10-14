@@ -1,0 +1,44 @@
+# VoxPopuli Multi-lingual Speech Corpus
+# European Parliament speech corpus in 15 languages
+# Lhotse recipe: https://lhotse.readthedocs.io/en/latest/datasets.html#voxpopuli
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  
+  # Feature extraction configuration (fbank for multi-lingual ASR)
+  feature_type: fbank
+  num_mel_bins: 80
+  frame_length: 0.025
+  frame_shift: 0.01
+  sampling_rate: 16000
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 4
+  device: cpu
+  progress_bar: true
+
+datasets:
+  - name: voxpopuli
+    download_params:
+      # Subset to download
+      # Options: asr, st (speech translation)
+      subset: asr
+    
+    process_params:
+      # Task type
+      # Options: asr, st
+      task: asr
+      
+      # Language code
+      # Options: en, de, fr, es, pl, it, ro, hu, cs, nl, fi, hr, sk, sl, et
+      lang: en
+      
+      # Source language (for speech translation)
+      source_lang: null
+      
+      # Target language (for speech translation)
+      target_lang: null
+
