@@ -159,12 +159,14 @@ class ValidationConfig:
     Attributes:
         interval: Validate every N steps
         batch_size: Batch size for validation
+        max_steps: Maximum number of validation batches (None for all)
         metric_for_best_model: Metric to track for best model
         greater_is_better: Whether higher metric is better
     """
 
     interval: int
     batch_size: int
+    max_steps: Optional[int] = None
     metric_for_best_model: str = "val_loss"
     greater_is_better: bool = False
 
@@ -203,6 +205,7 @@ class PerformanceConfig:
     Attributes:
         num_workers: Number of DataLoader workers
         pin_memory: Pin memory for faster GPU transfer
+        drop_last: Drop last incomplete batch
         batch_shim: Use batch shim for irregular batch sizes
         prefetch_factor: Number of batches to prefetch
         persistent_workers: Keep workers alive between epochs
@@ -211,6 +214,7 @@ class PerformanceConfig:
 
     num_workers: int = 0
     pin_memory: bool = True
+    drop_last: bool = False
     batch_shim: bool = False
     prefetch_factor: Optional[int] = 2
     persistent_workers: bool = False

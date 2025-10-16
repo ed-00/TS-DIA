@@ -130,29 +130,13 @@ def prepare_for_training(
         )
         ```
     """
-    # Prepare objects for distributed/mixed precision
+    # Prepare model/optimizer/scheduler only; keep Lhotse DataLoaders unwrapped so custom sampler is preserved.
     if lr_scheduler is not None:
-        if val_dataloader is not None:
-            model, optimizer, train_dataloader, val_dataloader, lr_scheduler = (
-                accelerator.prepare(
-                    model, optimizer, train_dataloader, val_dataloader, lr_scheduler
-                )
-            )
-        else:
-            model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-                model, optimizer, train_dataloader, lr_scheduler
-            )
-            val_dataloader = None
+        model, optimizer, lr_scheduler = accelerator.prepare(
+            model, optimizer, lr_scheduler
+        )
     else:
-        if val_dataloader is not None:
-            model, optimizer, train_dataloader, val_dataloader = accelerator.prepare(
-                model, optimizer, train_dataloader, val_dataloader
-            )
-        else:
-            model, optimizer, train_dataloader = accelerator.prepare(
-                model, optimizer, train_dataloader
-            )
-            val_dataloader = None
+        model, optimizer = accelerator.prepare(model, optimizer)
         lr_scheduler = None
 
     return model, optimizer, train_dataloader, val_dataloader, lr_scheduler
@@ -194,30 +178,55 @@ def save_checkpoint_with_accelerate(
         )
         ```
     """
-    save_path = Path(save_dir) / f"checkpoint-epoch{epoch}-step{step}"
-    save_path.mkdir(parents=True, exist_ok=True)
+    # Let Accelerate save to its automatic location first
+    accelerator.save_state()
 
-    # Save using Accelerate's save_state
-    accelerator.save_state(str(save_path))
+    # Get the latest checkpoint directory created by Accelerate
+    checkpoints_dir = Path(save_dir) / "checkpoints"
+    checkpoint_dirs = [
+        d
+        for d in checkpoints_dir.iterdir()
+        if d.is_dir() and d.name.startswith("checkpoint_")
+    ]
+    if not checkpoint_dirs:
+        raise RuntimeError(
+            "No checkpoint directories found after Accelerate save_state"
+        )
 
-    # Save extra state if provided
+    # Get the most recent checkpoint (highest number)
+    latest_checkpoint = max(checkpoint_dirs, key=lambda x: int(x.name.split("_")[1]))
+
+    # Create named directory and copy files from Accelerate's checkpoint
+    named_path = Path(save_dir) / f"checkpoint-epoch{epoch}-step{step}"
+    if named_path.exists() or named_path.is_symlink():
+        named_path.unlink()
+    named_path.mkdir(parents=True, exist_ok=True)
+
+    # Copy all files from Accelerate's checkpoint to our named directory
+    import shutil
+
+    for file_path in latest_checkpoint.iterdir():
+        if file_path.is_file():
+            shutil.copy2(file_path, named_path / file_path.name)
+
+    # Save extra state in the named directory
     if extra_state and accelerator.is_main_process:
-        extra_state_path = save_path / "extra_state.pt"
+        extra_state_path = named_path / "extra_state.pt"
         torch.save(extra_state, extra_state_path)
 
     # Save best checkpoint marker
     if is_best and accelerator.is_main_process:
-        best_marker = save_path / "BEST_CHECKPOINT"
+        best_marker = named_path / "BEST_CHECKPOINT"
         best_marker.touch()
 
         # Also create a symlink to the best checkpoint
         best_link = Path(save_dir) / "best_checkpoint"
         if best_link.exists() or best_link.is_symlink():
             best_link.unlink()
-        best_link.symlink_to(save_path.name)
+        best_link.symlink_to(named_path.name)
 
-    accelerator.print(f"Checkpoint saved: {save_path}")
-    return str(save_path)
+    accelerator.print(f"Checkpoint saved: {named_path}")
+    return str(named_path)
 
 
 def load_checkpoint_with_accelerate(

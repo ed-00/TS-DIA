@@ -124,6 +124,7 @@ def prepare_ava_avd(
     corpus_dir: Pathlike,
     output_dir: Optional[Pathlike] = None,
     splits: Optional[Dict[str, str]] = None,
+    sampling_rate: int = 16000,  # Allow configurable sampling rate
 ) -> Dict[str, Dict[str, RecordingSet | SupervisionSet]]:
     """
     Prepare the AVA-AVD dataset for use with lhotse.
@@ -238,16 +239,61 @@ def prepare_ava_avd(
                 if result.returncode == 0:
                     info = json.loads(result.stdout)
                     duration = float(info["format"]["duration"])
-                    sample_rate = 16000  # Default for AVA-AVD
+                    # Use the sampling_rate parameter instead of hardcoded value
+                    sample_rate = sampling_rate
                     num_channels = 1  # Default mono
 
-                    # Create recording with known metadata (skip slow TorchAudio)
+                    # Extract audio from video to WAV file
+                    # This fixes the Lhotse AudioSource type='video' issue
+                    audio_dir = corpus_dir / "audio"
+                    audio_dir.mkdir(parents=True, exist_ok=True)
+                    audio_file = audio_dir / f"{video_id}.wav"
+
+                    # Extract audio if not already extracted
+                    if not audio_file.exists():
+                        logging.info(
+                            f"Extracting audio from {video_id} at {sample_rate}Hz..."
+                        )
+                        extract_cmd = [
+                            "ffmpeg",
+                            "-i",
+                            str(video_file),
+                            "-vn",  # No video
+                            "-acodec",
+                            "pcm_s16le",  # 16-bit PCM
+                            "-ar",
+                            str(sample_rate),  # Resample to configured rate
+                            "-ac",
+                            str(num_channels),  # Mono
+                            "-y",  # Overwrite if exists
+                            str(audio_file),
+                        ]
+                        try:
+                            subprocess.run(
+                                extract_cmd,
+                                check=True,
+                                capture_output=True,
+                                timeout=300,  # 5 minute timeout per file
+                            )
+                            logging.info(f"Audio extracted: {audio_file}")
+                        except subprocess.CalledProcessError as e:
+                            logging.warning(
+                                f"Failed to extract audio for {video_id}: {e.stderr.decode()}"
+                            )
+                            continue
+                        except subprocess.TimeoutExpired:
+                            logging.warning(
+                                f"Audio extraction timed out for {video_id}"
+                            )
+                            continue
+
+                    # Create recording with extracted audio file
                     from lhotse.audio import AudioSource
 
                     audio_source = AudioSource(
-                        type="video",
+                        type="file",  # Use 'file' instead of 'video'
                         channels=list(range(num_channels)),
-                        source=str(video_file),
+                        source=str(audio_file),
                     )
 
                     recording = Recording(

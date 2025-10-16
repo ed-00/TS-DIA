@@ -387,6 +387,12 @@ def validate_dataset_config(
             # Create dataset-specific output directory: global_output_dir/dataset_name
             process_params_dict["output_dir"] = f"{global_output_dir}/{dataset_name}"
 
+        # Pass sampling_rate from global_config to process_params for audio extraction
+        # This ensures audio is resampled to match feature extraction requirements
+        global_sampling_rate = global_config.get("sampling_rate")
+        if global_sampling_rate and "sampling_rate" not in process_params_dict:
+            process_params_dict["sampling_rate"] = global_sampling_rate
+
     # Extract and validate download parameters
     try:
         download_params = download_params_class(**download_params_dict)
@@ -483,6 +489,7 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
         "mix_eagerly",
         "progress_bar",
         "device",
+        "cut_window_seconds",
     }
 
     for key in feature_fields:
@@ -495,13 +502,55 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
     except Exception as e:
         raise DatasetConfigError(f"Invalid feature configuration: {e}")
 
+    # Extract DataLoadingConfig from global_config (optional)
+    from dataclasses import asdict
+
+    from data_manager.dataset_types import (
+        DataLoaderConfig,
+        DataLoadingConfig,
+        InputStrategyConfig,
+        SamplerConfig,
+    )
+
+    dl_dict = global_config_dict.get("data_loading", {}) or {}
+    input_strategy_cfg = InputStrategyConfig(
+        **{
+            k: v
+            for k, v in (dl_dict.get("input_strategy", {}) or {}).items()
+            if k in asdict(InputStrategyConfig())
+        }
+    )
+    sampler_cfg = SamplerConfig(
+        **{
+            k: v
+            for k, v in (dl_dict.get("sampler", {}) or {}).items()
+            if k in asdict(SamplerConfig())
+        }
+    )
+    dataloader_cfg = DataLoaderConfig(
+        **{
+            k: v
+            for k, v in (dl_dict.get("dataloader", {}) or {}).items()
+            if k in asdict(DataLoaderConfig())
+        }
+    )
+    data_loading_cfg = DataLoadingConfig(
+        strategy=dl_dict.get("strategy", "precomputed_features"),
+        input_strategy=input_strategy_cfg,
+        sampler=sampler_cfg,
+        dataloader=dataloader_cfg,
+    )
+
     # Create GlobalConfig (never None)
     try:
         global_config_obj = GlobalConfig(
             corpus_dir=global_config_dict.get("corpus_dir", "./data"),
             output_dir=global_config_dict.get("output_dir", "./manifests"),
             force_download=global_config_dict.get("force_download", False),
+            storage_path=global_config_dict.get("storage_path", None),
             features=features,
+            data_loading=data_loading_cfg,
+            random_seed=global_config_dict.get("random_seed", 42),
         )
     except Exception as e:
         raise DatasetConfigError(f"Invalid global configuration: {e}")

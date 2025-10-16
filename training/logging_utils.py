@@ -46,9 +46,8 @@ def init_trackers(
 
     # WandB configuration
     if config.wandb:
-        wandb_config = {
-            "project": config.wandb_project or project_name,
-        }
+        wandb_config = {}
+        # Note: project is passed via project_name parameter to init_trackers, not here
         if config.wandb_entity:
             wandb_config["entity"] = config.wandb_entity
         init_kwargs["wandb"] = wandb_config
@@ -59,24 +58,23 @@ def init_trackers(
 
     # Initialize trackers through Accelerate
     if init_kwargs:
+        # Flatten config for TensorBoard compatibility (no nested dicts)
+        flat_config = {
+            "epochs": training_config.epochs,
+            "batch_size": training_config.batch_size,
+            "optimizer_type": training_config.optimizer.type,
+            "optimizer_lr": training_config.optimizer.lr,
+            "optimizer_weight_decay": training_config.optimizer.weight_decay,
+            "scheduler_type": training_config.scheduler.type,
+            "scheduler_warmup_steps": training_config.scheduler.warmup_steps,
+            "mixed_precision": str(training_config.mixed_precision),
+            "gradient_accumulation_steps": training_config.gradient_accumulation_steps,
+            "gradient_clipping": training_config.gradient_clipping,
+        }
+
         accelerator.init_trackers(
             project_name=config.wandb_project or project_name,
-            config={
-                "epochs": training_config.epochs,
-                "batch_size": training_config.batch_size,
-                "optimizer": {
-                    "type": training_config.optimizer.type,
-                    "lr": training_config.optimizer.lr,
-                    "weight_decay": training_config.optimizer.weight_decay,
-                },
-                "scheduler": {
-                    "type": training_config.scheduler.type,
-                    "warmup_steps": training_config.scheduler.warmup_steps,
-                },
-                "mixed_precision": training_config.mixed_precision,
-                "gradient_accumulation_steps": training_config.gradient_accumulation_steps,
-                "gradient_clipping": training_config.gradient_clipping,
-            },
+            config=flat_config,
             init_kwargs=init_kwargs,
         )
 

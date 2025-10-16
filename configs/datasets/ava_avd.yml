@@ -12,7 +12,7 @@ global_config:
   num_mel_bins: 80
   frame_length: 0.025
   frame_shift: 0.01
-  sampling_rate: 16000
+  sampling_rate: 8000  # Resample from video's native rate to 8kHz for testing
   dither: 0.0
   snip_edges: false
   preemph_coeff: 0.97

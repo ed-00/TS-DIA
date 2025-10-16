@@ -122,6 +122,7 @@ class FeatureConfig:
         # Feature computation and storage parameters
         storage_path: Path to store features (None for in-memory)
         num_jobs: Number of parallel jobs for feature extraction
+        torch_threads: PyTorch thread count (None = auto-set to 1 when num_jobs > 1)
         storage_type: Storage format ('lilcom_chunky', 'lilcom_files', 'numpy', 'hdf5')
         mix_eagerly: Whether to mix cuts eagerly during extraction
         progress_bar: Show progress bar during feature extraction
@@ -129,21 +130,8 @@ class FeatureConfig:
         # Hardware
         device: Device for computation ('cpu', 'cuda')
 
-    Example:
-        ```python
-        # Default fbank configuration
-        config = FeatureConfig()
-
-        # Custom MFCC with full control
-        config = FeatureConfig(
-            feature_type='mfcc',
-            num_mel_bins=40,
-            num_ceps=13,
-            use_energy=True,
-            preemph_coeff=0.97,
-            window_type='hamming'
-        )
-        ```
+        # Windowing of long recordings before feature extraction
+        cut_window_seconds: If set (>0), pre-window long recordings to fixed-length cuts
     """
 
     # Feature type
@@ -183,12 +171,18 @@ class FeatureConfig:
     # Feature computation and storage parameters
     storage_path: Optional[str] = None  # Path to store features (None = in-memory)
     num_jobs: Optional[int] = 1  # Number of parallel jobs for feature extraction
+    torch_threads: Optional[int] = (
+        None  # PyTorch thread count (None = auto-set to 1 when num_jobs > 1)
+    )
     storage_type: str = "lilcom_chunky"  # Storage type: 'lilcom_chunky', 'lilcom_files', 'numpy', 'hdf5'
     mix_eagerly: bool = True  # Whether to mix cuts eagerly during feature extraction
     progress_bar: bool = True  # Show progress bar during feature extraction
 
     # Hardware
     device: str = "cpu"
+
+    # Windowing of long recordings before feature extraction
+    cut_window_seconds: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for function calls"""
@@ -198,6 +192,57 @@ class FeatureConfig:
 # ============================================================================
 # Global Configuration
 # ============================================================================
+
+
+@dataclass
+class InputStrategyConfig:
+    """Configuration for Lhotse InputStrategies parallelism and behavior."""
+
+    num_workers: int = 0
+    executor_type: Literal["thread", "process"] = "thread"
+    # The following are primarily relevant for OnTheFlyFeatures
+    use_batch_extract: bool = True
+    fault_tolerant: bool = False
+    return_audio: bool = False
+
+
+@dataclass
+class SamplerConfig:
+    """Configuration for sampler selection and batching policy."""
+
+    type: Literal["dynamic_bucketing", "bucketing", "simple"] = "bucketing"
+    num_buckets: int = 10
+    max_duration: Optional[float] = None
+    shuffle: bool = True
+    drop_last: bool = True
+
+
+@dataclass
+class DataLoaderConfig:
+    """Configuration for torch DataLoader settings."""
+
+    num_workers: int = 0
+    pin_memory: bool = True
+    persistent_workers: bool = False
+    prefetch_factor: Optional[int] = 2
+
+
+@dataclass
+class DataLoadingConfig:
+    """Top-level data loading configuration driven from YAML.
+
+    Controls input strategy (precomputed vs on-the-fly), sampler selection,
+    and DataLoader worker settings.
+    """
+
+    strategy: Literal[
+        "precomputed_features",
+        "on_the_fly_features",
+        "audio_samples",
+    ] = "precomputed_features"
+    input_strategy: InputStrategyConfig = field(default_factory=InputStrategyConfig)
+    sampler: SamplerConfig = field(default_factory=SamplerConfig)
+    dataloader: DataLoaderConfig = field(default_factory=DataLoaderConfig)
 
 
 @dataclass
@@ -212,22 +257,39 @@ class GlobalConfig:
         corpus_dir: Directory where raw dataset files are stored
         output_dir: Directory for output manifests
         force_download: Force re-download of datasets
+        storage_path: Path to store extracted features (for caching)
         features: Feature extraction configuration
+        data_loading: Data pipeline configuration (strategy, sampler, dataloader)
+        random_seed: Global seed used when training.random_seed is absent
     """
 
     corpus_dir: str = "./data"
     output_dir: str = "./manifests"
     force_download: bool = False
+    storage_path: str | None = None  # Feature storage path for caching
     features: FeatureConfig = field(default_factory=FeatureConfig)
+    data_loading: DataLoadingConfig = field(default_factory=DataLoadingConfig)
+    random_seed: int = 42
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for function calls"""
         result = {
-            k: v for k, v in self.__dict__.items() if v is not None and k != "features"
+            k: v
+            for k, v in self.__dict__.items()
+            if v is not None and k not in {"features", "data_loading"}
         }
         # Include individual feature fields for backward compatibility
         if self.features:
             result.update(self.features.to_dict())
+        # Expose a flattened view of data loading knobs for legacy callers, if needed
+        if self.data_loading:
+            # Only include simple scalars commonly used; nested structures should be accessed via the object
+            result.update(
+                {
+                    "data_loading_strategy": self.data_loading.strategy,
+                    "dataloader_num_workers": self.data_loading.dataloader.num_workers,
+                }
+            )
         return result
 
     def get_feature_config(self) -> FeatureConfig:
@@ -1606,6 +1668,7 @@ class AvaAvdProcessParams(BaseProcessParams):
 
     corpus_dir: Pathlike = None
     splits: Optional[Dict[str, str]] = None
+    sampling_rate: int = 16000  # Target sampling rate for audio extraction
 
 
 # ============================================================================

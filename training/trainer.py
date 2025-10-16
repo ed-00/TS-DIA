@@ -104,10 +104,12 @@ class Trainer:
         # Calculate total training steps
         self.total_steps = self._calculate_total_steps()
 
+        # Guard scheduler against unknown total steps by falling back to decay_steps
+        safe_total_steps = self.total_steps or config.scheduler.decay_steps
         self.lr_scheduler = create_scheduler(
             self.optimizer,
             config.scheduler,
-            num_training_steps=self.total_steps,
+            num_training_steps=safe_total_steps,
         )
 
         # Prepare for training with Accelerate
@@ -187,15 +189,14 @@ class Trainer:
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-    def _calculate_total_steps(self) -> int:
-        """Calculate total number of training steps."""
-        if self.config.max_steps:
-            return self.config.max_steps
+    def _calculate_total_steps(self) -> Optional[int]:
+        """Return max_steps if provided; otherwise None (lengthless iteration)."""
+        return self.config.max_steps or None
 
-        steps_per_epoch = (
-            len(self.train_dataloader) // self.config.gradient_accumulation_steps
-        )
-        return steps_per_epoch * self.config.epochs
+    def _set_sampler_epoch_if_applicable(self, loader: DataLoader, epoch: int) -> None:
+        sampler = getattr(loader, "sampler", None)
+        if hasattr(sampler, "set_epoch"):
+            sampler.set_epoch(epoch)
 
     def _resume_from_checkpoint(self, checkpoint_path: str):
         """Resume training from checkpoint."""
@@ -214,6 +215,18 @@ class Trainer:
         self.global_step = extra_state.get("global_step", 0)
         self.best_metric = extra_state.get("best_metric", float("inf"))
 
+        # Restore sampler state if available
+        sampler_state = extra_state.get("sampler_state")
+        if sampler_state is not None and hasattr(self.train_dataloader, "sampler"):
+            sampler = getattr(self.train_dataloader, "sampler", None)
+            if hasattr(sampler, "load_state_dict"):
+                try:
+                    sampler.load_state_dict(sampler_state)
+                except Exception as e:
+                    self.accelerator.print(
+                        f"Warning: failed to load sampler state: {e}"
+                    )
+
         self.accelerator.print(
             f"Resumed from epoch {self.current_epoch}, step {self.global_step}"
         )
@@ -226,12 +239,18 @@ class Trainer:
             self.current_epoch = epoch
             self.callback_handler.on_epoch_begin(self, epoch)
 
+            # Ensure Lhotse/Distributed samplers advance epoch appropriately
+            if self.train_dataloader is not None:
+                self._set_sampler_epoch_if_applicable(self.train_dataloader, epoch)
+            if self.val_dataloader is not None:
+                self._set_sampler_epoch_if_applicable(self.val_dataloader, epoch)
+
             # Train for one epoch
             train_metrics = self._train_epoch()
 
             # Validation
             val_metrics = {}
-            if self.val_dataloader and self.config.validation:
+            if self.val_dataloader is not None and self.config.validation:
                 if (epoch + 1) % self.config.validation.interval == 0 or epoch == 0:
                     val_metrics = self.validate()
 
@@ -357,6 +376,13 @@ class Trainer:
             self.callback_handler.on_batch_end(self, batch, batch_idx, outputs)
             self.global_step += 1
 
+            # Save checkpoint at step intervals
+            if (
+                self.config.checkpoint
+                and self.global_step % self.config.checkpoint.interval == 0
+            ):
+                self.save_checkpoint(f"step_{self.global_step}")
+
             # Check if we've reached max steps
             if self.config.max_steps and self.global_step >= self.config.max_steps:
                 break
@@ -374,11 +400,23 @@ class Trainer:
         total_samples = 0
         all_metrics = []
 
-        for batch in tqdm(
-            self.val_dataloader,
-            desc="Validation",
-            disable=not self.accelerator.is_local_main_process,
+        # Check if max_steps is set for validation
+        max_val_steps = (
+            getattr(self.config.validation, "max_steps", None)
+            if self.config.validation
+            else None
+        )
+
+        for batch_idx, batch in enumerate(
+            tqdm(
+                self.val_dataloader,
+                desc="Validation",
+                disable=not self.accelerator.is_local_main_process,
+            )
         ):
+            # Stop if max_steps reached
+            if max_val_steps is not None and batch_idx >= max_val_steps:
+                break
             outputs = self.model(x=batch["features"])
 
             # Transpose target from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]
@@ -399,6 +437,7 @@ class Trainer:
             batch_metrics = compute_metrics(
                 outputs if isinstance(outputs, torch.Tensor) else outputs.logits,
                 targets,
+                task_type="diarization",
             )
             all_metrics.append(batch_metrics)
 
@@ -439,6 +478,17 @@ class Trainer:
             "global_step": self.global_step,
             "best_metric": self.best_metric,
         }
+
+        # Save sampler state for exact resumption of data iteration
+        if hasattr(self.train_dataloader, "sampler"):
+            sampler = getattr(self.train_dataloader, "sampler", None)
+            if hasattr(sampler, "state_dict"):
+                try:
+                    extra_state["sampler_state"] = sampler.state_dict()
+                except Exception as e:
+                    self.accelerator.print(
+                        f"Warning: failed to save sampler state: {e}"
+                    )
 
         save_checkpoint_with_accelerate(
             self.accelerator,
@@ -491,6 +541,7 @@ class Trainer:
             batch_metrics = compute_metrics(
                 outputs if isinstance(outputs, torch.Tensor) else outputs.logits,
                 targets,
+                task_type="diarization",
             )
             all_metrics.append(batch_metrics)
 

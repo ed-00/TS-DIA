@@ -1,0 +1,135 @@
+# Test 3: Optimizer and scheduler variants
+# Test AdamW, cosine scheduler, gradient clipping, gradient accumulation
+
+model:
+  model_type: encoder_decoder
+  name: test_ava_optimizer_variants
+  
+  global_config:
+    dropout: 0.1
+    batch_size: 2
+    d_ff: 4
+    device: cpu
+  
+  encoder:
+    d_model: 32
+    num_layers: 1
+    num_heads: 2
+    attention_type: softmax
+    activation: GELU
+  
+  decoder:
+    d_model: 32
+    num_layers: 1
+    num_heads: 2
+    attention_type: causal_linear
+    activation: SWIGLU
+    nb_features: 32
+    use_cross_attention: true
+
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  force_download: false
+  random_seed: 42
+  
+  feature_type: fbank
+  num_mel_bins: 32  # Match d_model
+  sampling_rate: 8000
+  frame_length: 0.025
+  frame_shift: 0.01
+  dither: 0.0
+  snip_edges: false
+  preemph_coeff: 0.97
+  window_type: povey
+  low_freq: 20.0
+  high_freq: -400.0
+  
+  # Data loading configuration
+  data_loading:
+    strategy: on_the_fly_features   # precomputed_features | on_the_fly_features
+    input_strategy:
+      num_workers: 0
+      executor_type: thread
+      use_batch_extract: true
+      fault_tolerant: false
+      return_audio: false
+    sampler:
+      type: simple               # bucketing | dynamic_bucketing | simple
+      num_buckets: 10
+      shuffle: true
+      drop_last: true
+    dataloader:
+      num_workers: 0             # if input_strategy.num_workers > 0, this is forced to 0
+      pin_memory: true
+      persistent_workers: false
+      prefetch_factor: 2
+  
+  storage_type: lilcom_chunky
+  storage_path: ./features  # Cache features here (dataset name will be appended automatically)
+  num_jobs: 1  # Use single process for reliable caching
+  device: cpu
+  progress_bar: true
+  cut_window_seconds: 50  # Window long recordings before extraction
+
+datasets:
+  - name: ava_avd
+
+training:
+  epochs: 1
+  batch_size: 1
+  random_seed: 42
+  max_steps: 5  # Quick smoke test
+  
+  # Gradient management
+  gradient_clipping: 1.0
+  gradient_accumulation_steps: 2  # Accumulate over 2 steps
+  
+  optimizer:
+    type: adamw  # AdamW variant
+    lr: 0.001
+    weight_decay: 0.01
+    betas: [0.9, 0.999]
+    epsilon: 0.00000001
+  
+  scheduler:
+    type: cosine  # Cosine annealing
+    min_lr: 0.00001
+    warmup_steps: 1
+    decay_steps: 5
+  
+  loss:
+    main: bce_with_logits
+    reduction: mean
+  
+  checkpoint:
+    save_dir: ./checkpoints/test_ava_optimizer
+    interval: 2
+    save_total_limit: 5
+    snapshot_optimizer: true
+    snapshot_scheduler: true
+    snapshot_features: true
+  
+  validation:
+    interval: 5
+    batch_size: 2
+    max_steps: 2  # Limit validation to 2 batches for quick testing
+  
+  logging:
+    interval: 1
+    tensorboard: false
+    wandb: true
+    wandb_entity: digital-future
+    wandb_project: TS-DIA
+    log_metrics: [loss, accuracy, memory, compute_time]
+    log_model: true
+  
+  performance:
+    num_workers: 0
+    pin_memory: false
+  
+  eval_knobs:
+    label_type: binary
+    min_speaker_dim: 32  # Match decoder nb_features to ensure consistent tensor shapes
+    # max_duration removed to ensure simple sampler is used
+

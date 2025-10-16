@@ -365,7 +365,7 @@ def compute_metrics(
     Args:
         outputs: Model outputs
         targets: Target labels/values
-        task_type: Type of task (classification, regression, etc.)
+        task_type: Type of task (classification, regression, binary, etc.)
 
     Returns:
         Dictionary of metrics
@@ -400,5 +400,33 @@ def compute_metrics(
         metrics["mse"] = mse.item()
         metrics["mae"] = mae.item()
         metrics["rmse"] = (mse**0.5).item()
+
+    elif task_type == "binary" or task_type == "diarization":
+        # Binary classification metrics (for multi-label tasks like diarization)
+        # outputs: [batch, time, speakers] - logits
+        # targets: [batch, time, speakers] - binary labels (0 or 1)
+
+        # Convert logits to binary predictions
+        predictions = (outputs > 0).float()
+
+        # Frame-level accuracy (across all speakers and timesteps)
+        correct = (predictions == targets).float().sum()
+        total = targets.numel()
+        metrics["accuracy"] = (correct / total).item()
+
+        # Per-speaker metrics (optional, aggregated)
+        # True positives, false positives, false negatives
+        tp = ((predictions == 1) & (targets == 1)).float().sum()
+        fp = ((predictions == 1) & (targets == 0)).float().sum()
+        fn = ((predictions == 0) & (targets == 1)).float().sum()
+
+        # Precision, Recall, F1
+        precision = tp / (tp + fp + 1e-8)
+        recall = tp / (tp + fn + 1e-8)
+        f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
+
+        metrics["precision"] = precision.item()
+        metrics["recall"] = recall.item()
+        metrics["f1"] = f1.item()
 
     return metrics

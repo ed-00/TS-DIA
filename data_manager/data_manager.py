@@ -52,10 +52,19 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import lhotse as lh
-from lhotse import CutSet, RecordingSet, SupervisionSet
+import torch
+from lhotse import (
+    CutSet,
+    Fbank,
+    FbankConfig,
+    Mfcc,
+    MfccConfig,
+    RecordingSet,
+    SupervisionSet,
+)
 
 from data_manager import recipes
-from data_manager.dataset_types import LoadDatasetsParams
+from data_manager.dataset_types import FeatureConfig, LoadDatasetsParams
 from data_manager.parse_args import datasets_manager_parser
 
 
@@ -297,6 +306,350 @@ class DatasetManager:
     """
 
     @staticmethod
+    def _try_load_existing_manifests(
+        output_dir: Path, dataset_name: str
+    ) -> Optional[Dict[str, Dict[str, Any]]]:
+        """
+        Try to load existing manifests from disk to skip re-preparation.
+
+        Args:
+            output_dir: Base output directory for manifests
+            dataset_name: Name of the dataset
+
+        Returns:
+            Dictionary of manifests by split if they exist, None otherwise
+        """
+        from lhotse import CutSet, RecordingSet, SupervisionSet
+
+        # output_dir already includes dataset name (e.g., manifests/ava_avd)
+        # So we use it directly, not append dataset_name again
+        manifest_dir = output_dir
+        if not manifest_dir.exists():
+            return None
+
+        # Look for standard manifest files
+        # Common patterns:
+        #   - recordings_train.jsonl.gz
+        #   - ava_avd_recordings_train.jsonl.gz (dataset-prefixed)
+        splits = set()
+        recordings_files = list(manifest_dir.glob("*recordings_*.jsonl.gz"))
+
+        for file in recordings_files:
+            # Extract split name from file
+            # Examples:
+            #   "recordings_train.jsonl.gz" -> "train"
+            #   "ava_avd_recordings_train.jsonl.gz" -> "train"
+            filename = file.stem.replace(".jsonl", "")
+            # Find "recordings_" and get everything after it
+            if "_recordings_" in filename:
+                split_name = filename.split("_recordings_")[1]
+                splits.add(split_name)
+            elif filename.startswith("recordings_"):
+                split_name = filename[len("recordings_") :]
+                splits.add(split_name)
+
+        if not splits:
+            return None
+
+        # Try to load manifests for each split
+        manifests = {}
+        for split_name in splits:
+            split_manifests = {}
+
+            # Try both with and without dataset prefix
+            recordings_patterns = [
+                manifest_dir / f"recordings_{split_name}.jsonl.gz",
+                manifest_dir / f"{dataset_name}_recordings_{split_name}.jsonl.gz",
+            ]
+            supervisions_patterns = [
+                manifest_dir / f"supervisions_{split_name}.jsonl.gz",
+                manifest_dir / f"{dataset_name}_supervisions_{split_name}.jsonl.gz",
+            ]
+            cuts_patterns = [
+                manifest_dir / f"cuts_{split_name}.jsonl.gz",
+                manifest_dir / f"{dataset_name}_cuts_{split_name}.jsonl.gz",
+            ]
+
+            # Find which pattern exists
+            recordings_path = next((p for p in recordings_patterns if p.exists()), None)
+            supervisions_path = next(
+                (p for p in supervisions_patterns if p.exists()), None
+            )
+            cuts_path = next((p for p in cuts_patterns if p.exists()), None)
+
+            # Need at least recordings or cuts
+            if not (recordings_path or cuts_path):
+                continue
+
+            # Use eager loading (not lazy) for BucketingSampler compatibility
+            if recordings_path:
+                split_manifests["recordings"] = RecordingSet.from_file(recordings_path)
+
+            if supervisions_path:
+                split_manifests["supervisions"] = SupervisionSet.from_file(
+                    supervisions_path
+                )
+
+            if cuts_path:
+                split_manifests["cuts"] = CutSet.from_file(cuts_path)
+
+            if split_manifests:
+                manifests[split_name] = split_manifests
+
+        return manifests if manifests else None
+
+    @staticmethod
+    def _load_cached_cuts_with_features(
+        storage_path: Path, split_name: str
+    ) -> Optional[CutSet]:
+        """
+        Load cached CutSet with pre-computed features from the feature storage directory.
+
+        Args:
+            storage_path: Feature storage directory (e.g., features/ava_avd_8khz)
+            split_name: Name of the split (train, dev, test, etc.)
+
+        Returns:
+            CutSet with features if cache exists, None otherwise
+        """
+        from lhotse import load_manifest
+
+        # Look for cached cuts in the feature storage directory
+        cache_path = storage_path / f"cuts_{split_name}_with_feats.jsonl.gz"
+
+        if cache_path.exists():
+            print(f"  ✓ {split_name}: Loaded from cache (skip feature extraction)")
+            # Use load_manifest (eager) instead of load_manifest_lazy for BucketingSampler compatibility
+            return load_manifest(cache_path)
+
+        print(f"  → {split_name}: No cache found (will extract features on first use)")
+        return None
+
+    @staticmethod
+    def _compute_and_cache_features_for_split(
+        cuts: CutSet,
+        dataset_name: str,
+        split_name: str,
+        feature_cfg: FeatureConfig,
+        storage_root: Path,
+    ) -> CutSet:
+        """
+        Compute features for a single split and cache both features and the cuts-with-features manifest.
+
+        Args:
+            cuts: Source CutSet (typically without features)
+            dataset_name: Name of dataset (used for per-dataset storage)
+            split_name: Split name (train/val/test)
+            feature_cfg: Object with feature parameters (expects attributes from global_config)
+            storage_root: Root directory for features (global_config.storage_path)
+
+        Returns:
+            CutSet with features (eager) pointing to cached feature storage
+        """
+
+        # Build feature extractor from configuration
+        if feature_cfg.feature_type == "fbank":
+            extractor = Fbank(
+                FbankConfig(
+                    sampling_rate=feature_cfg.sampling_rate,
+                    num_mel_bins=feature_cfg.num_mel_bins or 80,
+                    frame_length=feature_cfg.frame_length,
+                    frame_shift=feature_cfg.frame_shift,
+                    dither=feature_cfg.dither,
+                    snip_edges=feature_cfg.snip_edges,
+                    round_to_power_of_two=feature_cfg.round_to_power_of_two,
+                    remove_dc_offset=feature_cfg.remove_dc_offset,
+                    preemph_coeff=feature_cfg.preemph_coeff,
+                    window_type=feature_cfg.window_type,
+                    energy_floor=feature_cfg.energy_floor,
+                    raw_energy=feature_cfg.raw_energy,
+                    use_fft_mag=feature_cfg.use_fft_mag,
+                    low_freq=feature_cfg.low_freq,
+                    high_freq=feature_cfg.high_freq,
+                    torchaudio_compatible_mel_scale=feature_cfg.torchaudio_compatible_mel_scale,
+                    norm_filters=feature_cfg.norm_filters,
+                )
+            )
+        elif feature_cfg.feature_type == "mfcc":
+            extractor = Mfcc(
+                MfccConfig(
+                    sampling_rate=feature_cfg.sampling_rate,
+                    num_ceps=feature_cfg.num_ceps,
+                    frame_length=feature_cfg.frame_length,
+                    frame_shift=feature_cfg.frame_shift,
+                    dither=feature_cfg.dither,
+                    snip_edges=feature_cfg.snip_edges,
+                    round_to_power_of_two=feature_cfg.round_to_power_of_two,
+                    remove_dc_offset=feature_cfg.remove_dc_offset,
+                    preemph_coeff=feature_cfg.preemph_coeff,
+                    window_type=feature_cfg.window_type,
+                    energy_floor=feature_cfg.energy_floor,
+                    raw_energy=feature_cfg.raw_energy,
+                    use_energy=feature_cfg.use_energy,
+                    use_fft_mag=feature_cfg.use_fft_mag,
+                    low_freq=feature_cfg.low_freq,
+                    high_freq=feature_cfg.high_freq,
+                    torchaudio_compatible_mel_scale=feature_cfg.torchaudio_compatible_mel_scale,
+                    norm_filters=feature_cfg.norm_filters,
+                    cepstral_lifter=feature_cfg.cepstral_lifter,
+                )
+            )
+        else:
+            raise ValueError(f"Unsupported feature type: {feature_cfg.feature_type}")
+
+        # Determine parallelism and pytorch threads
+        # If num_jobs <= 0, resolve to available CPU cores
+        try:
+            import os
+
+            cpu_cores = os.cpu_count() or 1
+        except Exception:
+            cpu_cores = 1
+        num_jobs = feature_cfg.num_jobs if feature_cfg.num_jobs is not None else 1
+        if num_jobs <= 0:
+            num_jobs = cpu_cores
+        torch_threads = feature_cfg.torch_threads
+        if torch_threads is None and num_jobs and num_jobs > 1:
+            torch_threads = 1
+        if torch_threads is not None:
+            torch.set_num_threads(torch_threads)
+
+        # Optionally window long recordings before feature extraction
+        if getattr(feature_cfg, "cut_window_seconds", None):
+            try:
+                window_sec = float(feature_cfg.cut_window_seconds)
+                # Use sliding windows with no overlap for simplicity; can be made configurable
+                cuts = cuts.cut_into_windows(duration=window_sec, hop=window_sec)
+            except Exception as e:
+                print(f"Warning: failed to window cuts: {e}")
+
+        # Compute and store features to per-dataset directory (multiprocessing-friendly)
+        dataset_storage_path = Path(storage_root) / dataset_name
+        dataset_storage_path.mkdir(parents=True, exist_ok=True)
+
+        # Prefer Executor API for robust multiprocessing; falls back to num_jobs when None
+        # Resolve storage writer class from dataclass field
+        from lhotse.features.io import (
+            LilcomChunkyWriter,
+            LilcomFilesWriter,
+            NumpyFilesWriter,
+        )
+
+        storage_type_map = {
+            "lilcom_chunky": LilcomChunkyWriter,
+            "lilcom_files": LilcomFilesWriter,
+            "numpy": NumpyFilesWriter,
+        }
+        storage_writer_cls = storage_type_map.get(
+            feature_cfg.storage_type, LilcomChunkyWriter
+        )
+
+        cuts_with_feats = cuts.compute_and_store_features(
+            extractor=extractor,
+            storage_path=str(dataset_storage_path),
+            storage_type=storage_writer_cls,
+            num_jobs=num_jobs,
+            mix_eagerly=feature_cfg.mix_eagerly,
+        )
+
+        # Ensure eager CutSet for bucketing sampler compatibility
+        if hasattr(cuts_with_feats, "to_eager"):
+            cuts_with_feats = cuts_with_feats.to_eager()
+
+        # Save the cuts-with-features manifest for future runs
+        DatasetManager.save_cuts_with_features(
+            cuts_with_feats, dataset_storage_path, split_name
+        )
+        return cuts_with_feats
+
+    @staticmethod
+    def save_cuts_with_features(
+        cuts: CutSet, storage_path: Path, split_name: str
+    ) -> None:
+        """
+        Save CutSet with pre-computed features to the feature storage directory.
+
+        Args:
+            cuts: CutSet with features to save
+            storage_path: Feature storage directory (e.g., features/ava_avd_8khz)
+            split_name: Name of the split (train, dev, test, etc.)
+        """
+        storage_path.mkdir(parents=True, exist_ok=True)
+        cache_path = storage_path / f"cuts_{split_name}_with_feats.jsonl.gz"
+
+        # Check if cuts actually have features before saving
+        if cuts and any(cut.has_features for cut in cuts[: min(10, len(cuts))]):
+            print(f"💾 Saving {split_name} cuts with features to {cache_path}")
+            cuts.to_file(cache_path)
+        else:
+            print(
+                f"⚠️  Warning: {split_name} cuts don't have features yet, skipping save"
+            )
+
+    @staticmethod
+    def _normalize_splits(
+        dataset_cut_sets: Dict[str, CutSet],
+        dataset_name: str,
+        val_split_ratio: float = 0.1,
+    ) -> Dict[str, CutSet]:
+        """
+        Normalize dataset splits to unified format: train, val, test.
+
+        Handles various split naming conventions:
+        - dev → val
+        - Splits train if only train exists
+        - Maps test appropriately
+
+        Args:
+            dataset_cut_sets: Dictionary of CutSets by split name
+            dataset_name: Name of the dataset
+            val_split_ratio: Ratio to use for validation split if auto-splitting (default: 0.1)
+
+        Returns:
+            Dictionary with normalized split names (train, val, test)
+        """
+        normalized = {}
+
+        # Map common split names
+        split_mapping = {
+            "dev": "val",
+            "development": "val",
+            "validation": "val",
+            "train": "train",
+            "test": "test",
+            "eval": "test",
+        }
+
+        # First pass: rename splits according to mapping
+        for split_name, cuts in dataset_cut_sets.items():
+            normalized_name = split_mapping.get(split_name.lower(), split_name)
+            normalized[normalized_name] = cuts
+
+        # If we only have train, split it into train/val
+        if "train" in normalized and "val" not in normalized:
+            from lhotse import CutSet
+
+            train_cuts = normalized["train"]
+
+            # Calculate split point
+            total_cuts = len(list(train_cuts))
+            val_size = int(total_cuts * val_split_ratio)
+
+            if val_size > 0:
+                print(
+                    f"Auto-splitting {dataset_name} train set: {total_cuts - val_size} train, {val_size} val"
+                )
+                # Split the cuts
+                all_cuts_list = list(train_cuts)
+                val_cuts_list = all_cuts_list[:val_size]
+                train_cuts_list = all_cuts_list[val_size:]
+
+                normalized["train"] = CutSet.from_cuts(train_cuts_list)
+                normalized["val"] = CutSet.from_cuts(val_cuts_list)
+
+        return normalized
+
+    @staticmethod
     def load_datasets(**kwargs) -> Dict[str, Dict[str, CutSet]]:
         """
         Load datasets and convert all manifest formats to CutSets for diarization tasks.
@@ -330,13 +683,21 @@ class DatasetManager:
             ```python
             from datasets import DatasetManager, parse_dataset_configs
 
-            # Load from configuration file
+            # Single dataset
             configs = parse_dataset_configs('configs/my_datasets.yml')
             cut_sets = DatasetManager.load_datasets(datasets=configs)
-
-            # Access specific dataset and split
             train_cuts = cut_sets["ami"]["train"]
             dev_cuts = cut_sets["ami"]["dev"]
+
+            # Multiple datasets (cached independently)
+            # First run: Downloads, extracts audio, creates manifests, extracts features
+            # Second run: Loads from cache (skips all preparation)
+            cut_sets = DatasetManager.load_datasets(datasets=[config1, config2, config3])
+
+            # Each dataset cached separately
+            ava_train = cut_sets["ava_avd"]["train"]  # From cache: manifests/ava_avd/
+            vox_train = cut_sets["voxconverse"]["train"]  # From cache: manifests/voxconverse/
+            ami_train = cut_sets["ami"]["train"]  # From cache: manifests/ami/
             ```
         """
         params = LoadDatasetsParams(**kwargs)
@@ -351,6 +712,10 @@ class DatasetManager:
                 raise ValueError(
                     f"Dataset {dataset.name} has no download or process function"
                 )
+
+            print(f"\n{'=' * 60}")
+            print(f"Processing dataset: {dataset.name}")
+            print(f"{'=' * 60}")
 
             # Download dataset if download function exists
             corpus_path = None
@@ -367,13 +732,88 @@ class DatasetManager:
                     # Override with actual path if download function provided one
                     process_kwargs["corpus_dir"] = corpus_path
 
-                manifests = process_function(**process_kwargs)
+                output_dir = Path(process_kwargs.get("output_dir", "./manifests"))
+
+                # Check if we can load existing manifests to skip preparation
+                existing_manifests = DatasetManager._try_load_existing_manifests(
+                    output_dir, dataset.name
+                )
+
+                if existing_manifests:
+                    print(
+                        f"✓ Using existing manifests for {dataset.name} (skip audio extraction & manifest creation)"
+                    )
+                    manifests = existing_manifests
+                else:
+                    print(
+                        f"→ Preparing {dataset.name} dataset (manifests not found, will extract audio & create manifests)"
+                    )
+                    manifests = process_function(**process_kwargs)
 
                 # Convert manifests to structured CutSet dictionary
                 dataset_cut_sets = DatasetManager._manifests_to_cutsets_dict(
                     manifests, dataset.name
                 )
+
+                # Normalize split names (dev → val, auto-split if needed)
+                val_split_ratio = (
+                    params.validation_split
+                    if hasattr(params, "validation_split")
+                    else 0.1
+                )
+                dataset_cut_sets = DatasetManager._normalize_splits(
+                    dataset_cut_sets, dataset.name, val_split_ratio
+                )
+
+                # Try to load or compute features depending on data loading strategy
+                data_loading = getattr(dataset.global_config, "data_loading", None)
+                dl_strategy = (
+                    data_loading.strategy
+                    if data_loading is not None
+                    else "precomputed_features"
+                )
+
+                if dl_strategy == "precomputed_features":
+                    print(f"\nChecking feature cache for {dataset.name}...")
+                    # Get feature storage path from global config and append dataset name
+                    base_storage_path = dataset.global_config.storage_path
+                    if base_storage_path:
+                        # Append dataset name to create dataset-specific cache directory
+                        for split_name, cuts in dataset_cut_sets.items():
+                            storage_path = Path(base_storage_path) / dataset.name
+                            cached_cuts = (
+                                DatasetManager._load_cached_cuts_with_features(
+                                    storage_path, split_name
+                                )
+                            )
+                            if cached_cuts is not None:
+                                dataset_cut_sets[split_name] = cached_cuts
+                            else:
+                                # Compute features now and cache them for this split
+                                print(
+                                    f"  → {split_name}: Computing features and caching to {storage_path}"
+                                )
+                                dataset_cut_sets[split_name] = (
+                                    DatasetManager._compute_and_cache_features_for_split(
+                                        cuts,
+                                        dataset.name,
+                                        split_name,
+                                        dataset.global_config.get_feature_config(),
+                                        Path(base_storage_path),
+                                    )
+                                )
+                    else:
+                        print(
+                            "  → No storage_path configured, features will be extracted on demand"
+                        )
+                else:
+                    # On-the-fly/audio_samples strategies: skip precomputation entirely
+                    print(
+                        f"\nData loading strategy '{dl_strategy}' selected — skipping feature precomputation."
+                    )
+
                 all_cut_sets[dataset.name] = dataset_cut_sets
+                print(f"✓ {dataset.name} ready!\n")
 
         return all_cut_sets
 

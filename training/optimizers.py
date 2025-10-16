@@ -145,7 +145,9 @@ def get_warmup_schedule(
         progress = float(current_step - warmup_steps) / float(
             max(1, total_steps - warmup_steps)
         )
-        return max(min_lr_ratio, 0.5 * (1.0 + torch.cos(torch.pi * progress)))
+        import math
+
+        return max(min_lr_ratio, 0.5 * (1.0 + math.cos(math.pi * progress)))
 
     return LambdaLR(optimizer, lr_lambda)
 

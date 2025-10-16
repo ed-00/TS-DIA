@@ -576,8 +576,9 @@ class EncoderDecoderTransformer(nn.Module):
 
     def forward(
         self,
-        src: Tensor,
-        tgt: Tensor,
+        src: Tensor | None = None,
+        tgt: Tensor | None = None,
+        x: Tensor | None = None,
         src_mask: Tensor | None = None,
         tgt_mask: Tensor | None = None,
         cross_attn_mask: Tensor | None = None,
@@ -589,9 +590,11 @@ class EncoderDecoderTransformer(nn.Module):
 
         Args:
             src: Tensor of shape (batch_size, src_len, d_model)
-                Source embeddings
+                Source embeddings (if None, uses x)
             tgt: Tensor of shape (batch_size, tgt_len, d_model)
-                Target embeddings
+                Target embeddings (if None, uses x)
+            x: Tensor of shape (batch_size, seq_len, d_model)
+                Unified input for both src and tgt (for diarization tasks)
             src_mask: Tensor of shape (batch_size, src_len, src_len) | None
                 Source self-attention mask
             tgt_mask: Tensor of shape (batch_size, tgt_len, tgt_len) | None
@@ -605,6 +608,14 @@ class EncoderDecoderTransformer(nn.Module):
             Tensor of shape (batch_size, tgt_len, d_model)
                 Decoder output (ready for output projection)
         """
+        # Handle unified input (for diarization where src and tgt are the same)
+        if x is not None:
+            src = x if src is None else src
+            tgt = x if tgt is None else tgt
+
+        if src is None or tgt is None:
+            raise ValueError("Must provide either (src and tgt) or x")
+
         # Encode source
         encoder_output = self.encode(src, src_mask=src_mask, **kwargs)
 

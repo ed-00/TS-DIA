@@ -4,10 +4,11 @@
 
 1. [Introduction](#introduction)
 2. [Global Configuration](#global-configuration)
-3. [Feature Extraction Parameters](#feature-extraction-parameters)
-4. [Dataset Parameters Reference](#dataset-parameters-reference)
-5. [Common Patterns](#common-patterns)
-6. [Integration Examples](#integration-examples)
+3. [Split Management and Normalization](#split-management-and-normalization)
+4. [Feature Extraction Parameters](#feature-extraction-parameters)
+5. [Dataset Parameters Reference](#dataset-parameters-reference)
+6. [Common Patterns](#common-patterns)
+7. [Integration Examples](#integration-examples)
 
 ---
 
@@ -62,6 +63,208 @@ The system automatically creates organized directory structures:
 │   └── ...
 └── ...
 ```
+
+---
+
+## Split Management and Normalization
+
+The TS-DIA data manager automatically handles dataset splits to provide a **unified interface** for training. This means you always work with consistent split names (`train`, `val`, `test`) regardless of the original dataset's naming conventions.
+
+### Automatic Split Normalization
+
+The system automatically:
+1. **Maps split names** to unified format
+2. **Auto-splits** datasets that only have a train set
+3. **Caches features** per split for faster subsequent runs
+
+### Split Name Mapping
+
+Different datasets use different naming conventions. The system automatically maps them:
+
+| Original Split Name | Normalized Name | Purpose |
+|-------------------|-----------------|---------|
+| `train` | `train` | Training data |
+| `dev`, `development`, `validation` | `val` | Validation data |
+| `test`, `eval` | `test` | Final evaluation |
+
+**Example:**
+```
+Dataset AVA-AVD:
+  Original: train, val, test
+  Normalized: train, val, test
+
+Dataset AMI:
+  Original: train, dev, test  
+  Normalized: train, val, test
+```
+
+### Auto-Splitting
+
+If a dataset only provides a `train` split, the system automatically creates a validation split:
+
+```yaml
+global_config:
+  corpus_dir: ./data
+  output_dir: ./manifests
+  validation_split: 0.1  # Use 10% of train for validation (default)
+
+datasets:
+  - name: my_dataset  # Only has 'train' split
+```
+
+**Output:**
+```
+Auto-splitting my_dataset train set: 900 train, 100 val
+```
+
+The validation split is taken from the **beginning** of the dataset (first 10% by default).
+
+### Configuring Split Ratio
+
+You can customize the validation split ratio globally:
+
+```yaml
+global_config:
+  validation_split: 0.15  # Use 15% for validation
+  test_split: 0.1        # Use 10% for test (if needed)
+```
+
+### Feature Caching per Split
+
+Features are cached **per split** to avoid re-extraction:
+
+```
+manifests/
+└── ava_avd/
+    ├── cuts_train_with_feats.jsonl.gz  # Cached train features
+    ├── cuts_val_with_feats.jsonl.gz    # Cached val features
+    └── cuts_test_with_feats.jsonl.gz   # Cached test features
+```
+
+**First run:**
+```
+Extracting and storing features: 100%|██████████| 66/66 [03:24<00:00]
+Saving train cuts with features to manifests/ava_avd/cuts_train_with_feats.jsonl.gz
+```
+
+**Subsequent runs:**
+```
+Loading cached train cuts with features from manifests/ava_avd/cuts_train_with_feats.jsonl.gz
+Using feature config: fbank with 64 bins
+```
+
+### Training Usage
+
+In `train.py`, always use the normalized names:
+
+```python
+# Automatically handled - always returns 'train' and 'val'
+dataset_cuts = cut_sets[dataset_name]
+train_cuts = dataset_cuts.get("train")
+val_cuts = dataset_cuts.get("val")
+test_cuts = dataset_cuts.get("test")  # Optional, for final evaluation
+```
+
+### Split Availability by Dataset
+
+#### Datasets with Full Splits (train/dev/test)
+
+These datasets provide all three splits and require no auto-splitting:
+
+- **Diarization:** AVA-AVD, VoxConverse, AMI (full-corpus), ICSI
+- **ASR:** LibriSpeech, TIMIT, Earnings-21
+- **Multi-language:** FLEURS, mTEDx
+- **TTS:** LibriTTS, VCTK
+
+**Example Configuration:**
+```yaml
+datasets:
+  - name: ava_avd
+    # Automatically normalized: train, val, test
+```
+
+#### Datasets with Train/Dev Only
+
+These datasets have train and dev, but no test split:
+
+- AMI (scenario-only), some LibriSpeech subsets
+
+**Example:**
+```yaml
+datasets:
+  - name: ami
+    process_params:
+      partition: scenario-only
+    # Provides: train, val (no test)
+```
+
+#### Datasets with Train Only
+
+These datasets only provide a train split and will be **auto-split**:
+
+- Many single-speaker TTS datasets
+- Some augmentation datasets (MUSAN, RIR)
+
+**Example:**
+```yaml
+global_config:
+  validation_split: 0.1  # 10% for validation
+
+datasets:
+  - name: ljspeech
+    # Auto-split: 90% train, 10% val
+```
+
+### Multi-Dataset Training
+
+When training with multiple datasets, each is normalized independently:
+
+```yaml
+global_config:
+  validation_split: 0.1
+
+datasets:
+  - name: ava_avd
+    # Has: train, val, test (no splitting needed)
+  
+  - name: voxconverse  
+    # Has: train, dev → normalized to train, val
+  
+  - name: musan
+    # Has: train only → auto-split to train (90%), val (10%)
+```
+
+**Training code remains simple:**
+```python
+# All datasets provide consistent 'train' and 'val' splits
+for dataset_name, cuts in cut_sets.items():
+    train_dataloader = create_dataloader(cuts["train"])
+    val_dataloader = create_dataloader(cuts["val"])
+```
+
+### Best Practices
+
+1. **Always use normalized names** (`train`, `val`, `test`) in training code
+2. **Set `validation_split`** globally for consistent behavior across datasets
+3. **Monitor auto-splitting** messages to verify split sizes
+4. **Use cached features** by keeping consistent `output_dir` paths
+5. **Clear feature cache** if changing feature extraction settings
+
+### Advanced: Custom Split Handling
+
+For datasets with custom split requirements, you can override in process_params:
+
+```yaml
+datasets:
+  - name: libriheavy_mix
+    process_params:
+      splits:
+        train: "small"
+        val: "dev"  
+        test: "test"
+```
+
+This allows mapping dataset-specific split names to the unified format.
 
 ---
 
