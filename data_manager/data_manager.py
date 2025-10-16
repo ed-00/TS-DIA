@@ -544,6 +544,10 @@ class DatasetManager:
             feature_cfg.storage_type, LilcomChunkyWriter
         )
 
+        # Convert to eager mode if lazy to avoid len() issues during feature computation
+        if hasattr(cuts, "to_eager"):
+            cuts = cuts.to_eager()
+
         cuts_with_feats = cuts.compute_and_store_features(
             extractor=extractor,
             storage_path=str(dataset_storage_path),

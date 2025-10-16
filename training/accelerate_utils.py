@@ -209,6 +209,10 @@ def save_checkpoint_with_accelerate(
         if file_path.is_file():
             shutil.copy2(file_path, named_path / file_path.name)
 
+    # Clean up the numbered checkpoint to avoid duplication
+    # Only the named checkpoint should remain for clarity
+    shutil.rmtree(latest_checkpoint)
+
     # Save extra state in the named directory
     if extra_state and accelerator.is_main_process:
         extra_state_path = named_path / "extra_state.pt"

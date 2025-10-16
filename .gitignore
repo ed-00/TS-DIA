@@ -22,3 +22,5 @@ cache/
 docs/.DS_Store
 checkpoints/*
 wandb/*
+*.log
+*.lca

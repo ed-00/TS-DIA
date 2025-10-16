@@ -322,8 +322,47 @@ def create_diarization_dataloader(
 
         dataset = _DiarizationOnTheFlyDataset(cuts, min_speaker_dim=min_speaker_dim)
     else:
-        # Default precomputed-features path
-        dataset = DiarizationDataset(cuts, min_speaker_dim=min_speaker_dim)
+        # Default precomputed-features path with wrapper to ensure min_speaker_dim
+        base_dataset = DiarizationDataset(cuts, min_speaker_dim=min_speaker_dim)
+
+        # Wrap to ensure min_speaker_dim is always respected
+        class _DiarizationDatasetWrapper(torch.utils.data.Dataset):
+            def __init__(self, base_dataset, min_speaker_dim: Optional[int] = None):
+                self.base_dataset = base_dataset
+                self.min_speaker_dim = min_speaker_dim
+
+            def __getitem__(self, cuts_batch: CutSet):
+                batch = self.base_dataset[cuts_batch]
+
+                # Ensure speaker dimension meets minimum requirement
+                if self.min_speaker_dim is not None:
+                    speaker_activity = batch["speaker_activity"]
+                    current_speaker_dim = speaker_activity.shape[
+                        1
+                    ]  # [batch, num_speakers, num_frames]
+
+                    if current_speaker_dim < self.min_speaker_dim:
+                        # Pad the speaker dimension
+                        padding_needed = self.min_speaker_dim - current_speaker_dim
+                        pad_shape = (
+                            speaker_activity.shape[0],
+                            padding_needed,
+                            speaker_activity.shape[2],
+                        )
+                        padding = torch.zeros(
+                            pad_shape,
+                            dtype=speaker_activity.dtype,
+                            device=speaker_activity.device,
+                        )
+                        batch["speaker_activity"] = torch.cat(
+                            [speaker_activity, padding], dim=1
+                        )
+
+                return batch
+
+        dataset = _DiarizationDatasetWrapper(
+            base_dataset, min_speaker_dim=min_speaker_dim
+        )
 
     # Use native Lhotse dataset + sampler with DataLoader
     worker_init_fn = None
