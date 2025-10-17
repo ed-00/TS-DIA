@@ -34,7 +34,7 @@ from training.diarization_dataloader import create_train_val_dataloaders
 def main():
     """Main training function."""
     # Parse unified configuration with CLI overrides
-    args, model_config, dataset_configs, training_config = unified_parser()
+    args, model_config, dataset_configs, training_config, config_path = unified_parser()
 
     # Create model (parser ensures configs are never None)
     model = create_model(model_config)
@@ -100,6 +100,7 @@ def main():
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
         config=training_config,
+        config_path=config_path,
     )
 
     # Start training

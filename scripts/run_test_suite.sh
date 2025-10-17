@@ -139,6 +139,13 @@ for i in "${!tests[@]}"; do
     
     log_file="$LOG_DIR/test_${test_num}_$(date +%Y%m%d_%H%M%S).log"
     
+    # Extract checkpoint directory from config and clean it (new experiment management requires this)
+    checkpoint_dir=$(grep -A 1 "checkpoint:" "$test_config" | grep "save_dir:" | awk '{print $2}')
+    if [ -n "$checkpoint_dir" ] && [ -d "$checkpoint_dir" ]; then
+        echo "Cleaning old checkpoint directory: $checkpoint_dir"
+        rm -rf "$checkpoint_dir"
+    fi
+    
     # Run the test
     if python train.py --config "$test_config" > "$log_file" 2>&1; then
         echo -e "${GREEN}✓ Test passed: $test_name${NC}"

@@ -106,7 +106,7 @@ training:
 
   logging:
     interval: 1
-    tensorboard: true
+    tensorboard: false  # Disabled due to TensorBoard hyperparameter type constraints
     wandb: true
     wandb_entity: digital-future
     wandb_project: TS-DIA

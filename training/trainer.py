@@ -18,6 +18,8 @@ Key Classes:
 """
 
 import random
+import shutil
+from pathlib import Path
 from typing import Dict, Optional
 
 import numpy as np
@@ -41,6 +43,8 @@ from .logging_utils import (
     log_hyperparameters,
     log_model_summary,
     log_system_info,
+    save_wandb_info,
+    setup_file_logger,
 )
 from .losses import (
     compute_loss,
@@ -49,6 +53,12 @@ from .losses import (
     create_loss_function,
 )
 from .optimizers import create_optimizer, create_scheduler
+
+
+class CheckpointDirectoryExistsError(Exception):
+    """Exception raised when checkpoint directory exists and resume is not specified."""
+
+    pass
 
 
 class Trainer:
@@ -79,20 +89,38 @@ class Trainer:
         val_dataloader: Optional[DataLoader] = None,
         config: TrainingConfig = None,
         test_dataloader: Optional[DataLoader] = None,
+        config_path: Optional[str] = None,
     ):
         self.config = config
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
         self.test_dataloader = test_dataloader
+        self.config_path = config_path
 
         # Set random seeds for reproducibility
         self._set_seed(config.random_seed)
+
+        # Validate checkpoint directory (before creating anything)
+        if config.checkpoint:
+            self._validate_checkpoint_directory(config.checkpoint)
+
+            # Copy config file to checkpoint directory
+            if config_path and Path(config_path).exists():
+                self._copy_config_file(config.checkpoint.save_dir, config_path)
 
         # Setup Accelerate
         self.accelerator = setup_accelerator(
             config,
             project_dir=config.checkpoint.save_dir if config.checkpoint else None,
         )
+
+        # Setup file logging
+        if config.checkpoint:
+            is_resume = config.checkpoint.resume is not None
+            log_file = setup_file_logger(
+                config.checkpoint.save_dir, is_resume=is_resume
+            )
+            self.accelerator.print(f"Console output logging to: {log_file}")
 
         # Log system info
         log_system_info(self.accelerator)
@@ -144,7 +172,12 @@ class Trainer:
                 config.logging,
                 config,
                 project_name=config.logging.wandb_project or "training",
+                config_path=config_path,
             )
+
+            # Save wandb info if wandb is enabled
+            if config.logging.wandb and config.checkpoint:
+                save_wandb_info(self.accelerator, config.checkpoint.save_dir)
 
         # Log hyperparameters
         if config.checkpoint:
@@ -188,6 +221,53 @@ class Trainer:
         np.random.seed(seed)
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
+
+    def _validate_checkpoint_directory(self, checkpoint_config):
+        """
+        Validate checkpoint directory doesn't exist unless resuming.
+
+        Args:
+            checkpoint_config: CheckpointConfig object
+
+        Raises:
+            CheckpointDirectoryExistsError: If directory exists and not resuming
+        """
+        checkpoint_dir = Path(checkpoint_config.save_dir)
+
+        # If resuming, directory should exist - no validation needed
+        if checkpoint_config.resume:
+            return
+
+        # If not resuming, directory should NOT exist
+        if checkpoint_dir.exists():
+            raise CheckpointDirectoryExistsError(
+                f"\n{'=' * 70}\n"
+                f"ERROR: Checkpoint directory already exists!\n"
+                f"{'=' * 70}\n"
+                f"Directory: {checkpoint_dir}\n\n"
+                f"To prevent accidental overwriting of existing experiments, training cannot proceed.\n\n"
+                f"Please choose ONE of the following options:\n"
+                f"  1. Change 'checkpoint.save_dir' in your config to a new path\n"
+                f"  2. Set 'checkpoint.resume' to resume from this checkpoint\n"
+                f"  3. Manually delete the directory if you want to overwrite it\n"
+                f"{'=' * 70}\n"
+            )
+
+    def _copy_config_file(self, checkpoint_dir: str, config_path: str):
+        """
+        Copy configuration file to checkpoint directory.
+
+        Args:
+            checkpoint_dir: Checkpoint directory path
+            config_path: Path to configuration file
+        """
+        checkpoint_path = Path(checkpoint_dir)
+        checkpoint_path.mkdir(parents=True, exist_ok=True)
+
+        config_dest = checkpoint_path / "config.yml"
+        shutil.copy2(config_path, config_dest)
+
+        print(f"Configuration file copied to: {config_dest}")
 
     def _calculate_total_steps(self) -> Optional[int]:
         """Return max_steps if provided; otherwise None (lengthless iteration)."""
@@ -454,8 +534,14 @@ class Trainer:
         # All-reduce for distributed
         val_metrics = all_reduce_metrics(self.accelerator, val_metrics)
 
-        # Log metrics via Accelerate
-        self.accelerator.log(val_metrics, step=self.global_step)
+        # Log metrics via Accelerate (ensure proper logging)
+        if self.config.logging and (
+            self.config.logging.tensorboard or self.config.logging.wandb
+        ):
+            self.accelerator.log(val_metrics, step=self.global_step)
+            self.accelerator.print(
+                f"✓ Validation metrics logged to trackers at step {self.global_step}"
+            )
 
         self.callback_handler.on_validation_end(self, val_metrics)
 

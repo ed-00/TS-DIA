@@ -17,11 +17,15 @@ Key Functions:
 """
 
 import json
+import logging
+import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
+import yaml
 
 from .config import LoggingConfig, TrainingConfig
 
@@ -31,6 +35,7 @@ def init_trackers(
     config: LoggingConfig,
     training_config: TrainingConfig,
     project_name: str = "training",
+    config_path: Optional[str] = None,
 ) -> None:
     """
     Initialize logging trackers via Accelerate.
@@ -40,6 +45,7 @@ def init_trackers(
         config: Logging configuration
         training_config: Training configuration for hyperparameters
         project_name: Project name for tracking
+        config_path: Path to configuration YAML file (for sending full config to wandb)
     """
     # Prepare init kwargs for trackers
     init_kwargs = {}
@@ -58,23 +64,47 @@ def init_trackers(
 
     # Initialize trackers through Accelerate
     if init_kwargs:
-        # Flatten config for TensorBoard compatibility (no nested dicts)
-        flat_config = {
-            "epochs": training_config.epochs,
-            "batch_size": training_config.batch_size,
-            "optimizer_type": training_config.optimizer.type,
-            "optimizer_lr": training_config.optimizer.lr,
-            "optimizer_weight_decay": training_config.optimizer.weight_decay,
-            "scheduler_type": training_config.scheduler.type,
-            "scheduler_warmup_steps": training_config.scheduler.warmup_steps,
-            "mixed_precision": str(training_config.mixed_precision),
-            "gradient_accumulation_steps": training_config.gradient_accumulation_steps,
-            "gradient_clipping": training_config.gradient_clipping,
-        }
+        # Load full config from YAML file if available
+        full_config = {}
+        if config_path and Path(config_path).exists():
+            try:
+                with open(config_path, "r") as f:
+                    full_config = yaml.safe_load(f)
+            except Exception as e:
+                accelerator.print(
+                    f"Warning: Could not load full config from {config_path}: {e}"
+                )
+                # Fall back to flattened config
+                full_config = {
+                    "epochs": training_config.epochs,
+                    "batch_size": training_config.batch_size,
+                    "optimizer_type": training_config.optimizer.type,
+                    "optimizer_lr": training_config.optimizer.lr,
+                    "optimizer_weight_decay": training_config.optimizer.weight_decay,
+                    "scheduler_type": training_config.scheduler.type,
+                    "scheduler_warmup_steps": training_config.scheduler.warmup_steps,
+                    "mixed_precision": str(training_config.mixed_precision),
+                    "gradient_accumulation_steps": training_config.gradient_accumulation_steps,
+                    "gradient_clipping": training_config.gradient_clipping,
+                }
+        else:
+            # Use flattened config if no config_path provided
+            full_config = {
+                "epochs": training_config.epochs,
+                "batch_size": training_config.batch_size,
+                "optimizer_type": training_config.optimizer.type,
+                "optimizer_lr": training_config.optimizer.lr,
+                "optimizer_weight_decay": training_config.optimizer.weight_decay,
+                "scheduler_type": training_config.scheduler.type,
+                "scheduler_warmup_steps": training_config.scheduler.warmup_steps,
+                "mixed_precision": str(training_config.mixed_precision),
+                "gradient_accumulation_steps": training_config.gradient_accumulation_steps,
+                "gradient_clipping": training_config.gradient_clipping,
+            }
 
         accelerator.init_trackers(
             project_name=config.wandb_project or project_name,
-            config=flat_config,
+            config=full_config,
             init_kwargs=init_kwargs,
         )
 
@@ -184,3 +214,103 @@ def log_system_info(accelerator: Any):
         )
 
     accelerator.print("=" * 70 + "\n")
+
+
+def save_wandb_info(accelerator: Any, checkpoint_dir: str) -> None:
+    """
+    Save WandB run information to checkpoint directory.
+
+    Args:
+        accelerator: Accelerator instance
+        checkpoint_dir: Directory to save wandb info
+    """
+    if not accelerator.is_main_process:
+        return
+
+    # Check if wandb tracker is active
+    wandb_tracker = None
+    if hasattr(accelerator, "trackers"):
+        for tracker in accelerator.trackers:
+            if tracker.name == "wandb":
+                wandb_tracker = tracker.tracker
+                break
+
+    if wandb_tracker is None:
+        return
+
+    try:
+        checkpoint_path = Path(checkpoint_dir)
+        checkpoint_path.mkdir(parents=True, exist_ok=True)
+
+        wandb_info = {
+            "run_id": wandb_tracker.id,
+            "run_name": wandb_tracker.name,
+            "run_url": wandb_tracker.url,
+            "project": wandb_tracker.project,
+            "entity": wandb_tracker.entity,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        wandb_info_path = checkpoint_path / "wandb_info.json"
+        with open(wandb_info_path, "w") as f:
+            json.dump(wandb_info, f, indent=2)
+
+        accelerator.print(f"WandB info saved: {wandb_info_path}")
+        accelerator.print(f"  Run: {wandb_info['run_name']} ({wandb_info['run_id']})")
+        accelerator.print(f"  URL: {wandb_info['run_url']}")
+    except Exception as e:
+        accelerator.print(f"Warning: Could not save wandb info: {e}")
+
+
+def setup_file_logger(checkpoint_dir: str, is_resume: bool = False) -> str:
+    """
+    Setup file logging to capture all console output.
+
+    Args:
+        checkpoint_dir: Directory to save log files
+        is_resume: Whether this is a resumed training run
+
+    Returns:
+        Path to the log file
+    """
+    logs_dir = Path(checkpoint_dir) / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if is_resume:
+        # Count existing resume logs
+        resume_logs = list(logs_dir.glob("training_resume_*.log"))
+        resume_count = len(resume_logs) + 1
+        log_filename = f"training_resume_{resume_count}_{timestamp}.log"
+    else:
+        log_filename = f"training_{timestamp}.log"
+
+    log_path = logs_dir / log_filename
+
+    # Setup Python logging to write to both console and file
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    # Remove existing handlers to avoid duplicates
+    logger.handlers = []
+
+    # File handler
+    file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_formatter = logging.Formatter(
+        "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter("%(message)s")
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+
+    logging.info(f"Logging to file: {log_path}")
+
+    return str(log_path)

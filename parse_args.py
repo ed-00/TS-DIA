@@ -189,11 +189,12 @@ def unified_parser():
     All configuration comes from YAML file only, no CLI overrides.
 
     Returns:
-        Tuple of (args, model_config, dataset_configs, training_config) where:
+        Tuple of (args, model_config, dataset_configs, training_config, config_path) where:
         - args: Parsed command line arguments
         - model_config: ModelConfig object (None if not in YAML)
         - dataset_configs: List of DatasetConfig objects (None if not in YAML)
         - training_config: TrainingConfig object (None if not in YAML)
+        - config_path: Path to the configuration file
 
     Example:
         ```bash
@@ -362,7 +363,7 @@ def unified_parser():
             model_config = None
             dataset_configs = None
 
-        return args, model_config, dataset_configs, training_config
+        return args, model_config, dataset_configs, training_config, config_path
     except (
         ConfigError,
         ModelConfigError,
@@ -378,7 +379,7 @@ def combined_parser():
 
     Use unified_parser() for new code.
     """
-    args, model_config, dataset_configs, _ = unified_parser()
+    args, model_config, dataset_configs, _, config_path = unified_parser()
     return args, model_config, dataset_configs
 
 
