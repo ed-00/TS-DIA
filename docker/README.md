@@ -496,22 +496,64 @@ docker run --rm --gpus all \
     accelerate launch --config_file accelerate_config.yaml train.py --config configs/train/training_example.yml
 ```
 
-### Exec into Running Container
+### Attach to Running Containers
 
-If you started a training container and want to monitor it:
+If you started a training container and want to attach to it or run additional commands:
 
+#### List Running Containers
 ```bash
-# List running containers
+# Show all running containers
 docker ps
 
-# Exec into container
+# Example output:
+# CONTAINER ID   IMAGE                    NAMES
+# abc123def456   ts-dia-training:latest   ts-dia-training-20251020-143022
+```
+
+#### Attach to Interactive Shell
+```bash
+# Attach to a running container with a new shell
 docker exec -it <container_name> /bin/bash
 
+# Example with specific container name
+docker exec -it ts-dia-training-20251020-143022 /bin/bash
+
+# Now you're inside the container - run any command
+python train.py --config configs/train/training_example.yml
+tensorboard --logdir /storage/fast/checkpoints
+nvidia-smi
+```
+
+#### Run Commands Without Attaching
+```bash
 # Monitor GPU usage
 docker exec -it <container_name> nvidia-smi
 
-# Monitor logs
+# Check training logs
 docker exec -it <container_name> tail -f /workspace/checkpoints/*/logs/*.log
+
+# Run a Python script
+docker exec -it <container_name> python evaluate.py --config configs/eval.yml
+
+# Check disk usage
+docker exec -it <container_name> df -h
+
+# List checkpoints
+docker exec -it <container_name> ls -lh /storage/fast/checkpoints/
+```
+
+#### Multiple Shells in Same Container
+```bash
+# Terminal 1: Start training
+./docker/run_training.sh configs/train/full_experiment.yml ts-dia-training my-exp
+
+# Terminal 2: Attach to monitor
+docker exec -it my-exp /bin/bash
+# Inside: watch -n 1 nvidia-smi
+
+# Terminal 3: Attach to check logs
+docker exec -it my-exp /bin/bash
+# Inside: tail -f /workspace/checkpoints/*/logs/*.log
 ```
 
 ### Build with Custom Options
@@ -598,11 +640,22 @@ docker run -it --rm --gpus all \
 ## Best Practices
 
 1. **Always build from project root:** Run scripts from `/workspaces/TS-DIA`
-2. **Use named containers:** Easier to manage and exec into
+2. **Use named containers:** Easier to manage and attach to
+   ```bash
+   ./docker/run_training.sh configs/train/training_example.yml ts-dia-training my-experiment-v1 0,1
+   # Later: docker exec -it my-experiment-v1 /bin/bash
+   ```
 3. **Monitor GPU usage:** Use `nvidia-smi` to track utilization
+   ```bash
+   docker exec -it <container_name> watch -n 1 nvidia-smi
+   ```
 4. **Check logs regularly:** Logs are saved in `checkpoints/*/logs/`
+   ```bash
+   docker exec -it <container_name> tail -f /workspace/checkpoints/*/logs/*.log
+   ```
 5. **Use distributed training:** For multi-GPU setups, use `run_distributed.sh`
 6. **Backup checkpoints:** Checkpoints are saved to host, but backup important ones
+7. **Attach for debugging:** Use `docker exec -it` to attach and run commands manually
 
 ## Container Management
 

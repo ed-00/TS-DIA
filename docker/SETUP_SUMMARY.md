@@ -230,6 +230,57 @@ docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
 chmod -R 777 storage/
 ```
 
+## Attaching to Running Containers
+
+### List Running Containers
+```bash
+docker ps
+```
+
+### Attach to Running Container
+```bash
+# Get container name from docker ps
+docker exec -it <container_name> /bin/bash
+
+# Example
+docker exec -it my-experiment /bin/bash
+
+# Now run commands inside
+python train.py --config configs/train/training_example.yml
+nvidia-smi
+tensorboard --logdir /storage/fast/checkpoints
+```
+
+### Run Commands Without Attaching
+```bash
+# Monitor GPUs
+docker exec -it <container_name> nvidia-smi
+
+# Check logs
+docker exec -it <container_name> tail -f /workspace/checkpoints/*/logs/*.log
+
+# Run evaluation
+docker exec -it <container_name> python evaluate.py --config configs/eval.yml
+
+# List checkpoints
+docker exec -it <container_name> ls -lh /storage/fast/checkpoints/
+```
+
+### Multiple Terminals on Same Container
+```bash
+# Terminal 1: Start training with a named container
+./docker/run_training.sh configs/train/full_experiment.yml ts-dia-training my-exp 0,1
+
+# Terminal 2: Monitor GPUs
+docker exec -it my-exp watch -n 1 nvidia-smi
+
+# Terminal 3: Monitor logs
+docker exec -it my-exp tail -f /workspace/checkpoints/*/logs/*.log
+
+# Terminal 4: Run evaluation during training
+docker exec -it my-exp python evaluate.py --checkpoint /storage/fast/checkpoints/latest
+```
+
 ## Best Practices
 
 1. **Use storage volumes appropriately:**
@@ -237,25 +288,31 @@ chmod -R 777 storage/
    - Slow: Large datasets, archives, backups
    - Temp: Caching, temporary processing files
 
-2. **Clean up temp storage regularly:**
+2. **Use named containers for easy access:**
+   ```bash
+   ./docker/run_training.sh configs/train/training_example.yml ts-dia-training my-experiment 0,1
+   docker exec -it my-experiment /bin/bash
+   ```
+
+3. **Attach for monitoring:**
+   ```bash
+   docker exec -it <container_name> watch -n 1 nvidia-smi
+   ```
+
+4. **Clean up temp storage regularly:**
    ```bash
    rm -rf storage/temp/*
    ```
 
-3. **Back up important checkpoints:**
+5. **Back up important checkpoints:**
    ```bash
    cp -r storage/fast/checkpoints/best-model /backup/location/
    ```
 
-4. **Monitor disk usage:**
+6. **Monitor disk usage:**
    ```bash
    df -h
    du -sh storage/*
-   ```
-
-5. **Use named containers for long-running training:**
-   ```bash
-   ./docker/run_training.sh configs/train/training_example.yml ts-dia-training my-experiment 0,1
    ```
 
 ## Additional Resources
