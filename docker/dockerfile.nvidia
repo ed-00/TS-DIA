@@ -1,0 +1,41 @@
+# Use NVIDIA PyTorch base image with CUDA support
+FROM nvcr.io/nvidia/pytorch:24.10-py3
+
+# Set working directory
+WORKDIR /workspace
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    TORCH_CUDA_ARCH_LIST="6.0 6.1 7.0 7.5 8.0 8.6 8.9 9.0+PTX" \
+    FORCE_CUDA="1" \
+    PATH=/opt/conda/bin:$PATH
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    wget \
+    curl \
+    vim \
+    tmux \
+    htop \
+    libsndfile1 \
+    libsndfile1-dev \
+    ffmpeg \
+    sox \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file first (for better caching)
+COPY requirements.txt /tmp/requirements.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r /tmp/requirements.txt && \
+    rm /tmp/requirements.txt
+
+# Expose ports for TensorBoard and Jupyter (optional)
+EXPOSE 6006 8888
+
+# Set the default command to bash (allows flexible execution)
+CMD ["/bin/bash"]
+

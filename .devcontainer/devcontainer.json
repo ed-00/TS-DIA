@@ -47,7 +47,6 @@
                         "source.fixAll": "explicit",
                         "source.organizeImports.ruff": "explicit"
                     },
-                    "editor.defaultFormatter": "charliermarsh.ruff",
                     "editor.formatOnSave": true,
                     "files.trimTrailingWhitespace": true
                 },

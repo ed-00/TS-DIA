@@ -1,0 +1,28 @@
+# Accelerate Configuration for DDP (Distributed Data Parallel)
+# Usage: ./docker/run_distributed.sh configs/train/training_example.yml 8 ts-dia-training my-exp configs/accelerate_ddp.yaml
+
+compute_environment: LOCAL_MACHINE
+debug: false
+
+# Distributed settings
+distributed_type: MULTI_GPU
+downcast_bf16: 'no'
+
+# GPU configuration
+gpu_ids: all
+machine_rank: 0
+main_training_function: main
+num_machines: 1
+num_processes: 8  # Set to number of GPUs (e.g., 8 for 8 GPUs, 4 for 4 GPUs)
+
+# Mixed precision
+mixed_precision: bf16  # Options: no, fp16, bf16
+
+# Other settings
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false
+

@@ -1,0 +1,61 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Checkpoints and outputs (will be mounted as volumes)
+checkpoints/
+cache/
+logs/
+wandb/
+features/
+
+# Data files (will be mounted as volumes)
+data/
+manifests/
+storage/
+
+# Documentation
+docs/
+*.md
+!docker/README.md
+
+# Docker files
+docker/
+!docker/dockerfile.nvidia
+!docker/*.sh
+!docker/volumes.env.example
+!docker/README.md
+docker/volumes.env
+Dockerfile
+.dockerignore
+
+# Misc
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
