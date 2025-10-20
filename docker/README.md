@@ -25,13 +25,27 @@ docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
 
 ## Quick Start
 
+### 0. Setup (First Time Only)
+
+Make the scripts executable:
+
+```bash
+cd /workspaces/TS-DIA
+
+# Option 1: Use the setup script
+chmod +x docker/setup_permissions.sh
+./docker/setup_permissions.sh
+
+# Option 2: Set permissions manually
+chmod +x docker/*.sh
+```
+
 ### 1. Build the Docker Image
 
 From the project root directory:
 
 ```bash
 # Build with default name (ts-dia-training)
-cd /workspaces/TS-DIA
 ./docker/build.sh
 
 # Or specify a custom image name
@@ -574,6 +588,17 @@ docker build --no-cache -t my-image -f docker/dockerfile.nvidia .
 ```
 
 ## Troubleshooting
+
+### Permission Denied on Scripts
+
+```bash
+# If you get "Permission denied" when running scripts
+chmod +x docker/*.sh
+
+# Or use the setup script
+chmod +x docker/setup_permissions.sh
+./docker/setup_permissions.sh
+```
 
 ### GPU Not Detected
 

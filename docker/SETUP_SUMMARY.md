@@ -5,6 +5,10 @@
 ### Initial Setup (One-time)
 
 ```bash
+# 0. Make scripts executable (first time only)
+chmod +x docker/*.sh
+# OR: chmod +x docker/setup_permissions.sh && ./docker/setup_permissions.sh
+
 # 1. Build the Docker image
 ./docker/build.sh
 

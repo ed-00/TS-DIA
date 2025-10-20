@@ -11,20 +11,9 @@ if [ -f "$SCRIPT_DIR/volumes.env" ]; then
 fi
 
 # Set defaults if not configured
-FAST_STORAGE=${FAST_STORAGE:-"$PROJECT_ROOT/sbt-fast"}
-SLOW_STORAGE=${SLOW_STORAGE:-"$PROJECT_ROOT/sbt-slow"}
-TEMP_STORAGE=${TEMP_STORAGE:-"$PROJECT_ROOT/sbt-temp"}
-
-# Create directories if they don't exist (for defaults)
-if [[ "$FAST_STORAGE" == "$PROJECT_ROOT/storage/fast" ]]; then
-    mkdir -p "$FAST_STORAGE"
-fi
-if [[ "$SLOW_STORAGE" == "$PROJECT_ROOT/storage/slow" ]]; then
-    mkdir -p "$SLOW_STORAGE"
-fi
-if [[ "$TEMP_STORAGE" == "$PROJECT_ROOT/storage/temp" ]]; then
-    mkdir -p "$TEMP_STORAGE"
-fi
+FAST_STORAGE=${FAST_STORAGE:-"/sbt-fast"}
+SLOW_STORAGE=${SLOW_STORAGE:-"/sbt-slow"}
+TEMP_STORAGE=${TEMP_STORAGE:-"/sbt-temp"}
 
 # Build volume mount arguments for Docker
 VOLUME_MOUNTS="-v ${FAST_STORAGE}:/storage/fast -v ${SLOW_STORAGE}:/storage/slow -v ${TEMP_STORAGE}:/storage/temp"
