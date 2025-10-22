@@ -20,7 +20,7 @@ References:
                   Pre-norm shown to improve training stability
 """
 
-from typing import Unpack
+from typing_extensions import Unpack
 
 from torch import Tensor, nn, norm, ones
 

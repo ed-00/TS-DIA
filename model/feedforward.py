@@ -15,7 +15,7 @@ This module implements:
    network training.
 """
 
-from typing import Unpack
+from typing_extensions import Unpack
 
 from torch import Tensor, nn, tensor
 

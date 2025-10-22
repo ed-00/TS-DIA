@@ -21,7 +21,8 @@ References:
 """
 
 import math
-from typing import Tuple, Unpack
+from typing import Tuple
+from typing_extensions import Unpack
 
 import torch
 from torch import Tensor, nn

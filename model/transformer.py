@@ -21,17 +21,17 @@ References:
                    https://github.com/lucidrains/performer-pytorch/blob/fc8b78441b1e27eb5d9b01fc738a8772cee07127/performer_pytorch/performer_pytorch.py
 """
 
-from typing import Unpack
 
 import torch
 from torch import Tensor, nn
+from typing_extensions import Unpack
 
-from .activations import ActivationFunctions
-from .attention import CrossAttention, MultiHeadAttention
-from .feedforward import FeedForward, ReZero
-from .norm import PreLayerNorm, PreScaleNorm
-from .types import PerformerLayerParams, PerformerParams
 from .utils import ProjectionUpdater
+from .norm import PreLayerNorm, PreScaleNorm
+from .feedforward import FeedForward, ReZero
+from .activations import ActivationFunctions
+from .types import PerformerLayerParams, PerformerParams
+from .attention import CrossAttention, MultiHeadAttention
 
 
 class PerformerLayer(nn.Module):

@@ -474,6 +474,7 @@ class Aishell4ProcessParams(BaseProcessParams):
 
     corpus_dir: Pathlike = None
     normalize_text: bool = False
+    sampling_rate: Optional[int] = None
 
 
 # ============================================================================
@@ -525,6 +526,7 @@ class AmiProcessParams(BaseProcessParams):
     normalize_text: str = "kaldi"
     max_words_per_segment: Optional[int] = None
     merge_consecutive: bool = False
+    sampling_rate: Optional[int] = None
 
 
 # ============================================================================
@@ -943,7 +945,7 @@ class IcsiProcessParams(BaseProcessParams):
     mic: Optional[str] = "ihm"
     normalize_text: str = "kaldi"
     save_to_wav: bool = False
-
+    sampling_rate: Optional[int] = None
 
 # ============================================================================
 # LIBRICSS DATASET
@@ -1527,6 +1529,7 @@ class VoxconverseProcessParams(BaseProcessParams):
 
     corpus_dir: Pathlike = None
     split_test: bool = False
+    sampling_rate: Optional[int] = None
 
 
 # ============================================================================
@@ -1647,6 +1650,7 @@ class MswildProcessParams(BaseProcessParams):
 
     corpus_dir: Pathlike = None
     splits: Optional[Dict[str, str]] = None
+    sampling_rate: int = Optional[int]
 
 
 # ============================================================================
@@ -1699,3 +1703,5 @@ class LibriheavyMixProcessParams(BaseProcessParams):
     splits: Optional[Dict[str, str]] = None
     min_speakers: int = 1  # Minimum number of speakers
     max_speakers: int = 4  # Maximum number of speakers
+    sampling_rate: Optional[int] = None  # Target sampling rate for audio
+

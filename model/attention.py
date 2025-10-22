@@ -18,7 +18,7 @@ Linear attention implementation is based on the Performer architecture:
 """
 
 import math
-from typing import Unpack
+from typing_extensions import Unpack
 
 import torch
 from torch import Tensor

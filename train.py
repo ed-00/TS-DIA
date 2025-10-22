@@ -23,6 +23,7 @@ Usage:
     # Multi-GPU training with torchrun
     torchrun --nproc_per_node=4 train.py --config configs/training_example.yml
 """
+import os
 
 from data_manager.data_manager import DatasetManager
 from model.model_factory import create_model
@@ -36,9 +37,7 @@ def main():
     # Parse unified configuration with CLI overrides
     args, model_config, dataset_configs, training_config, config_path = unified_parser()
 
-    # Create model (parser ensures configs are never None)
-    model = create_model(model_config)
-    print(f"Model created: {model_config.name}")
+
 
     # Load datasets and create diarization dataloaders (parser ensures valid configs)
     cut_sets = DatasetManager.load_datasets(datasets=dataset_configs)
@@ -93,7 +92,12 @@ def main():
         )
     )
     print(f"Diarization dataloaders created with label_type='{label_type}'")
-
+    if training_config is None:
+        print("No training configuration provided. Preprocessing complete.")
+        return
+    # Create model (parser ensures configs are never None)
+    model = create_model(model_config)
+    print(f"Model created: {model_config.name}")
     # Create trainer
     trainer = Trainer(
         model=model,
