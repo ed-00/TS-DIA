@@ -501,10 +501,10 @@ class DatasetManager:
         # If num_jobs <= 0, resolve to available CPU cores
         try:
             import os
-
             cpu_cores = os.cpu_count() or 1
         except Exception:
             cpu_cores = 1
+            
         num_jobs = feature_cfg.num_jobs if feature_cfg.num_jobs is not None else 1
         if num_jobs <= 0:
             num_jobs = cpu_cores

@@ -201,6 +201,7 @@ def prepare_libriheavy_mix(
     splits: Optional[Dict[str, str]] = None,
     min_speakers: int = 1,
     max_speakers: int = 4,
+    sampling_rate: Optional[int] = None,
 ):
     """
     Prepare the LibriheavyMix dataset for use with lhotse.
@@ -258,6 +259,14 @@ def prepare_libriheavy_mix(
             try:
                 # Load the Lhotse CutSet from the manifest file
                 from lhotse import CutSet
+
+                # If audio tar extracted and sampling_rate provided, resample audio files
+                if sampling_rate is not None:
+                    audio_root = part_dir / "audio"
+                    if audio_root.exists():
+                        from data_manager.recipes.audio_utils import resample_dir
+
+                        resample_dir(audio_root, int(sampling_rate))
 
                 cut_set = CutSet.from_file(manifest_file)
 

@@ -120,6 +120,7 @@ def prepare_voxconverse(
     corpus_dir: Pathlike,
     output_dir: Optional[Pathlike] = None,
     splits: Optional[Dict[str, str]] = None,
+    sampling_rate: Optional[int] = None,
 ):
     """
     Prepare the VoxConverse dataset for use with lhotse.
@@ -129,6 +130,7 @@ def prepare_voxconverse(
         output_dir: Directory where the prepared manifests will be saved
         splits: Dictionary mapping split names to subdirectories
                 Default: {"dev": "dev", "test": "test"}
+        sampling_rate: If specified, resample audio to this sampling rate
 
     Returns:
         Dictionary with RecordingSet and SupervisionSet for each split
@@ -179,9 +181,16 @@ def prepare_voxconverse(
             if not audio_file.exists():
                 logging.warning(f"Audio file not found: {audio_file}")
                 continue
+            # Optionally resample audio to target sampling_rate using shared helper
+            from data_manager.recipes.audio_utils import resample_if_needed
+
+            if sampling_rate:
+                audio_to_use = resample_if_needed(Path(audio_file), int(sampling_rate))
+            else:
+                audio_to_use = Path(audio_file)
 
             # Create recording
-            recording = Recording.from_file(audio_file)
+            recording = Recording.from_file(str(audio_to_use))
             recordings.append(recording)
             processed_audio_ids.add(audio_id)
 

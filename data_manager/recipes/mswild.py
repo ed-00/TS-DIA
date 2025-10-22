@@ -161,6 +161,7 @@ def prepare_mswild(
     corpus_dir: Pathlike,
     output_dir: Optional[Pathlike] = None,
     splits: Optional[Dict[str, str]] = None,
+    sampling_rate: Optional[int] = None,
 ):
     """
     Prepare the MSDWILD dataset for use with lhotse.
@@ -233,8 +234,14 @@ def prepare_mswild(
                     logging.warning(f"Audio file not found: {audio_file}")
                     continue
 
-                # Create recording
-                recording = Recording.from_file(audio_file)
+                # Create recording (resample first if needed)
+                if sampling_rate:
+                    from data_manager.recipes.audio_utils import resample_if_needed
+
+                    audio_to_use = resample_if_needed(audio_file, int(sampling_rate))
+                    recording = Recording.from_file(str(audio_to_use))
+                else:
+                    recording = Recording.from_file(audio_file)
                 recordings.append(recording)
                 processed_audio_ids.add(audio_id)
 
