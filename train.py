@@ -42,6 +42,11 @@ def main():
     # Load datasets and create diarization dataloaders (parser ensures valid configs)
     cut_sets = DatasetManager.load_datasets(datasets=dataset_configs)
 
+    # If there's no training configuration provided, stop after data prep
+    if training_config is None:
+        print("No training configuration found — datasets downloaded and prepared. Exiting.")
+        return
+
     # Extract feature configuration (parser guarantees it's never None)
     feature_config = dataset_configs[0].global_config.get_feature_config()
 
