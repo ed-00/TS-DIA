@@ -52,6 +52,7 @@ from .dataset_types import (
     DatasetConfig,
     GlobalConfig,
     LoadDatasetsParams,
+    FeatureConfig,
 )
 from .parse_args import (
     datasets_manager_parser,
@@ -64,6 +65,7 @@ __all__ = [
     "DatasetConfig",
     "LoadDatasetsParams",
     "GlobalConfig",
+    "FeatureConfig",
     # Configuration functions
     "parse_dataset_configs",
     "validate_dataset_config",

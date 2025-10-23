@@ -49,7 +49,7 @@ def download_mswild(
         download_faces: If True, download cropped faces (optional, ~14GB)
     """
     # Create dataset-specific directory
-    dataset_dir = Path(target_dir) / "mswild"
+    dataset_dir = Path(target_dir)
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
     completed_detector = dataset_dir / ".completed"

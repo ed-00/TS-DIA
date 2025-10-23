@@ -1,9 +1,9 @@
 global_config:
   force_download: false
   random_seed: 42
-  corpus_dir: ./outputs/data
-  output_dir: ./outputs/manifests
-  storage_path: ./outputs/features
+  corpus_dir: ./outputs/data/corpus
+  output_dir: ./outputs/data/manifests
+  storage_path: ./outputs/data/features
   sampling_rate: 8000
 
   features:
@@ -50,7 +50,6 @@ global_config:
   
   # Storage and computation
   storage_type: lilcom_chunky
-  storage_path: ./outputs/features  # Cache features here (dataset name will be appended automatically)
   num_jobs: 1  # Use single process for reliable caching
   device: cpu
   progress_bar: true
@@ -62,32 +61,32 @@ datasets:
       download_annotations: true
       download_videos: true
 
-  - name: libriheavy_mix
-    download_params:
-      # Dataset splits to download
-      # Options: small (~100h), medium (~900h), large (~9000h), dev, test
-      dataset_parts: large
+  # - name: libriheavy_mix
+  #   download_params:
+  #     # Dataset splits to download
+  #     # Options: small (~100h), medium (~900h), large (~9000h), dev, test
+  #     dataset_parts: small
       
-      # Number of speakers per mixture
-      # Options: 1, 2, 3, 4 (can be int or list)
-      speaker_counts: [1, 2, 3, 4]
+  #     # Number of speakers per mixture
+  #     # Options: 1, 2, 3, 4 (can be int or list)
+  #     speaker_counts: [1, 2, 3, 4]
       
-      # HuggingFace cache directory
-      cache_dir: null
+  #     # HuggingFace cache directory
+  #     cache_dir: null
     
-    process_params:
-      # Dataset splits to process
-      dataset_parts: large
+  #   process_params:
+  #     # Dataset splits to process
+  #     dataset_parts: small
 
-      # Speaker counts to process
-      speaker_counts: [1, 2, 3, 4]
+  #     # Speaker counts to process
+  #     speaker_counts: [1, 2, 3, 4]
       
-      # Speaker filtering
-      min_speakers: 1
-      max_speakers: 4
+  #     # Speaker filtering
+  #     min_speakers: 1
+  #     max_speakers: 4
       
-      # Custom split mapping (optional)
-      splits: null
+  #     # Custom split mapping (optional)
+  #     splits: null
 
   - name: ami
     download_params:

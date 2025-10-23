@@ -53,7 +53,7 @@ def download_libriheavy_mix(
         Path to the dataset directory
     """
     # Create dataset-specific directory
-    dataset_dir = Path(target_dir) / "libriheavy_mix"
+    dataset_dir = Path(target_dir)
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
     # Convert single string to list for uniform processing

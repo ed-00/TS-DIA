@@ -36,7 +36,7 @@ def download_voxconverse(
         download_test: If True, download test set audio files
     """
     # Create dataset-specific directory
-    dataset_dir = Path(target_dir) / "voxconverse"
+    dataset_dir = Path(target_dir) 
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
     completed_detector = dataset_dir / ".completed"

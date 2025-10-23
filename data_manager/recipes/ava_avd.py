@@ -32,7 +32,7 @@ def download_ava_avd(
         download_videos: If True, download video files using wget
     """
     # Create dataset-specific directory
-    dataset_dir = Path(target_dir) / "ava_avd"
+    dataset_dir = Path(target_dir)
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
     completed_detector = dataset_dir / ".completed"
