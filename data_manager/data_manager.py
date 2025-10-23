@@ -47,7 +47,7 @@ Supported Datasets:
     The system supports 50+ datasets including TIMIT, LibriSpeech, VoxCeleb,
     AMI, ICSI, CHIME6, and many others via Lhotse integration.
 """
-
+import inspect
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -504,7 +504,7 @@ class DatasetManager:
             cpu_cores = os.cpu_count() or 1
         except Exception:
             cpu_cores = 1
-            
+
         num_jobs = feature_cfg.num_jobs if feature_cfg.num_jobs is not None else 1
         if num_jobs <= 0:
             num_jobs = cpu_cores
@@ -736,6 +736,23 @@ class DatasetManager:
                     # Override with actual path if download function provided one
                     process_kwargs["corpus_dir"] = corpus_path
 
+                sig = inspect.signature(process_function)
+                valid_keys = set(sig.parameters.keys())
+
+                filtered_kwargs = {
+                    k: v for k, v in process_kwargs.items() if k in valid_keys
+                }
+
+                if len(filtered_kwargs) < len(process_kwargs):
+                    ignored_keys = set(process_kwargs.keys()) - valid_keys
+                    if ("corpus_dir" in ignored_keys) and ("data_dir" in valid_keys):
+                        filtered_kwargs["data_dir"] = process_kwargs["corpus_dir"]
+                        print("Note: 'corpus_dir' renamed to 'data_dir' for this recipe.") # Ami, and emili has sometimes diffrent argument names for the data dir
+                        ignored_keys.remove("corpus_dir")
+                    print(
+                        f"⚠️  Warning: Ignoring unsupported process parameters for {dataset.name}: {ignored_keys}"
+                    )
+
                 output_dir = Path(process_kwargs.get("output_dir", "./manifests"))
 
                 # Check if we can load existing manifests to skip preparation
@@ -752,7 +769,7 @@ class DatasetManager:
                     print(
                         f"→ Preparing {dataset.name} dataset (manifests not found, will extract audio & create manifests)"
                     )
-                    manifests = process_function(**process_kwargs)
+                    manifests = process_function(**filtered_kwargs)
 
                 # Convert manifests to structured CutSet dictionary
                 dataset_cut_sets = DatasetManager._manifests_to_cutsets_dict(

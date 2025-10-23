@@ -91,13 +91,13 @@ datasets:
   - name: ami
     download_params:
       # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
-      mic: ihm
+      mic: ihm-mix
       url: http://groups.inf.ed.ac.uk/ami
       annotations: null  # Auto-downloaded
     
     process_params:
       # Microphone type to process (must match download)
-      mic: ihm
+      mic: ihm-mix
       
       # Partition selection
       # Options: full-corpus, full-corpus-asr, scenario-only
@@ -114,14 +114,14 @@ datasets:
   - name: icsi
     download_params:
       # Microphone type: ihm (individual headset), mdm (multiple distant)
-      mic: ihm
+      mic: ihm-mix
       url: http://groups.inf.ed.ac.uk/ami
       audio_dir: null  # Auto-downloaded
       transcripts_dir: null  # Auto-downloaded
     
     process_params:
       # Microphone type to process
-      mic: ihm
+      mic: ihm-mix
       
       # Text normalization
       # Options: none, upper, kaldi

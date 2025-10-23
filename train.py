@@ -37,8 +37,6 @@ def main():
     # Parse unified configuration with CLI overrides
     args, model_config, dataset_configs, training_config, config_path = unified_parser()
 
-
-
     # Load datasets and create diarization dataloaders (parser ensures valid configs)
     cut_sets = DatasetManager.load_datasets(datasets=dataset_configs)
 

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 
+
 def _probe_sample_rate(path: Path) -> Optional[int]:
     """Try to get the sample rate of a file using wave header or ffprobe."""
     try:

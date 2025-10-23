@@ -42,6 +42,7 @@ Example:
 
 from abc import ABC
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
 from lhotse.utils import Pathlike
@@ -334,9 +335,13 @@ class DatasetConfig:
 
     def get_download_kwargs(self) -> Dict[str, Any]:
         """Get download parameters as dictionary"""
-        if isinstance(self.download_params, dict):
-            return self.download_params
-        return self.download_params.to_dict()
+        kwargs = self.download_params if isinstance(self.download_params, dict) else self.download_params.to_dict()
+
+        # Ensure target_dir is dataset-specific by appending dataset name
+        if "target_dir" in kwargs:
+            kwargs["target_dir"] = str(Path(kwargs["target_dir"]) / self.name)
+
+        return kwargs
 
     def get_process_kwargs(self) -> Dict[str, Any]:
         """Get process parameters as dictionary"""
@@ -527,6 +532,7 @@ class AmiProcessParams(BaseProcessParams):
     max_words_per_segment: Optional[int] = None
     merge_consecutive: bool = False
     sampling_rate: Optional[int] = None
+
 
 
 # ============================================================================

@@ -252,6 +252,20 @@ def unified_parser():
         help="Only parse training configuration (ignore model and datasets)",
     )
 
+    # Optional runtime overrides useful for debugging / small experiments
+    parser.add_argument(
+        "--max-download-files",
+        type=int,
+        default=None,
+        help="Limit number of files to download for each dataset (tries common param names: max_files/limit/num_files)",
+    )
+    parser.add_argument(
+        "--sampling-rate",
+        type=int,
+        default=None,
+        help="Optional override for sampling rate passed to dataset process functions (only applied if supported)",
+    )
+
     args = parser.parse_args()
 
     try:
