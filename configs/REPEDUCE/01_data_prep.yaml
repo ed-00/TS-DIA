@@ -1,9 +1,9 @@
 global_config:
   force_download: false
   random_seed: 42
-  corpus_dir: ./outputs/data/corpus
-  output_dir: ./outputs/data/manifests
-  storage_path: ./outputs/data/features
+  corpus_dir: ./outputs/data
+  output_dir: ./outputs/manifests
+  storage_path: ./outputs/features
   sampling_rate: 8000
 
   features:
