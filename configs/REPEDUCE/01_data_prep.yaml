@@ -1,9 +1,9 @@
 global_config:
   force_download: false
   random_seed: 42
-  corpus_dir: ./data/corpus
-  output_dir: ./data/manifests
-  storage_path: ./data/features
+  corpus_dir: ./outputs/data
+  output_dir: ./outputs/manifests
+  storage_path: ./outputs/features
   sampling_rate: 8000
 
   features:
@@ -50,6 +50,7 @@ global_config:
   
   # Storage and computation
   storage_type: lilcom_chunky
+  storage_path: ./outputs/features  # Cache features here (dataset name will be appended automatically)
   num_jobs: 1  # Use single process for reliable caching
   device: cpu
   progress_bar: true
