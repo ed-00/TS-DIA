@@ -88,60 +88,94 @@ datasets:
   #     # Custom split mapping (optional)
   #     splits: null
 
-  - name: ami
-    download_params:
-      # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
-      mic: ihm-mix
-      url: http://groups.inf.ed.ac.uk/ami
-      annotations: null  # Auto-downloaded
+  # - name: ami
+  #   download_params:
+  #     # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
+  #     mic: ihm-mix
+  #     url: http://groups.inf.ed.ac.uk/ami
+  #     annotations: null  # Auto-downloaded
     
-    process_params:
-      # Microphone type to process (must match download)
-      mic: ihm-mix
+  #   process_params:
+  #     # Microphone type to process (must match download)
+  #     mic: ihm-mix
       
-      # Partition selection
-      # Options: full-corpus, full-corpus-asr, scenario-only
-      partition: full-corpus
+  #     # Partition selection
+  #     # Options: full-corpus, full-corpus-asr, scenario-only
+  #     partition: full-corpus
       
-      # Text normalization
-      # Options: none, upper, kaldi
-      normalize_text: none
+  #     # Text normalization
+  #     # Options: none, upper, kaldi
+  #     normalize_text: none
       
-      # Segmentation options
-      max_words_per_segment: null  # null = no splitting
-      merge_consecutive: false  # Merge same-speaker consecutive segments
+  #     # Segmentation options
+  #     max_words_per_segment: null  # null = no splitting
+  #     merge_consecutive: false  # Merge same-speaker consecutive segments
 
-  - name: icsi
-    download_params:
-      # Microphone type: ihm (individual headset), mdm (multiple distant)
-      mic: ihm-mix
-      url: http://groups.inf.ed.ac.uk/ami
-      audio_dir: null  # Auto-downloaded
-      transcripts_dir: null  # Auto-downloaded
-    
-    process_params:
-      # Microphone type to process
-      mic: ihm-mix
-      
-      # Text normalization
-      # Options: none, upper, kaldi
-      normalize_text: none
-      
-      # Audio format conversion
-      save_to_wav: true  # Convert SPH files to WAV if needed
+  # - name: icsi
+  #   download_params:
+  #     # Microphone type: ihm (individual headset), mdm (multiple distant)
+  #     mic: ihm-mix
+  #     url: http://groups.inf.ed.ac.uk/ami
+  #     transcripts_dir: ./outputs/data/icsi/ICSI
 
-  - name: aishell4
-    download_params:
-      # Base URL for downloads
-      base_url: http://www.openslr.org/resources
-    
-    process_params:
-      # Chinese text normalization
-      normalize_text: false  # Set true to normalize Chinese characters
+  #   process_params:
+  #     # Microphone type to process
+  #     mic: ihm-mix
+      
+  #     # Text normalization
+  #     # Options: none, upper, kaldi
+  #     normalize_text: none
+      
+  #     # Audio format conversion
+  #     save_to_wav: true  # Convert SPH files to WAV if needed
+  #     output_dir: ./outputs/manifests/icsi
+  #     audio_dir: ./outputs/data/icsi/speech
+  #     transcripts_dir: ./outputs/data/icsi/ICSI
 
-  - name: voxconverse
-    download_params:
-      corpus_dir: null  # Will use global_config corpus_dir/voxconverse
+  # - name: aishell4
+  #   download_params:
+  #     # Base URL for downloads
+  #     base_url: http://www.openslr.org/resources
     
-    process_params:
-      split_test: false  # Whether to split test set
+  #   process_params:
+  #     # Chinese text normalization
+  #     normalize_text: false  # Set true to normalize Chinese characters
+
+  # - name: voxconverse
+  #   download_params:
+  #     corpus_dir: null  # Will use global_config corpus_dir/voxconverse
+    
+  #   process_params:
+  #     split_test: false  # Whether to split test set
+
+
+  # - name: ego4d
+  #   download_params:
+  #     # Dataset parts to download
+  #     # Options: clips, annotations, metadata, takes, captures, etc.
+  #     dataset_parts: ["clips", "annotations"]
+      
+  #     # Auto-install Ego4D CLI if not available
+  #     install_cli: true
+      
+  #     # Download timeout (seconds)
+  #     timeout: 3600
+      
+  #     # Path to .env file for environment variables
+  #     env_file: ./.env  # Load AWS credentials from project .env file
+    
+  #   process_params:
+  #     # Audio extraction settings
+  #     extract_audio: true
+  #     audio_sample_rate: 16000
+      
+  #     # Segment duration constraints
+  #     min_segment_duration: 0.5  # seconds
+  #     max_segment_duration: 30.0  # seconds
+      
+  #     # Limit number of clips for testing (0 = no limit)
+  #     max_clips: 0
+      
+  #     # Filter annotations by type (e.g., "av" for audio-visual)
+  #     annotation_subset: "av"  # null = all annotations
+

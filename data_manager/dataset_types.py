@@ -1608,7 +1608,7 @@ class Ego4dProcessParams(BaseProcessParams):
     max_segment_duration: float = 30.0  # Maximum segment duration in seconds
     max_clips: int = 0  # 0 means no limit; otherwise limit number of clips
     annotation_subset: Optional[str] = None  # e.g., "av" to target AV annotations
-
+    sampling_rate: Optional[int] = None  # Target sampling rate for audio
 
 # ============================================================================
 # YESNO DATASET

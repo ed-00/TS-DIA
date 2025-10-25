@@ -45,12 +45,18 @@ import json
 import logging
 import os
 import subprocess
+from collections import defaultdict
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 from dotenv import load_dotenv
-from lhotse import CutSet, Recording
+from lhotse import (
+    CutSet,
+    Recording,
+    fix_manifests,
+    validate_recordings_and_supervisions,
+)
 from lhotse.audio import RecordingSet
 from lhotse.supervision import SupervisionSegment, SupervisionSet
 from lhotse.utils import Pathlike
@@ -164,6 +170,26 @@ def download_ego4d(
     os.environ["AWS_ACCESS_KEY_ID"] = aws_access_key_id
     os.environ["AWS_SECRET_ACCESS_KEY"] = aws_access_key
 
+    # Ensure ego4d CLI sees a usable AWS profile (some versions require it)
+    aws_profile = os.environ.get("AWS_PROFILE", "default")
+    credentials_dir = Path(target_dir) / ".aws"
+    credentials_dir.mkdir(parents=True, exist_ok=True)
+    credentials_file = credentials_dir / "credentials"
+
+    credentials_contents = (
+        f"[{aws_profile}]\n"
+        f"aws_access_key_id={aws_access_key_id}\n"
+        f"aws_secret_access_key={aws_access_key}\n"
+    )
+
+    try:
+        credentials_file.write_text(credentials_contents)
+    except OSError as exc:
+        logger.warning(f"Failed to write AWS shared credentials file: {exc}")
+    else:
+        os.environ.setdefault("AWS_PROFILE", aws_profile)
+        os.environ["AWS_SHARED_CREDENTIALS_FILE"] = str(credentials_file)
+
     # Set default dataset parts for audio diarization
     if dataset_parts is None:
         dataset_parts = [Ego4DPart.CLIPS, Ego4DPart.ANNOTATIONS]
@@ -269,8 +295,19 @@ def download_ego4d(
         return target_dir
 
     except subprocess.CalledProcessError as e:
-        logger.error(f"Download failed: {e.stderr}")
-        raise RuntimeError(f"Download failed: {e.stderr}")
+        stderr = e.stderr or ""
+        if "403" in stderr:
+            hint = (
+                "Received 403 (Forbidden) from S3. Your Ego4D credentials may not "
+                "have access to the requested dataset parts. Confirm that the "
+                "credentials are active and tied to the Ego4D program, or request "
+                "approved access."
+            )
+            logger.error(hint)
+            raise RuntimeError(f"Download failed with 403 Forbidden. {hint}") from e
+
+        logger.error(f"Download failed: {stderr}")
+        raise RuntimeError(f"Download failed: {stderr}")
     except subprocess.TimeoutExpired:
         logger.error(f"Download timed out after {timeout} seconds")
         raise RuntimeError(f"Download timed out after {timeout} seconds")
@@ -418,6 +455,35 @@ def _process_ego4d_annotations(
         return []
 
 
+def _infer_annotation_split(stem: str, annotation_subset: Optional[str]) -> str:
+    """Infer split name (train/val/test) from annotation filename stem."""
+
+    normalized = stem.lower().replace("-", "_")
+    if annotation_subset:
+        prefix = annotation_subset.lower()
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :]
+            normalized = normalized.lstrip("_- ")
+
+    tokens = [token for token in normalized.split("_") if token]
+    mapping = {
+        "train": "train",
+        "training": "train",
+        "val": "val",
+        "validation": "val",
+        "dev": "val",
+        "test": "test",
+        "eval": "test",
+    }
+
+    for token in reversed(tokens):
+        mapped = mapping.get(token)
+        if mapped:
+            return mapped
+
+    return tokens[-1] if tokens else "train"
+
+
 def prepare_ego4d(
     corpus_dir: Pathlike,
     output_dir: Pathlike,
@@ -451,9 +517,6 @@ def prepare_ego4d(
 
     logger.info(f"Preparing Ego4D dataset from {corpus_dir}")
 
-    recordings = []
-    supervisions = []
-
     # Find video clips directory (support v1 and v2 layouts)
     clips_dir_v1 = corpus_dir / "v1" / "clips"
     clips_dir_v2 = corpus_dir / "v2" / "clips"
@@ -468,8 +531,24 @@ def prepare_ego4d(
     if not clips_dir.exists():
         raise ValueError(f"Clips directory not found: {clips_dir}")
 
-    # Process annotations if available
-    annotation_segments = []
+    video_files = sorted(list(clips_dir.glob("*.mp4")) + list(clips_dir.glob("*.avi")))
+    if not video_files:
+        logger.warning("No video files found in clips directory")
+        empty_recordings = RecordingSet.from_recordings([])
+        empty_supervisions = SupervisionSet.from_segments([])
+        empty_cuts = CutSet.from_cuts([])
+        return {
+            "train": {
+                "recordings": empty_recordings,
+                "supervisions": empty_supervisions,
+                "cuts": empty_cuts,
+            }
+        }
+
+    video_file_map = {video.stem: video for video in video_files}
+
+    # Load annotation segments, grouped by split (train/val/test)
+    annotation_segments_by_split: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     if annotations_dir.exists():
         ann_files: List[Path] = []
         if annotation_subset and annotation_subset.startswith("av"):
@@ -479,121 +558,172 @@ def prepare_ego4d(
             ann_files.extend(sorted(annotations_dir.glob("*.json")))
             ann_files.extend(sorted(annotations_dir.glob("*.jsonl")))
 
+        if not ann_files:
+            logger.warning("No annotation files found for Ego4D")
+
         for ann_file in ann_files:
             segments = _process_ego4d_annotations(ann_file, annotation_subset)
-            annotation_segments.extend(segments)
+            if not segments:
+                continue
+            split_name = _infer_annotation_split(ann_file.stem, annotation_subset)
+            annotation_segments_by_split[split_name].extend(segments)
+    else:
+        logger.warning("Annotation directory not found; proceeding without supervisions")
 
-    # Process video files
-    video_files = list(clips_dir.glob("*.mp4")) + list(clips_dir.glob("*.avi"))
+    if not annotation_segments_by_split:
+        # Ensure we still create at least one split for audio-only usage
+        annotation_segments_by_split["train"] = []
 
-    # Apply max_clips limit if specified
-    if max_clips is not None and max_clips > 0:
-        video_files = video_files[:max_clips]
+    # Determine which videos belong to each split
+    video_ids_by_split: Dict[str, List[str]] = {}
+    for split, segments in annotation_segments_by_split.items():
+        unique_ids = sorted(
+            {segment.get("video_uid") for segment in segments if segment.get("video_uid")}
+        )
+        if not unique_ids:
+            unique_ids = [video.stem for video in video_files]
 
-    if not video_files:
-        logger.warning("No video files found in clips directory")
-        return {
-            "recordings": RecordingSet.from_recordings([]),
-            "supervisions": SupervisionSet.from_segments([]),
-        }
+        if max_clips is not None and max_clips > 0:
+            unique_ids = unique_ids[: max_clips]
 
-    logger.info(f"Found {len(video_files)} video files")
+        video_ids_by_split[split] = unique_ids
 
-    for video_file in video_files:
+    recordings_cache: Dict[str, Recording] = {}
+
+    def get_recording(video_id: str) -> Optional[Recording]:
+        if video_id in recordings_cache:
+            return recordings_cache[video_id]
+
+        video_path = video_file_map.get(video_id)
+        if not video_path or not video_path.exists():
+            logger.warning(f"Video file not found for {video_id}")
+            return None
+
+        source_path = video_path
+        if extract_audio:
+            audio_path = output_dir / f"{video_id}.wav"
+            if not audio_path.exists():
+                logger.info(f"Extracting audio from {video_path.name}")
+                if not _extract_audio_from_video(
+                    video_path, audio_path, audio_sample_rate
+                ):
+                    logger.warning(f"Failed to extract audio from {video_path.name}")
+                    return None
+            source_path = audio_path
+
         try:
-            # Extract audio if requested
-            if extract_audio:
-                audio_file = output_dir / f"{video_file.stem}.wav"
-                if not audio_file.exists():
-                    logger.info(f"Extracting audio from {video_file.name}")
-                    if not _extract_audio_from_video(
-                        video_file, audio_file, audio_sample_rate
-                    ):
-                        logger.warning(
-                            f"Failed to extract audio from {video_file.name}"
-                        )
-                        continue
-            else:
-                # Use video file directly (Lhotse can handle video files)
-                audio_file = video_file
-
-            # Create recording
-            recording_id = video_file.stem
-            recording = Recording(
-                id=recording_id,
-                sources=[{"type": "file", "channels": [0], "source": str(audio_file)}],
-                sampling_rate=audio_sample_rate,
-                num_samples=int(10 * audio_sample_rate),  # Assume 10 seconds for now
-                duration=10.0,
-            )
-            recordings.append(recording)
-
-            # Create supervisions from annotations
-            video_segments = [
-                seg
-                for seg in annotation_segments
-                if seg.get("video_uid") == recording_id
-            ]
-
-            for i, segment in enumerate(video_segments):
-                start_time = segment["start_time"]
-                end_time = segment["end_time"]
-
-                # Filter by duration
-                duration = end_time - start_time
-                if duration < min_segment_duration or duration > max_segment_duration:
-                    continue
-
-                supervision = SupervisionSegment(
-                    id=f"{recording_id}_{i}",
-                    recording_id=recording_id,
-                    start=start_time,
-                    duration=duration,
-                    speaker=segment["speaker_id"],
-                    language="en",  # Ego4D is primarily English
-                    text="",  # No transcript available
-                    custom={
-                        "confidence": segment["confidence"],
-                        "video_uid": segment["video_uid"],
-                    },
-                )
-                supervisions.append(supervision)
-
+            recording = Recording.from_file(str(source_path), recording_id=video_id)
         except Exception as e:
-            logger.warning(f"Error processing {video_file.name}: {e}")
+            logger.warning(f"Could not create recording for {video_id}: {e}")
+            return None
+
+        recordings_cache[video_id] = recording
+        return recording
+
+    manifests_by_split: Dict[
+        str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]
+    ] = {}
+    multiple_splits = len(video_ids_by_split) > 1
+
+    for split, video_ids in video_ids_by_split.items():
+        recordings: List[Recording] = []
+        available_ids: Set[str] = set()
+
+        for video_id in video_ids:
+            recording = get_recording(video_id)
+            if recording is None:
+                continue
+            recordings.append(recording)
+            available_ids.add(recording.id)
+
+        if not recordings:
+            logger.warning(f"No recordings created for {split} split")
             continue
 
-    # Create manifests
-    if not recordings:
-        logger.warning("No recordings created")
-        return {
-            "recordings": RecordingSet.from_recordings([]),
-            "supervisions": SupervisionSet.from_segments([]),
+        segments = [
+            segment
+            for segment in annotation_segments_by_split.get(split, [])
+            if segment.get("video_uid") in available_ids
+        ]
+
+        supervisions: List[SupervisionSegment] = []
+        for idx, segment in enumerate(segments):
+            start_time = float(segment.get("start_time", 0.0))
+            end_time = float(segment.get("end_time", 0.0))
+            duration = end_time - start_time
+
+            if duration <= 0:
+                continue
+            if duration < min_segment_duration or duration > max_segment_duration:
+                continue
+
+            recording_id = segment.get("video_uid")
+            speaker_id = segment.get("speaker_id", "unknown")
+
+            supervision = SupervisionSegment(
+                id=f"{recording_id}_{idx}",
+                recording_id=recording_id,
+                start=start_time,
+                duration=duration,
+                speaker=speaker_id,
+                channel=0,
+                language="en",
+                text="",
+                custom={
+                    "confidence": segment.get("confidence", 1.0),
+                    "video_uid": recording_id,
+                },
+            )
+            supervisions.append(supervision)
+
+        recording_set = RecordingSet.from_recordings(recordings)
+        supervision_set = SupervisionSet.from_segments(supervisions)
+
+        if supervisions:
+            try:
+                recording_set, supervision_set = fix_manifests(
+                    recording_set, supervision_set
+                )
+                validate_recordings_and_supervisions(recording_set, supervision_set)
+            except Exception as e:
+                logger.warning(f"Manifest validation failed for {split} split: {e}")
+
+        cut_set = CutSet.from_manifests(
+            recordings=recording_set,
+            supervisions=supervision_set if supervisions else None,
+        )
+
+        suffix = f"_{split}" if multiple_splits or split != "train" else ""
+        recording_set.to_file(output_dir / f"ego4d_recordings{suffix}.jsonl.gz")
+        supervision_set.to_file(output_dir / f"ego4d_supervisions{suffix}.jsonl.gz")
+        cut_set.to_file(output_dir / f"ego4d_cuts{suffix}.jsonl.gz")
+
+        manifests_by_split[split] = {
+            "recordings": recording_set,
+            "supervisions": supervision_set,
+            "cuts": cut_set,
         }
 
-    recording_set = RecordingSet.from_recordings(recordings)
-    supervision_set = SupervisionSet.from_segments(supervisions)
+    if not manifests_by_split:
+        logger.warning("No valid Ego4D manifests were produced")
+        empty_recordings = RecordingSet.from_recordings([])
+        empty_supervisions = SupervisionSet.from_segments([])
+        empty_cuts = CutSet.from_cuts([])
+        return {
+            "train": {
+                "recordings": empty_recordings,
+                "supervisions": empty_supervisions,
+                "cuts": empty_cuts,
+            }
+        }
 
-    # Create CutSet for diarization
-    cut_set = CutSet.from_manifests(
-        recordings=recording_set, supervisions=supervision_set
-    )
+    for split, manifest in manifests_by_split.items():
+        rec_count = len(manifest["recordings"])
+        sup_count = len(manifest["supervisions"])
+        logger.info(f"{split} split: {rec_count} recordings, {sup_count} supervisions")
 
-    # Save manifests
-    recording_set.to_file(output_dir / "ego4d_recordings.jsonl.gz")
-    supervision_set.to_file(output_dir / "ego4d_supervisions.jsonl.gz")
-    cut_set.to_file(output_dir / "ego4d_cuts.jsonl.gz")
-
-    logger.info(
-        f"Created {len(recording_set)} recordings and {len(supervision_set)} supervisions"
-    )
     logger.info(f"Manifests saved to {output_dir}")
-
-    return {
-        "recordings": recording_set,
-        "supervisions": supervision_set,
-        "cuts": cut_set,
-    }
+    return manifests_by_split
 
 
 # Export functions for use in dataset management

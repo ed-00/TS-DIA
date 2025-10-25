@@ -189,8 +189,10 @@ def prepare_voxconverse(
             else:
                 audio_to_use = Path(audio_file)
 
-            # Create recording
-            recording = Recording.from_file(str(audio_to_use))
+            # Create recording with a stable ID even when resampled
+            recording = Recording.from_file(
+                path=str(audio_to_use), recording_id=audio_id
+            )
             recordings.append(recording)
             processed_audio_ids.add(audio_id)
 

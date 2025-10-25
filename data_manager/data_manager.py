@@ -735,9 +735,18 @@ class DatasetManager:
                 elif corpus_path and "corpus_dir" in process_kwargs:
                     # Override with actual path if download function provided one
                     process_kwargs["corpus_dir"] = corpus_path
-
+                
+                
                 sig = inspect.signature(process_function)
                 valid_keys = set(sig.parameters.keys())
+                
+                if corpus_path:
+                    if "audio_dir" in valid_keys:
+                        process_kwargs["audio_dir"] = corpus_path
+                    elif "data_dir" in valid_keys:
+                        process_kwargs["data_dir"] = corpus_path
+                    elif "corpus_dir" in valid_keys:
+                        process_kwargs["corpus_dir"] = corpus_path
 
                 filtered_kwargs = {
                     k: v for k, v in process_kwargs.items() if k in valid_keys
@@ -745,13 +754,21 @@ class DatasetManager:
 
                 if len(filtered_kwargs) < len(process_kwargs):
                     ignored_keys = set(process_kwargs.keys()) - valid_keys
-                    if ("corpus_dir" in ignored_keys) and ("data_dir" in valid_keys):
-                        filtered_kwargs["data_dir"] = process_kwargs["corpus_dir"]
-                        print("Note: 'corpus_dir' renamed to 'data_dir' for this recipe.") # Ami, and emili has sometimes diffrent argument names for the data dir
-                        ignored_keys.remove("corpus_dir")
-                    print(
-                        f"⚠️  Warning: Ignoring unsupported process parameters for {dataset.name}: {ignored_keys}"
-                    )
+                    # If the user provided a generic 'corpus_dir', remap it where possible
+                    if "corpus_dir" in ignored_keys:
+                        if "audio_dir" in valid_keys:
+                            filtered_kwargs["audio_dir"] = process_kwargs["corpus_dir"]
+                            print("Note: 'corpus_dir' renamed to 'audio_dir' for this recipe.")
+                            ignored_keys.remove("corpus_dir")
+                        elif "data_dir" in valid_keys:
+                            filtered_kwargs["data_dir"] = process_kwargs["corpus_dir"]
+                            print("Note: 'corpus_dir' renamed to 'data_dir' for this recipe.")
+                            ignored_keys.remove("corpus_dir")
+
+                    if ignored_keys:
+                        print(
+                            f"⚠️  Warning: Ignoring unsupported process parameters for {dataset.name}: {ignored_keys}"
+                        )
 
                 output_dir = Path(process_kwargs.get("output_dir", "./manifests"))
 

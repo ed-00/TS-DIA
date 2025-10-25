@@ -14,35 +14,35 @@ Week 43, the transformer model is implementd, the data need to be preped to star
     [ ] Store the altered lables while keeping the audio files untouched 
 
 [ ] Run the prep function or all the datasets 
-    [ ] LibriheavyMix 
+    <!-- [ ] LibriheavyMix 
         [x] yaml
         [ ] download
+        [ ] validate -->
+    [x] Ami 
+        [x] yaml
+        [x] download
+        [x] validate
+    [x] ICSI 
+        [x] yaml
+        [x] download
         [ ] validate
-    [ ] Ami 
+    [x] AISHELL-4
         [x] yaml
-        [ ] download
+        [x] download
         [ ] validate
-    [ ] ICSI 
+    [x] VoxConverse
         [x] yaml
-        [ ] download
+        [x] download
         [ ] validate
-    [ ] AISHELL-4
+    [x] Ava-Avd
         [x] yaml
-        [ ] download
-        [ ] validate
-    [ ] VoxConverse
-        [x] yaml
-        [ ] download
-        [ ] validate
-    [ ] Ava-Avd
-        [x] yaml
-        [ ] download
+        [x] download
         [ ] validate 
-    [ ] Ego-4d
+    <!-- [ ] Ego-4d
         [x] Apply for access again
         [x] yaml
         [ ] download
-        [ ] validate
+        [ ] validate -->
 
 
 [ ] Validate and Create descriptions for all the datasets. 

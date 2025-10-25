@@ -361,7 +361,7 @@ training:
   # Hyperparameter Tuning (Advanced, optional)
   # ---------------------------------------------------------------------------
   tuning:
-    library: null                   # Options: raytune, optuna, null
+    library: null                   # Options: raytune, optuna, null (not implemented yet)
     search_space:
       # Uncomment to enable hyperparameter search
       # lr: [0.00001, 0.0001, 0.0005]

@@ -18,3 +18,4 @@ tensorboard>=2.20.0
 wandb>=0.22.2
 tqdm>=4.67.1
 typing-extensions>=4.15.0
+textgrid>=1.6.1
