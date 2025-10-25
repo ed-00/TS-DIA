@@ -370,12 +370,26 @@ class DatasetManager:
                 manifest_dir / f"{dataset_name}_cuts_{split_name}.jsonl.gz",
             ]
 
-            # Find which pattern exists
-            recordings_path = next((p for p in recordings_patterns if p.exists()), None)
-            supervisions_path = next(
-                (p for p in supervisions_patterns if p.exists()), None
+            # Wildcard helpers handle recipe-specific prefixes (e.g., ami-ihm-mix_*)
+            def resolve_manifest(patterns, glob_suffix):
+                for path in patterns:
+                    if path.exists():
+                        return path
+                wildcard = next(
+                    (p for p in manifest_dir.glob(f"*{glob_suffix}")),
+                    None,
+                )
+                return wildcard
+
+            recordings_path = resolve_manifest(
+                recordings_patterns, f"recordings_{split_name}.jsonl.gz"
             )
-            cuts_path = next((p for p in cuts_patterns if p.exists()), None)
+            supervisions_path = resolve_manifest(
+                supervisions_patterns, f"supervisions_{split_name}.jsonl.gz"
+            )
+            cuts_path = resolve_manifest(
+                cuts_patterns, f"cuts_{split_name}.jsonl.gz"
+            )
 
             # Need at least recordings or cuts
             if not (recordings_path or cuts_path):
