@@ -1,8 +1,12 @@
+import json
 import logging
+import re
 import subprocess
 import tarfile
 from pathlib import Path
 from typing import Dict, Optional
+
+import soundfile as sf
 
 from lhotse import fix_manifests, validate_recordings_and_supervisions
 from lhotse.audio import Recording, RecordingSet
@@ -166,7 +170,20 @@ def prepare_ava_avd(
 
         recordings = []
         supervisions = []
-        processed_video_ids = set()  # Track processed video files to avoid duplicates
+        recordings_map: Dict[str, Recording] = {}
+        failed_videos: set[str] = set()
+        failed_chunks: set[str] = set()
+        video_path_cache: Dict[str, Path] = {}
+        video_duration_cache: Dict[str, float] = {}
+
+        audio_root = corpus_dir / "audio" / split_name
+        audio_root.mkdir(parents=True, exist_ok=True)
+
+        chunk_pattern = re.compile(r"_c_(\d+)$")
+        base_chunk_offset = 900.0
+        chunk_stride = 300.0
+        start_pad = 1.0
+        end_pad = 1.0
 
         # Get split list to filter videos
         split_list_file = corpus_dir / "dataset" / "split" / f"{split_dir}.list"
@@ -190,40 +207,100 @@ def prepare_ava_avd(
             continue
 
         for annotation_file in tqdm(annotation_files, desc=f"Processing {split_name}"):
-            # Extract video ID from annotation filename (e.g., "vfjywN5CN0Y_c_02.lab" -> "vfjywN5CN0Y")
-            video_id = annotation_file.stem.split("_")[0]  # Remove suffix like "_c_02"
+            chunk_id = annotation_file.stem
 
-            # Check if this video ID is in the split (need to check against base video IDs)
-            # Split entries are like "video_id_c_01", "video_id_c_02", etc.
-            video_in_split = any(
-                entry.startswith(video_id + "_c_") for entry in split_video_entries
-            )
-            if not video_in_split:
+            if chunk_id not in split_video_entries:
                 continue
 
-            # Skip if we've already processed this video file
-            if video_id in processed_video_ids:
+            base_video_id = re.sub(r"_c_\d+$", "", chunk_id)
+            if not base_video_id:
+                logging.warning(
+                    f"Unable to infer base video id from annotation {annotation_file.name}"
+                )
                 continue
 
-            # Find corresponding video file (try common video extensions)
-            video_file = None
-            for ext in [".mp4", ".avi", ".mov", ".mkv"]:
-                potential_video = videos_dir / f"{video_id}{ext}"
-                if potential_video.exists():
-                    video_file = potential_video
-                    break
-
-            if video_file is None:
-                logging.warning(f"Video file not found for: {video_id}")
+            if base_video_id in failed_videos or chunk_id in failed_chunks:
                 continue
 
-            # Create recording from video file with faster method
+            chunk_match = chunk_pattern.search(chunk_id)
+            if not chunk_match:
+                logging.warning(
+                    "Could not parse chunk index from %s", annotation_file.name
+                )
+                failed_chunks.add(chunk_id)
+                continue
+
             try:
-                # Use ffprobe directly for faster metadata extraction
-                import json
-                import subprocess
+                segments = []
+                min_start = float("inf")
+                max_end = 0.0
+                with open(annotation_file, "r") as f:
+                    for line_idx, line in enumerate(f):
+                        line = line.strip()
+                        if not line:
+                            continue
 
-                # Get video info using ffprobe (much faster than TorchAudio)
+                        if annotation_file.suffix.lower() == ".lab":
+                            parts = line.split()
+                            if len(parts) < 3:
+                                continue
+                            start_time = float(parts[0])
+                            end_time = float(parts[1])
+                            label = parts[2]
+                            if label != "speech":
+                                continue
+                            segments.append((line_idx, start_time, end_time, "speech"))
+                        elif annotation_file.suffix.lower() == ".rttm":
+                            if not line.startswith("SPEAKER"):
+                                continue
+                            parts = line.split()
+                            if len(parts) < 8:
+                                continue
+                            start_time = float(parts[3])
+                            duration = float(parts[4])
+                            end_time = start_time + duration
+                            speaker = parts[7]
+                            segments.append((line_idx, start_time, end_time, speaker))
+                        else:
+                            continue
+
+                        min_start = min(min_start, start_time)
+                        max_end = max(max_end, end_time)
+            except Exception as exc:  # noqa: BLE001
+                logging.warning(
+                    "Error reading annotation file %s: %s", annotation_file, exc
+                )
+                failed_chunks.add(chunk_id)
+                continue
+
+            if not segments:
+                continue
+
+            chunk_index = int(chunk_match.group(1))
+            expected_offset = base_chunk_offset + (chunk_index - 1) * chunk_stride
+            chunk_start = min(expected_offset, min_start) - start_pad
+            if chunk_start < 0.0:
+                chunk_start = 0.0
+            chunk_end_expected = expected_offset + chunk_stride
+            chunk_end = max(chunk_end_expected, max_end) + end_pad
+
+            # Locate video file and metadata
+            video_file = video_path_cache.get(base_video_id)
+            if video_file is None:
+                for ext in [".mp4", ".avi", ".mov", ".mkv", ".webm"]:
+                    candidate = videos_dir / f"{base_video_id}{ext}"
+                    if candidate.exists():
+                        video_file = candidate
+                        video_path_cache[base_video_id] = candidate
+                        break
+                if video_file is None:
+                    logging.warning(f"Video file not found for: {base_video_id}")
+                    failed_videos.add(base_video_id)
+                    failed_chunks.add(chunk_id)
+                    continue
+
+            video_duration = video_duration_cache.get(base_video_id)
+            if video_duration is None:
                 cmd = [
                     "ffprobe",
                     "-v",
@@ -231,146 +308,149 @@ def prepare_ava_avd(
                     "-print_format",
                     "json",
                     "-show_format",
-                    "-show_streams",
                     str(video_file),
                 ]
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                if result.returncode != 0:
+                    logging.warning(
+                        "ffprobe failed for %s: %s", video_file, result.stderr
+                    )
+                    failed_videos.add(base_video_id)
+                    failed_chunks.add(chunk_id)
+                    continue
+                info = json.loads(result.stdout)
+                video_duration = float(info["format"]["duration"])
+                video_duration_cache[base_video_id] = video_duration
 
-                if result.returncode == 0:
-                    info = json.loads(result.stdout)
-                    duration = float(info["format"]["duration"])
-                    # Use the sampling_rate parameter instead of hardcoded value
-                    sample_rate = sampling_rate
-                    num_channels = 1  # Default mono
+            if chunk_start >= video_duration:
+                logging.warning(
+                    "Chunk %s starts beyond video duration (%.2f ≥ %.2f)",
+                    chunk_id,
+                    chunk_start,
+                    video_duration,
+                )
+                failed_chunks.add(chunk_id)
+                continue
 
-                    # Extract audio from video to WAV file
-                    # This fixes the Lhotse AudioSource type='video' issue
-                    audio_dir = corpus_dir / "audio"
-                    audio_dir.mkdir(parents=True, exist_ok=True)
-                    audio_file = audio_dir / f"{video_id}.wav"
+            chunk_end = min(chunk_end, video_duration)
+            if chunk_end <= chunk_start:
+                logging.warning(
+                    "Chunk %s has non-positive duration after clamping (start=%.2f, end=%.2f)",
+                    chunk_id,
+                    chunk_start,
+                    chunk_end,
+                )
+                failed_chunks.add(chunk_id)
+                continue
 
-                    # Extract audio if not already extracted
-                    if not audio_file.exists():
-                        logging.info(
-                            f"Extracting audio from {video_id} at {sample_rate}Hz..."
+            chunk_duration = chunk_end - chunk_start
+            audio_file = audio_root / f"{chunk_id}.wav"
+
+            need_extract = True
+            if audio_file.exists():
+                try:
+                    with sf.SoundFile(audio_file) as snd_file:
+                        existing_sr = snd_file.samplerate
+                        existing_duration = snd_file.frames / snd_file.samplerate
+                    duration_diff = abs(existing_duration - chunk_duration)
+                    if existing_sr == sampling_rate and duration_diff <= 0.25:
+                        need_extract = False
+                except Exception:  # noqa: BLE001
+                    need_extract = True
+
+            if need_extract:
+                if audio_file.exists():
+                    try:
+                        audio_file.unlink()
+                    except OSError as exc:  # noqa: BLE001
+                        logging.warning(
+                            "Unable to remove stale audio file %s: %s",
+                            audio_file,
+                            exc,
                         )
-                        extract_cmd = [
-                            "ffmpeg",
-                            "-i",
-                            str(video_file),
-                            "-vn",  # No video
-                            "-acodec",
-                            "pcm_s16le",  # 16-bit PCM
-                            "-ar",
-                            str(sample_rate),  # Resample to configured rate
-                            "-ac",
-                            str(num_channels),  # Mono
-                            "-y",  # Overwrite if exists
-                            str(audio_file),
-                        ]
-                        try:
-                            subprocess.run(
-                                extract_cmd,
-                                check=True,
-                                capture_output=True,
-                                timeout=300,  # 5 minute timeout per file
-                            )
-                            logging.info(f"Audio extracted: {audio_file}")
-                        except subprocess.CalledProcessError as e:
-                            logging.warning(
-                                f"Failed to extract audio for {video_id}: {e.stderr.decode()}"
-                            )
-                            continue
-                        except subprocess.TimeoutExpired:
-                            logging.warning(
-                                f"Audio extraction timed out for {video_id}"
-                            )
-                            continue
+                        failed_chunks.add(chunk_id)
+                        continue
 
-                    # Create recording with extracted audio file
-                    from lhotse.audio import AudioSource
-
-                    audio_source = AudioSource(
-                        type="file",  # Use 'file' instead of 'video'
-                        channels=list(range(num_channels)),
-                        source=str(audio_file),
+                logging.info(
+                    "Extracting audio for %s (%.2fs @ %d Hz)",
+                    chunk_id,
+                    chunk_duration,
+                    sampling_rate,
+                )
+                extract_cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-nostdin",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    str(video_file),
+                    "-ss",
+                    f"{chunk_start:.3f}",
+                    "-t",
+                    f"{chunk_duration:.3f}",
+                    "-vn",
+                    "-acodec",
+                    "pcm_s16le",
+                    "-ar",
+                    str(sampling_rate),
+                    "-ac",
+                    "1",
+                    str(audio_file),
+                ]
+                try:
+                    subprocess.run(
+                        extract_cmd,
+                        check=True,
+                        capture_output=True,
+                        timeout=300,
                     )
-
-                    recording = Recording(
-                        id=video_id,
-                        sources=[audio_source],
-                        sampling_rate=sample_rate,
-                        num_samples=int(duration * sample_rate),
-                        duration=duration,
+                except subprocess.CalledProcessError as exc:  # noqa: PERF203
+                    logging.warning(
+                        "Failed to extract chunk %s: %s",
+                        chunk_id,
+                        exc.stderr.decode() if exc.stderr else exc,
                     )
-                    recordings.append(recording)
-                    processed_video_ids.add(video_id)
-                    logging.info(
-                        f"Created recording: {video_id}, duration: {duration:.2f}s"
-                    )
-                else:
-                    logging.warning(f"ffprobe failed for {video_file}: {result.stderr}")
+                    failed_chunks.add(chunk_id)
+                    continue
+                except subprocess.TimeoutExpired:
+                    logging.warning("Audio extraction timed out for %s", chunk_id)
+                    failed_chunks.add(chunk_id)
                     continue
 
-            except Exception as e:
-                logging.warning(f"Error creating recording for {video_id}: {e}")
-                continue
+            if chunk_id not in recordings_map:
+                try:
+                    recording = Recording.from_file(audio_file, recording_id=chunk_id)
+                except Exception as exc:  # noqa: BLE001
+                    logging.warning("Failed to create recording for %s: %s", chunk_id, exc)
+                    failed_chunks.add(chunk_id)
+                    continue
+                recordings.append(recording)
+                recordings_map[chunk_id] = recording
 
-            # Read annotation file to get segments
-            try:
-                with open(annotation_file, "r") as f:
-                    for line_idx, line in enumerate(f):
-                        line = line.strip()
-                        if not line:
-                            continue
+            recording = recordings_map[chunk_id]
+            recording_duration = recording.duration
 
-                        # Handle lab format
-                        if annotation_file.suffix.lower() == ".lab":
-                            parts = line.split()
-                            if len(parts) >= 3:
-                                start_time = float(parts[0])
-                                end_time = float(parts[1])
-                                label = parts[2]
-
-                                # Only process speech segments
-                                if label == "speech":
-                                    duration = end_time - start_time
-                                    supervisions.append(
-                                        SupervisionSegment(
-                                            id=f"{video_id}-{line_idx}",
-                                            recording_id=video_id,
-                                            start=start_time,
-                                            duration=duration,
-                                            channel=0,
-                                            speaker="speech",  # AVA-AVD doesn't have speaker labels
-                                        )
-                                    )
-
-                        # Handle RTTM format
-                        elif annotation_file.suffix.lower() == ".rttm":
-                            if line.startswith("SPEAKER"):
-                                parts = line.split()
-                                if len(parts) >= 8:
-                                    start_time = float(parts[3])
-                                    duration = float(parts[4])
-                                    speaker = parts[7]
-
-                                    supervisions.append(
-                                        SupervisionSegment(
-                                            id=f"{video_id}-{line_idx}",
-                                            recording_id=video_id,
-                                            start=start_time,
-                                            duration=duration,
-                                            channel=0,
-                                            speaker=speaker,
-                                        )
-                                    )
-
-            except Exception as e:
-                logging.warning(
-                    f"Error processing annotation file {annotation_file}: {e}"
+            for line_idx, start_time, end_time, speaker in segments:
+                start_in_chunk = start_time - chunk_start
+                end_in_chunk = end_time - chunk_start
+                if end_in_chunk <= start_in_chunk:
+                    continue
+                start_in_chunk = max(0.0, start_in_chunk)
+                end_in_chunk = min(recording_duration, max(0.0, end_in_chunk))
+                duration = end_in_chunk - start_in_chunk
+                if duration <= 0:
+                    continue
+                supervisions.append(
+                    SupervisionSegment(
+                        id=f"{chunk_id}-{line_idx}",
+                        recording_id=chunk_id,
+                        start=start_in_chunk,
+                        duration=duration,
+                        channel=0,
+                        speaker=speaker,
+                    )
                 )
-                continue
 
         if not recordings:
             logging.warning(f"No recordings found for {split_name} split")
