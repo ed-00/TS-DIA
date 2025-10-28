@@ -2,7 +2,7 @@
 # Data prep plan 
 Week 43, the transformer model is implementd, the data need to be preped to start training on the diarization data. 
 
-[ ]  Decide on a preprocessing standard for all the datasets 
+[x]  Decide on a preprocessing standard for all the datasets 
     [x] Choose sample rate (8khz becasue many other studies use that) 
     [x] Choose window and overlap, 25ms window 10ms overlap (AED-EEND uses that) 
     [x] Choose feature dimentions, 345 feature dimentitions ie 21 feature bins
@@ -13,7 +13,7 @@ Week 43, the transformer model is implementd, the data need to be preped to star
     [ ] Convert diarization lables from R^(SxT) to (C x T)
     [ ] Store the altered lables while keeping the audio files untouched 
 
-[ ] Run the prep function or all the datasets 
+[x] Run the prep function or all the datasets 
     <!-- [ ] LibriheavyMix 
         [x] yaml
         [ ] download
@@ -25,19 +25,23 @@ Week 43, the transformer model is implementd, the data need to be preped to star
     [x] ICSI 
         [x] yaml
         [x] download
-        [ ] validate
+        [x] validate
     [x] AISHELL-4
         [x] yaml
         [x] download
-        [ ] validate
+        [x] validate
     [x] VoxConverse
         [x] yaml
         [x] download
-        [ ] validate
+        [x] validate
     [x] Ava-Avd
         [x] yaml
         [x] download
-        [ ] validate 
+        [x] validate 
+    [x] mswild 
+        [x] yaml
+        [x] download
+        [x] validate 
     <!-- [ ] Ego-4d
         [x] Apply for access again
         [x] yaml
@@ -49,4 +53,20 @@ Week 43, the transformer model is implementd, the data need to be preped to star
 
 [ ] Write the Datasets sections in the paper. 
 
+[ ] prep data simiulation useing mini_librispeech
+    [ ] Setup kaldi continer 
+    [ ] clone mini_librispeech recipe
+    [ ] prepare datasets with varing overlap threshold 
+        [ ] train 20k h 
+        [ ] 1 - 4 speakers N(1, 4)
+            [ ] overlap threshold modification 
+            [ ] 100 h val for each combo
+
+    [ ] ensure lhosete compatability 
+
+[ ] setup training experiments 
+    [ ] softmax attention
+    [ ] linear attention 
+
+ 
 

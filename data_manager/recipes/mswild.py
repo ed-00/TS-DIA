@@ -16,6 +16,7 @@ import shutil
 import zipfile
 from pathlib import Path
 from typing import Dict, Optional
+from data_manager.recipes.audio_utils import resample_if_needed
 
 import gdown
 from lhotse import fix_manifests, validate_recordings_and_supervisions
@@ -178,7 +179,7 @@ def prepare_mswild(
     corpus_dir = Path(corpus_dir)
 
     if splits is None:
-        splits = {"train": "few_train", "dev": "few_val", "test": "many_val"}
+        splits = {"train": "few.train", "dev": "few.val", "test": "many.val"}
 
     manifests = {}
 
@@ -222,35 +223,45 @@ def prepare_mswild(
                             audio_segments[audio_id].append((start, duration, speaker))
 
             # Process each audio file referenced in the RTTM
-            for audio_id, segments in audio_segments.items():
+            for original_audio_id, segments in audio_segments.items():
                 # Skip if we've already processed this audio file
-                if audio_id in processed_audio_ids:
+                if original_audio_id in processed_audio_ids:
                     continue
 
-                audio_file = corpus_dir / "wavs" / "wav" / f"{audio_id}.wav"
+                audio_file = corpus_dir / "wavs" / "wav" / f"{original_audio_id}.wav"
+                actual_audio_id = original_audio_id  # This will be updated if using resampled file
 
                 # Check if audio file exists
                 if not audio_file.exists():
                     logging.warning(f"Audio file not found: {audio_file}")
-                    continue
+                    # Look for any resampled version with pattern: original_id_sr*.wav
+                    wavs_dir = corpus_dir / "wavs" / "wav"
+                    resampled_files = list(wavs_dir.glob(f"{original_audio_id}_sr*.wav"))
+                    if resampled_files:
+                        # Use the first resampled file found
+                        audio_file = resampled_files[0]
+                        # Extract the actual filename without extension to use as ID
+                        actual_audio_id = audio_file.stem
+                        logging.info(f"Using resampled audio file: {audio_file}")
+                    else:
+                        logging.warning(f"Neither original nor resampled audio file found for {original_audio_id}")
+                        continue
 
                 # Create recording (resample first if needed)
                 if sampling_rate:
-                    from data_manager.recipes.audio_utils import resample_if_needed
-
                     audio_to_use = resample_if_needed(audio_file, int(sampling_rate))
-                    recording = Recording.from_file(str(audio_to_use))
+                    recording = Recording.from_file(str(audio_to_use), recording_id=actual_audio_id)
                 else:
-                    recording = Recording.from_file(audio_file)
+                    recording = Recording.from_file(str(audio_file), recording_id=actual_audio_id)
                 recordings.append(recording)
-                processed_audio_ids.add(audio_id)
+                processed_audio_ids.add(original_audio_id)
 
                 # Create supervisions for this audio file
                 for segment_idx, (start, duration, speaker) in enumerate(segments):
                     supervisions.append(
                         SupervisionSegment(
-                            id=f"{audio_id}-{segment_idx}",
-                            recording_id=audio_id,
+                            id=f"{actual_audio_id}-{segment_idx}",
+                            recording_id=actual_audio_id,
                             start=start,
                             duration=duration,
                             channel=0,

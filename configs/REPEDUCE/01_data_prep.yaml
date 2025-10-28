@@ -56,10 +56,10 @@ global_config:
   cut_window_seconds: 50  # Window long recordings before extraction
 
 datasets:
-  - name: ava_avd
-    download_params:
-      download_annotations: true
-      download_videos: true
+  # - name: ava_avd
+  #   download_params:
+  #     download_annotations: true
+  #     download_videos: true
 
   # - name: libriheavy_mix
   #   download_params:
@@ -179,3 +179,17 @@ datasets:
   #     # Filter annotations by type (e.g., "av" for audio-visual)
   #     annotation_subset: "av"  # null = all annotations
 
+  - name: mswild
+    download_params:
+      # Multi-modal data downloads
+      download_audio: true  # ~7.56 GB (required)
+      download_video: false  # ~43.14 GB (manual download required)
+      download_faces: false  # ~14.49 GB (manual download required)
+    
+    process_params:
+      # Split name to RTTM pattern mapping
+      # Default: {"train": "few_train", "dev": "few_val", "test": "many_val"}
+      splits:
+        train: few_train
+        dev: few_val
+        test: many_val
