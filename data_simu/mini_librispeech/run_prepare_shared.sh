@@ -15,7 +15,7 @@ stage=0
 
 # This script distributes simulated data under these directories
 simu_actual_dirs=(
-$PWD/data/local/diarization-data
+/workspace/TS-DIA/outputs/kaldi_mini_librispeech/simu2
 )
 
 # simulation options
@@ -29,7 +29,7 @@ simu_opts_max_utts=20
 
 . path.sh
 . cmd.sh
-. parse_options.sh || exit
+# . parse_options.sh || exit
 
 if [ $stage -le 0 ]; then
     echo "prepare kaldi-style datasets"
@@ -87,7 +87,7 @@ if [ $stage -le 1 ]; then
                     --sil_scale $simu_opts_sil_scale \
                     data/$dset data/musan_bgnoise data/simu_rirs_8k \
                     \> $simudir/.work/mixture_$simuid.scp
-                nj=100
+                nj=1
                 mkdir -p $simudir/wav/$simuid
                 # distribute simulated data to $simu_actual_dir
                 split_scps=

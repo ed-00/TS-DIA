@@ -42,6 +42,27 @@ Week 43, the transformer model is implementd, the data need to be preped to star
         [x] yaml
         [x] download
         [x] validate 
+
+    [ ] DIHARD III
+        [ ] yaml
+        [ ] download
+        [ ] validate 
+    [ ] CHiME-6
+        [ ] yaml
+        [ ] download
+        [ ] validate 
+    [ ] LibriCSS
+        [ ] yaml
+        [ ] download
+        [ ] validate 
+    [ ] TED-LIUM v2/v3
+        [ ] yaml
+        [ ] download
+        [ ] validate 
+    [ ] VoxCeleb1 & 2
+        [ ] yaml
+        [ ] download
+        [ ] validate 
     <!-- [ ] Ego-4d
         [x] Apply for access again
         [x] yaml

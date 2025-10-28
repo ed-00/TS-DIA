@@ -37,6 +37,8 @@ miniconda3: miniconda3.sh
 
 # virtual environment of python
 miniconda3/envs/eend/bin: miniconda3
+	yes | miniconda3/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+	yes | miniconda3/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
 	miniconda3/bin/conda update -y conda
 	miniconda3/bin/conda env create -f environment.yml
 ifeq ($(CUDA_AVAILABLE),1)

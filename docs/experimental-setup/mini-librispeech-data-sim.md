@@ -29,3 +29,17 @@ Following the experimental design, we simulate mixtures with varying numbers of 
 # pretraining 
 The pretraining process will be conducted on a combitnation of all the simulated mixures to train for 100 epochs. 
 
+25 epochs on data types
+
+- Meeting: 
+    - ami 
+    - icsi
+    - aishell 4 
+
+- In the wild
+    - AVA_avd
+    - voxconverse 
+    - MsWild  
+    - ego-4d
+
+

@@ -179,17 +179,90 @@ datasets:
   #     # Filter annotations by type (e.g., "av" for audio-visual)
   #     annotation_subset: "av"  # null = all annotations
 
-  - name: mswild
-    download_params:
-      # Multi-modal data downloads
-      download_audio: true  # ~7.56 GB (required)
-      download_video: false  # ~43.14 GB (manual download required)
-      download_faces: false  # ~14.49 GB (manual download required)
+  # - name: mswild
+  #   download_params:
+  #     # Multi-modal data downloads
+  #     download_audio: true  # ~7.56 GB (required)
+  #     download_video: false  # ~43.14 GB (manual download required)
+  #     download_faces: false  # ~14.49 GB (manual download required)
+
+    # process_params:
+    #   # Split name to RTTM pattern mapping
+    #   # Default: {"train": "few_train", "dev": "few_val", "test": "many_val"}
+    #   splits:
+    #     train: few_train
+    #     dev: few_val
+    #     test: many_val
+
+
+  # - name: voxceleb1
+  #   download_params: {}
+    
+  #   # Note: VoxCeleb processing combines voxceleb1 and voxceleb2
+  #   # Use voxceleb1_root in process_params
+  #   process_params: {}
+
+  # - name: voxceleb2
+  #   download_params: {}
+    
+  #   # Note: VoxCeleb processing combines voxceleb1 and voxceleb2
+  #   # Use voxceleb2_root in process_params
+  #   process_params: {}
+
+  # - name: tedlium
+  #   download_params: {}
+    
+  #   process_params:
+  #     # TED-LIUM root directory
+  #     tedlium_root: null
+      
+  #     # Dataset parts to process
+  #     # Options: null (auto-detect), or specific parts
+  #     dataset_parts: null
+      
+  #     # Text normalization
+  #     # Options: none, upper, lower, kaldi
+  #     normalize_text: none
+
+  - name: libricss
+    download_params: {}
     
     process_params:
-      # Split name to RTTM pattern mapping
-      # Default: {"train": "few_train", "dev": "few_val", "test": "many_val"}
-      splits:
-        train: few_train
-        dev: few_val
-        test: many_val
+      # Recording type
+      # Options: mdm (multiple distant microphone)
+      type: ihm-mix
+      
+      # Generate segmented cuts
+      segmented_cuts: false
+      
+  - name: chime6
+    download_params: {}
+    
+    process_params:
+      # Dataset parts to process
+      # Options: all, train, dev, eval
+      dataset_parts: all
+      
+      # Microphone type: mdm (multiple distant microphone)
+      mic: ihm-mix
+      
+      # Use reference array
+      use_reference_array: false
+      
+      # Perform array synchronization
+      perform_array_sync: false
+      
+      # Verify MD5 checksums
+      verify_md5_checksums: false
+      
+      # Number of threads per job
+      num_threads_per_job: 1
+      
+      # Path to sox binary
+      sox_path: /usr/bin/sox
+      
+      # Text normalization
+      normalize_text: null
+      
+      # Use CHiME-7 split
+      use_chime7_split: false

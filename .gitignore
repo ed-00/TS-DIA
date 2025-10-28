@@ -24,3 +24,11 @@ checkpoints/*
 wandb/*
 *.log
 *.lca
+data_simu/mini_librispeech/data
+
+data_simu/tools/miniconda3.sh
+data_simu/tools/miniconda3
+data_simu/tools/kaldi
+data_simu/mini_librispeech/sim_rir_8k.zip 
+
+*.zip

@@ -10,34 +10,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	ca-certificates \
 	curl \
 	ffmpeg \
-	gawk \
+	flac \
 	git \
 	libsndfile1 \
+	locales \
 	parallel \
 	perl \
-	python3 \
-	python3-dev \
-	python3-pip \
-	python3-venv \
 	sox \
 	unzip \
 	wget \
 	&& rm -rf /var/lib/apt/lists/*
 
-RUN ln -s /usr/bin/python3 /usr/local/bin/python && \
-	python -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
-	python -m pip install --no-cache-dir \
-		h5py \
-		kaldiio \
-		librosa \
-		matplotlib \
-		numpy \
-		protobuf \
-		scipy \
-		soundfile \
-		tqdm \
-		yamlargparse
+# Set locale environment variables
+ENV LANG=C.UTF-8 \
+	LANGUAGE=C.UTF-8 \
+	LC_ALL=C.UTF-8
 
 # Set working directory
 WORKDIR /workspace
+
+# Copy the Kaldi tooling Makefile and supporting files
+COPY data_simu/tools /workspace/data_simu/tools
+
+# Build the Kaldi tooling environment during the image build, reusing the prebuilt Kaldi at /opt/kaldi
+RUN make -C /workspace/data_simu/tools KALDI=/opt/kaldi all
 

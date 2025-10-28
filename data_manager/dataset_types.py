@@ -643,6 +643,7 @@ class Chime6ProcessParams(BaseProcessParams):
     sox_path: Pathlike = "/usr/bin/sox"
     normalize_text: str = "kaldi"
     use_chime7_split: bool = False
+    sampling_rate: Optional[int] = None 
 
 
 # ============================================================================
@@ -972,6 +973,7 @@ class LibricssProcessParams(BaseProcessParams):
     corpus_dir: Pathlike = None
     type: str = "mdm"
     segmented_cuts: bool = False
+    sampling_rate: Optional[int] = None 
 
 
 # ============================================================================
@@ -1313,6 +1315,7 @@ class TedliumProcessParams(BaseProcessParams):
     tedlium_root: Pathlike = None
     dataset_parts: Union[str, Sequence[str]] = None  # TEDLIUM_PARTS
     normalize_text: str = "none"
+    sampling_rate: Optional[int] = None
 
 
 # ============================================================================
@@ -1362,6 +1365,7 @@ class VoxcelebProcessParams(BaseProcessParams):
 
     voxceleb1_root: Optional[Pathlike] = None
     voxceleb2_root: Optional[Pathlike] = None
+    sampling_rate: Optional[int] = None
 
 
 # ============================================================================

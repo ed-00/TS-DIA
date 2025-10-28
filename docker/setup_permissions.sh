@@ -4,12 +4,14 @@
 
 echo "Setting executable permissions on Docker scripts..."
 
-chmod +x docker/build.sh
-chmod +x docker/run.sh
-chmod +x docker/run_training.sh
-chmod +x docker/run_distributed.sh
-chmod +x docker/run_cpu.sh
-chmod +x docker/volume_config.sh
+chmod +x ./docker/build.sh
+chmod +x ./docker/run.sh
+chmod +x ./docker/run_training.sh
+chmod +x ./docker/run_distributed.sh
+chmod +x ./docker/run_cpu.sh
+chmod +x ./docker/volume_config.sh
+chhmod +x ./docker/kaldi_run_cpu.sh
+chmod +x ./docker/kaldi_run.sh
 
 echo "Done! All scripts are now executable."
 echo ""

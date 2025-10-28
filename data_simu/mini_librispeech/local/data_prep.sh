@@ -85,4 +85,4 @@ utils/validate_data_dir.sh --no-feats $dst || exit 1;
 
 echo "$0: successfully prepared data in $dst"
 
-exit 0
+exit 0                                                                              

@@ -104,6 +104,51 @@ def __is_implemented_dataset(dataset_name: str) -> bool:
     )
 
 
+def __is_divertion_from_standard(dataset_name: str) -> bool:
+    """Checks for diffrent yet uncommon naming conventions that exist
+
+    Args:
+        dataset_name (str): the name of the dataset
+
+    Returns:
+        bool: true is the dataset has both download and prepare function.
+    """
+    if dataset_name == "voxceleb1" or dataset_name == "voxceleb2":
+        return True
+    return False
+
+
+def fetch_diversion(
+    dataset_name: str
+   ) -> Tuple[
+    Callable[
+        ...,
+        Union[
+            Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]],
+            Dict[str, Union[RecordingSet, SupervisionSet, CutSet]],
+            Tuple[RecordingSet, SupervisionSet],
+            Union[RecordingSet, SupervisionSet],
+            Any,
+        ],
+    ],
+    Optional[
+        Callable[
+            ...,
+            Union[
+                Path,
+                None,
+                Any,
+            ],
+        ]
+    ],
+]:
+    if not __is_divertion_from_standard(dataset_name):
+        raise ValueError(f"Not in the Diversion list {dataset_name}, do not use this funciton for other than (voxceleb 1/2)")
+    from lhotse.recipes.voxceleb import  prepare_voxceleb
+    download_function_name = f"download_{dataset_name}"
+    download_function = getattr(lh.recipes, download_function_name)
+    return (prepare_voxceleb, download_function)
+
 def select_recipe(
     dataset_name: str,
 ) -> Tuple[
@@ -147,6 +192,7 @@ def select_recipe(
           * Any (for functions without type annotations)
 
     """
+
     if __is_custom_recipe(dataset_name):
         download_function_name = f"download_{dataset_name}"
         download_function = getattr(recipes, download_function_name)
@@ -159,6 +205,8 @@ def select_recipe(
         process_function_name = f"prepare_{dataset_name}"
         process_function = getattr(lh.recipes, process_function_name)
         return (process_function, download_function)
+    elif __is_divertion_from_standard(dataset_name):
+        return fetch_diversion(dataset_name)
     else:
         raise ValueError(
             f"Dataset {dataset_name} is not implemented, double check the dataset name and the recipe, available datasets: {list_available_datasets()}"
@@ -345,7 +393,7 @@ class DatasetManager:
                 split_name = filename.split("_recordings_")[1]
                 splits.add(split_name)
             elif filename.startswith("recordings_"):
-                split_name = filename[len("recordings_") :]
+                split_name = filename[len("recordings_"):]
                 splits.add(split_name)
 
         if not splits:
@@ -359,11 +407,13 @@ class DatasetManager:
             # Try both with and without dataset prefix
             recordings_patterns = [
                 manifest_dir / f"recordings_{split_name}.jsonl.gz",
-                manifest_dir / f"{dataset_name}_recordings_{split_name}.jsonl.gz",
+                manifest_dir /
+                f"{dataset_name}_recordings_{split_name}.jsonl.gz",
             ]
             supervisions_patterns = [
                 manifest_dir / f"supervisions_{split_name}.jsonl.gz",
-                manifest_dir / f"{dataset_name}_supervisions_{split_name}.jsonl.gz",
+                manifest_dir /
+                f"{dataset_name}_supervisions_{split_name}.jsonl.gz",
             ]
             cuts_patterns = [
                 manifest_dir / f"cuts_{split_name}.jsonl.gz",
@@ -397,7 +447,8 @@ class DatasetManager:
 
             # Use eager loading (not lazy) for BucketingSampler compatibility
             if recordings_path:
-                split_manifests["recordings"] = RecordingSet.from_file(recordings_path)
+                split_manifests["recordings"] = RecordingSet.from_file(
+                    recordings_path)
 
             if supervisions_path:
                 split_manifests["supervisions"] = SupervisionSet.from_file(
@@ -432,11 +483,13 @@ class DatasetManager:
         cache_path = storage_path / f"cuts_{split_name}_with_feats.jsonl.gz"
 
         if cache_path.exists():
-            print(f"  ✓ {split_name}: Loaded from cache (skip feature extraction)")
+            print(
+                f"  ✓ {split_name}: Loaded from cache (skip feature extraction)")
             # Use load_manifest (eager) instead of load_manifest_lazy for BucketingSampler compatibility
             return load_manifest(cache_path)
 
-        print(f"  → {split_name}: No cache found (will extract features on first use)")
+        print(
+            f"  → {split_name}: No cache found (will extract features on first use)")
         return None
 
     @staticmethod
@@ -509,7 +562,8 @@ class DatasetManager:
                 )
             )
         else:
-            raise ValueError(f"Unsupported feature type: {feature_cfg.feature_type}")
+            raise ValueError(
+                f"Unsupported feature type: {feature_cfg.feature_type}")
 
         # Determine parallelism and pytorch threads
         # If num_jobs <= 0, resolve to available CPU cores
@@ -533,7 +587,8 @@ class DatasetManager:
             try:
                 window_sec = float(feature_cfg.cut_window_seconds)
                 # Use sliding windows with no overlap for simplicity; can be made configurable
-                cuts = cuts.cut_into_windows(duration=window_sec, hop=window_sec)
+                cuts = cuts.cut_into_windows(
+                    duration=window_sec, hop=window_sec)
             except Exception as e:
                 print(f"Warning: failed to window cuts: {e}")
 
@@ -738,7 +793,8 @@ class DatasetManager:
             # Download dataset if download function exists
             corpus_path = None
             if download_function:
-                corpus_path = download_function(**dataset.get_download_kwargs())
+                 corpus_path = download_function(
+                    **dataset.get_download_kwargs())
 
             # Process dataset to get manifests
             if process_function:
@@ -749,11 +805,10 @@ class DatasetManager:
                 elif corpus_path and "corpus_dir" in process_kwargs:
                     # Override with actual path if download function provided one
                     process_kwargs["corpus_dir"] = corpus_path
-                
-                
+
                 sig = inspect.signature(process_function)
                 valid_keys = set(sig.parameters.keys())
-                
+
                 if corpus_path:
                     if "audio_dir" in valid_keys:
                         process_kwargs["audio_dir"] = corpus_path
@@ -772,11 +827,13 @@ class DatasetManager:
                     if "corpus_dir" in ignored_keys:
                         if "audio_dir" in valid_keys:
                             filtered_kwargs["audio_dir"] = process_kwargs["corpus_dir"]
-                            print("Note: 'corpus_dir' renamed to 'audio_dir' for this recipe.")
+                            print(
+                                "Note: 'corpus_dir' renamed to 'audio_dir' for this recipe.")
                             ignored_keys.remove("corpus_dir")
                         elif "data_dir" in valid_keys:
                             filtered_kwargs["data_dir"] = process_kwargs["corpus_dir"]
-                            print("Note: 'corpus_dir' renamed to 'data_dir' for this recipe.")
+                            print(
+                                "Note: 'corpus_dir' renamed to 'data_dir' for this recipe.")
                             ignored_keys.remove("corpus_dir")
 
                     if ignored_keys:
@@ -784,7 +841,8 @@ class DatasetManager:
                             f"⚠️  Warning: Ignoring unsupported process parameters for {dataset.name}: {ignored_keys}"
                         )
 
-                output_dir = Path(process_kwargs.get("output_dir", "./manifests"))
+                output_dir = Path(process_kwargs.get(
+                    "output_dir", "./manifests"))
 
                 # Check if we can load existing manifests to skip preparation
                 existing_manifests = DatasetManager._try_load_existing_manifests(
@@ -818,7 +876,8 @@ class DatasetManager:
                 )
 
                 # Try to load or compute features depending on data loading strategy
-                data_loading = getattr(dataset.global_config, "data_loading", None)
+                data_loading = getattr(
+                    dataset.global_config, "data_loading", None)
                 dl_strategy = (
                     data_loading.strategy
                     if data_loading is not None
@@ -832,7 +891,8 @@ class DatasetManager:
                     if base_storage_path:
                         # Append dataset name to create dataset-specific cache directory
                         for split_name, cuts in dataset_cut_sets.items():
-                            storage_path = Path(base_storage_path) / dataset.name
+                            storage_path = Path(
+                                base_storage_path) / dataset.name
                             cached_cuts = (
                                 DatasetManager._load_cached_cuts_with_features(
                                     storage_path, split_name
@@ -911,7 +971,8 @@ class DatasetManager:
                 return {"train": cut_sets_list[0]} if cut_sets_list else {}
 
         # For non-dict formats (tuple, single RecordingSet, etc.), convert and return as "train"
-        cut_sets_list = DatasetManager._manifests_to_cutsets(manifests, dataset_name)
+        cut_sets_list = DatasetManager._manifests_to_cutsets(
+            manifests, dataset_name)
         if not cut_sets_list:
             return {}
 
