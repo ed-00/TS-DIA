@@ -18,7 +18,7 @@ simu_actual_dirs=(
 /workspace/TS-DIA/outputs/kaldi_mini_librispeech/simu2
 )
 
-# simulation options
+# simulation options - defaults
 simu_opts_overlap=yes
 simu_opts_num_speaker=2
 simu_opts_sil_scale=2
@@ -27,9 +27,78 @@ simu_opts_num_train=100
 simu_opts_min_utts=10
 simu_opts_max_utts=20
 
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --overlap)
+            simu_opts_overlap="$2"
+            shift 2
+            ;;
+        --num-speaker)
+            simu_opts_num_speaker="$2"
+            shift 2
+            ;;
+        --sil-scale)
+            simu_opts_sil_scale="$2"
+            shift 2
+            ;;
+        --rvb-prob)
+            simu_opts_rvb_prob="$2"
+            shift 2
+            ;;
+        --num-train)
+            simu_opts_num_train="$2"
+            shift 2
+            ;;
+        --min-utts)
+            simu_opts_min_utts="$2"
+            shift 2
+            ;;
+        --max-utts)
+            simu_opts_max_utts="$2"
+            shift 2
+            ;;
+        --stage)
+            stage="$2"
+            shift 2
+            ;;
+        --help|-h)
+            echo "Usage: $0 [OPTIONS]"
+            echo "Options:"
+            echo "  --overlap VALUE       Enable/disable overlap (yes/no, default: yes)"
+            echo "  --num-speaker VALUE   Number of speakers (default: 2)"
+            echo "  --sil-scale VALUE     Silence scale factor (default: 2)"
+            echo "  --rvb-prob VALUE      Reverberation probability (default: 0.5)"
+            echo "  --num-train VALUE     Number of training samples (default: 100)"
+            echo "  --min-utts VALUE      Minimum utterances (default: 10)"
+            echo "  --max-utts VALUE      Maximum utterances (default: 20)"
+            echo "  --stage VALUE         Starting stage (default: 0)"
+            echo "  --help, -h            Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
 . path.sh
 . cmd.sh
 # . parse_options.sh || exit
+
+# Display current configuration
+echo "=== Simulation Configuration ==="
+echo "Overlap: $simu_opts_overlap"
+echo "Number of speakers: $simu_opts_num_speaker"
+echo "Silence scale: $simu_opts_sil_scale"
+echo "Reverberation probability: $simu_opts_rvb_prob"
+echo "Number of training samples: $simu_opts_num_train"
+echo "Minimum utterances: $simu_opts_min_utts"
+echo "Maximum utterances: $simu_opts_max_utts"
+echo "Starting stage: $stage"
+echo "================================"
 
 if [ $stage -le 0 ]; then
     echo "prepare kaldi-style datasets"

@@ -29,6 +29,35 @@ data_simu/mini_librispeech/data
 data_simu/tools/miniconda3.sh
 data_simu/tools/miniconda3
 data_simu/tools/kaldi
-data_simu/mini_librispeech/sim_rir_8k.zip 
 
+# Large files in data_simu directory
+data_simu/mini_librispeech/sim_rir_8k.zip
+data_simu/**/*.zip
+data_simu/**/*.tar.gz
+data_simu/**/*.tar
+data_simu/**/*.rar
+data_simu/**/*.7z
+
+# Large audio/video files
+**/*.wav
+**/*.flac
+**/*.mp3
+**/*.mp4
+**/*.avi
+**/*.mov
+
+# Archive files
 *.zip
+*.tar.gz
+*.tar
+*.rar
+*.7z
+
+# Large model files
+*.bin
+*.pth
+*.pt
+*.ckpt
+*.h5
+*.pkl
+*.pickle
