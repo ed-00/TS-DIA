@@ -15,7 +15,7 @@ stage=0
 
 # This script distributes simulated data under these directories
 simu_actual_dirs=(
-/workspace/TS-DIA/outputs/kaldi_mini_librispeech/simu2
+   $PWD/data/local/diarization-datasimu
 )
 
 # simulation options - defaults
@@ -145,7 +145,7 @@ if [ $stage -le 1 ]; then
 
     for simu_opts_sil_scale in 2; do
         for dset in train_clean_5 dev_clean_2; do
-            n_mixtures=500
+            n_mixtures=$simu_opts_num_train
             simuid=${dset}_ns${simu_opts_num_speaker}_beta${simu_opts_sil_scale}_${n_mixtures}
             # check if you have the simulation
             if ! validate_data_dir.sh --no-text --no-feats $simudir/data/$simuid; then

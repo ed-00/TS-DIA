@@ -61,3 +61,5 @@ data_simu/**/*.7z
 *.h5
 *.pkl
 *.pickle
+
+data_simu/mini_librispeech/LICENCE.musan_bgnoise
