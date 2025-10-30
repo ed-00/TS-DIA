@@ -55,8 +55,9 @@ fi
 docker run --rm \
     --gpus all \
     --user $(id -u):$(id -g) \
-    -e HOME=/workspace \
+    -e HOME=/tmp \
     -e USER=$(whoami) \
+    -w /workspace \
     --ipc=host \
     --shm-size=16g \
     --ulimit memlock=-1 \

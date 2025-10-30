@@ -46,8 +46,9 @@ echo ""
 eval docker run --rm \
     ${GPU_FLAG} \
     --user $(id -u):$(id -g) \
-    -e HOME=/workspace \
+    -e HOME=/tmp \
     -e USER=$(whoami) \
+    -w /workspace \
     --ipc=host \
     --shm-size=16g \
     --ulimit memlock=-1 \
