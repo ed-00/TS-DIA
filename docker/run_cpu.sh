@@ -33,6 +33,8 @@ if [ "$COMMAND" = "/bin/bash" ]; then
     docker run -it --rm \
         --cpus="$(nproc)" \
         --user $(id -u):$(id -g) \
+        -e HOME=/workspace \
+        -e USER=$(whoami) \
         --ipc=host \
         --shm-size=16g \
         --name ${CONTAINER_NAME} \
@@ -46,6 +48,8 @@ else
     docker run --rm \
         --cpus="$(nproc)" \
         --user $(id -u):$(id -g) \
+        -e HOME=/workspace \
+        -e USER=$(whoami) \
         --ipc=host \
         --shm-size=16g \
         --name ${CONTAINER_NAME} \
