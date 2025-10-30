@@ -156,7 +156,7 @@ if [ $stage -le 1 ]; then
                     --sil_scale $simu_opts_sil_scale \
                     data/$dset data/musan_bgnoise data/simu_rirs_8k \
                     \> $simudir/.work/mixture_$simuid.scp
-                nj=1
+                nj=32
                 mkdir -p $simudir/wav/$simuid
                 # distribute simulated data to $simu_actual_dir
                 split_scps=
