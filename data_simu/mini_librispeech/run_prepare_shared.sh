@@ -88,6 +88,7 @@ done
 . cmd.sh
 # . parse_options.sh || exit
 
+
 # Display current configuration
 echo "=== Simulation Configuration ==="
 echo "Overlap: $simu_opts_overlap"
@@ -143,10 +144,9 @@ if [ $stage -le 1 ]; then
         make_mixture_cmd=make_mixture.py
     fi
 
-    for simu_opts_sil_scale in 2; do
-        for dset in train_clean_5 dev_clean_2; do
-            n_mixtures=$simu_opts_num_train
-            simuid=${dset}_ns${simu_opts_num_speaker}_beta${simu_opts_sil_scale}_${n_mixtures}
+    for dset in train_clean_5 dev_clean_2; do
+        n_mixtures=$simu_opts_num_train
+        simuid=${dset}_ns${simu_opts_num_speaker}_beta${simu_opts_sil_scale}_${n_mixtures}
             # check if you have the simulation
             if ! validate_data_dir.sh --no-text --no-feats $simudir/data/$simuid; then
                 # random mixture generation
@@ -180,5 +180,4 @@ if [ $stage -le 1 ]; then
                 utils/data/get_reco2dur.sh $simudir/data/$simuid
             fi
         done
-    done
 fi

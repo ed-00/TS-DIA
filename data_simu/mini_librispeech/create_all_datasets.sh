@@ -39,8 +39,16 @@ generate_dataset() {
     
     print_status "Generating ${dataset_name} ${split} - Speakers: ${num_speakers}, Mixtures: ${num_mixtures}, β: ${beta}"
     
-    # Create output directory if it doesn't exist
-    output_dir="data/simu_${dataset_name,,}_${split,,}_ns${num_speakers}_beta${beta}_${num_mixtures}"
+    # Map split to dataset name used by run_prepare_shared.sh
+    local dset
+    if [ "$split" = "Train" ]; then
+        dset="train_clean_5"
+    else
+        dset="dev_clean_2"
+    fi
+    
+    # Create output directory path matching run_prepare_shared.sh naming
+    output_dir="data/simu/data/${dset}_ns${num_speakers}_beta${beta}_${num_mixtures}"
     
     # Check if dataset already exists
     if [ -d "$output_dir" ] && [ -f "$output_dir/.done" ]; then
@@ -147,7 +155,6 @@ show_help() {
 
 # Parse command line arguments
 DRY_RUN=false
-RESUME=true  # Default to resume mode
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -160,7 +167,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --resume)
-            RESUME=true
+            # Resume mode is now default behavior (skip existing datasets)
             shift
             ;;
         *)
