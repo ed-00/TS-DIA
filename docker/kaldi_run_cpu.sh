@@ -34,7 +34,7 @@ if [ "$COMMAND" = "/bin/bash" ]; then
         --cpus="$(nproc)" \
         --user $(id -u):$(id -g) \
         -e HOME=/tmp \
-        -e USER=$(whoami) \
+        -e USER=kaldi \
         -w /workspace \
         --ipc=host \
         --shm-size=16g \
@@ -50,7 +50,7 @@ else
         --cpus="$(nproc)" \
         --user $(id -u):$(id -g) \
         -e HOME=/tmp \
-        -e USER=$(whoami) \
+        -e USER=kaldi \
         -w /workspace \
         --ipc=host \
         --shm-size=16g \

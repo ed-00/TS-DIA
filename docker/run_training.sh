@@ -47,7 +47,7 @@ eval docker run --rm \
     ${GPU_FLAG} \
     --user $(id -u):$(id -g) \
     -e HOME=/tmp \
-    -e USER=$(whoami) \
+    -e USER=nvidia \
     -w /workspace \
     --ipc=host \
     --shm-size=16g \
