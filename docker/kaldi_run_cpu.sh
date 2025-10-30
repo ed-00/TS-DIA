@@ -32,6 +32,7 @@ if [ "$COMMAND" = "/bin/bash" ]; then
     # Interactive mode
     docker run -it --rm \
         --cpus="$(nproc)" \
+        --user $(id -u):$(id -g) \
         --ipc=host \
         --shm-size=16g \
         --name ${CONTAINER_NAME} \
@@ -44,6 +45,7 @@ else
     echo "Command: ${COMMAND}"
     docker run --rm \
         --cpus="$(nproc)" \
+        --user $(id -u):$(id -g) \
         --ipc=host \
         --shm-size=16g \
         --name ${CONTAINER_NAME} \

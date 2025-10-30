@@ -45,6 +45,7 @@ echo ""
 # Run training in container with entire workspace and storage volumes mounted
 eval docker run --rm \
     ${GPU_FLAG} \
+    --user $(id -u):$(id -g) \
     --ipc=host \
     --shm-size=16g \
     --ulimit memlock=-1 \

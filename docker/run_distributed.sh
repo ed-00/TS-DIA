@@ -54,6 +54,7 @@ fi
 # Run distributed training with Accelerate and entire workspace and storage volumes mounted
 docker run --rm \
     --gpus all \
+    --user $(id -u):$(id -g) \
     --ipc=host \
     --shm-size=16g \
     --ulimit memlock=-1 \
