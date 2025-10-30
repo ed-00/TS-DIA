@@ -56,7 +56,7 @@ docker run --rm \
     --gpus all \
     --user $(id -u):$(id -g) \
     -e HOME=/tmp \
-    -e USER=$(whoami) \
+    -e USER=nvidia \
     -w /workspace \
     --ipc=host \
     --shm-size=16g \
