@@ -61,9 +61,9 @@ from lhotse import (
     MfccConfig,
     RecordingSet,
     SupervisionSet,
+    load_manifest
 )
-from lhotse.features.io import 
-(
+from lhotse.features.io import (
     LilcomChunkyWriter,
     LilcomFilesWriter,
     NumpyFilesWriter,
@@ -125,7 +125,7 @@ def __is_divertion_from_standard(dataset_name: str) -> bool:
 
 def fetch_diversion(
     dataset_name: str
-   ) -> Tuple[
+) -> Tuple[
     Callable[
         ...,
         Union[
@@ -148,11 +148,13 @@ def fetch_diversion(
     ],
 ]:
     if not __is_divertion_from_standard(dataset_name):
-        raise ValueError(f"Not in the Diversion list {dataset_name}, do not use this funciton for other than (voxceleb 1/2)")
-    from lhotse.recipes.voxceleb import  prepare_voxceleb
+        raise ValueError(
+            f"Not in the Diversion list {dataset_name}, do not use this funciton for other than (voxceleb 1/2)")
+    from lhotse.recipes.voxceleb import prepare_voxceleb
     download_function_name = f"download_{dataset_name}"
     download_function = getattr(lh.recipes, download_function_name)
     return (prepare_voxceleb, download_function)
+
 
 def select_recipe(
     dataset_name: str,
@@ -482,7 +484,6 @@ class DatasetManager:
         Returns:
             CutSet with features if cache exists, None otherwise
         """
-        from lhotse import load_manifest
 
         # Look for cached cuts in the feature storage directory
         cache_path = storage_path / f"cuts_{split_name}_with_feats.jsonl.gz"
@@ -518,6 +519,10 @@ class DatasetManager:
         Returns:
             CutSet with features (eager) pointing to cached feature storage
         """
+        # Resampling audio
+        if cuts[0].sampling_rate != feature_cfg.sampling_rate:
+            print(f"Resampling audio {cuts[0].sampling_rate} -> {eature_cfg.sampling_rate}")
+            cuts = cuts.resample(feature_cfg.sampling_rate)
 
         # Build feature extractor from configuration
         if feature_cfg.feature_type == "fbank":
@@ -601,7 +606,6 @@ class DatasetManager:
         dataset_storage_path = Path(storage_root) / dataset_name
         dataset_storage_path.mkdir(parents=True, exist_ok=True)
 
-
         storage_type_map = {
             "lilcom_chunky": LilcomChunkyWriter,
             "lilcom_files": LilcomFilesWriter,
@@ -615,9 +619,6 @@ class DatasetManager:
         if hasattr(cuts, "to_eager"):
             cuts = cuts.to_eager()
 
-    
-        
-        
         cuts_with_feats = cuts.compute_and_store_features(
             extractor=extractor,
             storage_path=str(dataset_storage_path),
@@ -634,6 +635,8 @@ class DatasetManager:
         DatasetManager.save_cuts_with_features(
             cuts_with_feats, dataset_storage_path, split_name
         )
+        # Describe the dataset 
+        cuts_with_feats.describe()
         return cuts_with_feats
 
     @staticmethod

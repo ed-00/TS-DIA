@@ -42,7 +42,8 @@ def main():
 
     # If there's no training configuration provided, stop after data prep
     if training_config is None:
-        print("No training configuration found — datasets downloaded and prepared. Exiting.")
+        print(
+            "No training configuration found — datasets downloaded and prepared. Exiting.")
         return
 
     # Extract feature configuration (parser guarantees it's never None)
@@ -54,6 +55,8 @@ def main():
     print(
         f"Using feature config: {feature_config.feature_type} with {feature_config.num_mel_bins} bins"
     )
+
+    print(f"feature_config: {feature_config}")
 
     # Get unified train/val splits (DatasetManager handles split mapping)
     dataset_cuts = cut_sets[dataset_name]

@@ -466,7 +466,8 @@ class Trainer:
             # Check if we've reached max steps
             if self.config.max_steps and self.global_step >= self.config.max_steps:
                 break
-
+        print(total_loss)
+        print(num_batches)
         avg_loss = total_loss / num_batches
         return {"train_loss": avg_loss}
 

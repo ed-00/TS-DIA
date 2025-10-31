@@ -160,10 +160,10 @@ training:
   # Checkpoint Configuration
   # ---------------------------------------------------------------------------
   checkpoint:
-    save_dir: ./checkpoints
+    save_dir: ./outputs/checkpoints/softmax_pretraining  # Directory to save checkpoints
     interval: 1000                  # Save checkpoint every N steps
     save_total_limit: 5             # Maximum number of checkpoints to keep
-    resume: null                    # Path to checkpoint to resume from
+    resume: null                   # Path to checkpoint to resume from
     snapshot_optimizer: true        # Save optimizer state
     snapshot_scheduler: true        # Save scheduler state
     snapshot_features: true         # Save Performer feature matrices
@@ -189,8 +189,8 @@ training:
     interval: 50                    # Log every N steps
     tensorboard: false               # Enable TensorBoard logging
     wandb: true                    # Enable Weights & Biases logging
-    wandb_project: ts-dia-training  # WandB project name
-    wandb_entity: digital-future/TS-DIA           # WandB entity/team name
+    wandb_project: TS-DIA  # WandB project name
+    wandb_entity: digital-future         # WandB entity/team name
     log_model: true                 # Log model architecture
   
   # ---------------------------------------------------------------------------

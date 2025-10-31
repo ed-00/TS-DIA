@@ -49,10 +49,19 @@ Usage:
 """
 
 from pathlib import Path
+from dataclasses import asdict
 from typing import Any, Dict, List, Type, Union
 
 import yaml
 from yamlargparse import ArgumentParser
+    # Extract DataLoadingConfig from global_config (optional)
+
+from data_manager.dataset_types import (
+        DataLoaderConfig,
+        DataLoadingConfig,
+        InputStrategyConfig,
+        SamplerConfig,
+)
 
 from data_manager.dataset_types import (
     # Download params
@@ -458,60 +467,12 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
             "Missing 'global_config' section in configuration. "
             "Please provide at least: corpus_dir, output_dir, and feature extraction settings."
         )
-
-    # Create FeatureConfig from global_config
-    feature_params = {}
-    feature_fields = {
-        "feature_type",
-        "sampling_rate",
-        "frame_length",
-        "frame_shift",
-        "round_to_power_of_two",
-        "remove_dc_offset",
-        "preemph_coeff",
-        "window_type",
-        "dither",
-        "snip_edges",
-        "energy_floor",
-        "raw_energy",
-        "use_energy",
-        "use_fft_mag",
-        "low_freq",
-        "high_freq",
-        "num_filters",
-        "torchaudio_compatible_mel_scale",
-        "num_mel_bins",
-        "norm_filters",
-        "num_ceps",
-        "cepstral_lifter",
-        "storage_path",
-        "num_jobs",
-        "storage_type",
-        "mix_eagerly",
-        "progress_bar",
-        "device",
-        "cut_window_seconds",
-    }
-
-    for key in feature_fields:
-        if key in global_config_dict:
-            feature_params[key] = global_config_dict[key]
-
-    # Always create FeatureConfig (with defaults if no params provided)
+        
     try:
-        features = FeatureConfig(**feature_params)
-    except Exception as e:
-        raise DatasetConfigError(f"Invalid feature configuration: {e}")
+        features = FeatureConfig(**global_config_dict["features"])
+    except Exception:
+        raise DatasetConfigError("Invalid feature configuration")
 
-    # Extract DataLoadingConfig from global_config (optional)
-    from dataclasses import asdict
-
-    from data_manager.dataset_types import (
-        DataLoaderConfig,
-        DataLoadingConfig,
-        InputStrategyConfig,
-        SamplerConfig,
-    )
 
     dl_dict = global_config_dict.get("data_loading", {}) or {}
     input_strategy_cfg = InputStrategyConfig(
