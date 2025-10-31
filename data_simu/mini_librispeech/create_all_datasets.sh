@@ -93,32 +93,32 @@ main() {
     
     # Sim1spk
     print_status "=== Generating Sim1spk datasets ==="
+    generate_dataset "Sim1spk" "Test" 1 500 2
     generate_dataset "Sim1spk" "Train" 1 100000 2
-    generate_dataset "Sim1spk" "Test" 1 100000 2
     
     # Sim2spk  
     print_status "=== Generating Sim2spk datasets ==="
-    generate_dataset "Sim2spk" "Train" 2 100000 2
     generate_dataset "Sim2spk" "Test" 2 500 2
     generate_dataset "Sim2spk" "Test" 2 500 3
     generate_dataset "Sim2spk" "Test" 2 500 5
+    generate_dataset "Sim2spk" "Train" 2 100000 2
     
     # Sim3spk
     print_status "=== Generating Sim3spk datasets ==="
-    generate_dataset "Sim3spk" "Train" 3 100000 5
     generate_dataset "Sim3spk" "Test" 3 500 5
     generate_dataset "Sim3spk" "Test" 3 500 7
     generate_dataset "Sim3spk" "Test" 3 500 11
+    generate_dataset "Sim3spk" "Train" 3 100000 5
     
     # Sim4spk
     print_status "=== Generating Sim4spk datasets ==="
-    generate_dataset "Sim4spk" "Train" 4 100000 9
     generate_dataset "Sim4spk" "Test" 4 500 9
+    generate_dataset "Sim4spk" "Train" 4 100000 9
     
     # Sim5spk
     print_status "=== Generating Sim5spk datasets ==="
-    generate_dataset "Sim5spk" "Train" 5 100000 13
     generate_dataset "Sim5spk" "Test" 5 500 13
+    generate_dataset "Sim5spk" "Train" 5 100000 13
     
     print_success "=========================================================="
     print_success "All datasets generated successfully!"
@@ -185,7 +185,7 @@ if [ "$DRY_RUN" = true ]; then
     echo ""
     echo "Would generate the following datasets:"
     echo "1.  Sim1spk Train: 1 speaker, 100,000 mixtures, β=2"
-    echo "2.  Sim1spk Test:  1 speaker, 100,000 mixtures, β=2"
+    echo "2.  Sim1spk Test:  1 speaker, 500 mixtures, β=2"
     echo "3.  Sim2spk Train: 2 speakers, 100,000 mixtures, β=2"
     echo "4.  Sim2spk Test:  2 speakers, 500 mixtures, β=2"
     echo "5.  Sim2spk Test:  2 speakers, 500 mixtures, β=3"
