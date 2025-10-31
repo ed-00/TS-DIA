@@ -151,7 +151,6 @@ training:
     wandb_entity: null
     log_metrics: [loss, accuracy, memory, compute_time]
     log_model: true
-    log_gradients: false
   
   # Performance optimization
   performance:

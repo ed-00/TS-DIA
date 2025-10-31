@@ -53,7 +53,7 @@ def setup_accelerator(
     # Determine mixed precision mode
     mixed_precision = "no"
     if training_config.mixed_precision:
-        mixed_precision = "fp16"  # Can be extended to support bf16
+        mixed_precision = "bf16"  # Can be extended to support fp16
 
     # Setup project configuration for better organization
     project_config = None

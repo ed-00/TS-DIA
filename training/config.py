@@ -184,7 +184,6 @@ class LoggingConfig:
         wandb_project: WandB project name
         wandb_entity: WandB entity/team name
         log_model: Log model architecture
-        log_gradients: Log gradient statistics
     """
 
     interval: int
@@ -194,7 +193,7 @@ class LoggingConfig:
     wandb_project: Optional[str] = None
     wandb_entity: Optional[str] = None
     log_model: bool = False
-    log_gradients: bool = False
+
 
 
 @dataclass

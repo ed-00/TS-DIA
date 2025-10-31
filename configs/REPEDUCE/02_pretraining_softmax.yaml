@@ -1,28 +1,3 @@
-# =============================================================================
-# COMPREHENSIVE CONFIGURATION WITH ALL POSSIBLE OPTIONS
-# =============================================================================
-# This is a complete reference configuration demonstrating EVERY available
-# configuration option in the TS-DIA training pipeline.
-#
-# Use this as a reference when creating your own configs.
-# Most options have sensible defaults and don't need to be specified.
-#
-# Sections:
-#   1. Model Configuration (encoder, decoder, encoder_decoder)
-#   2. Global Dataset Configuration
-#   3. Dataset-Specific Configuration
-#   4. Training Configuration (optimizer, scheduler, losses, etc.)
-# =============================================================================
-
-# =============================================================================
-# SECTION 1: MODEL CONFIGURATION
-# =============================================================================
-# The model section defines the architecture of your transformer model.
-# Three model types are supported:
-#   - encoder: for classification, embedding, feature extraction
-#   - decoder: for language modeling, autoregressive generation
-#   - encoder_decoder: for translation, summarization, seq2seq tasks
-
 model:
   model_type: encoder_decoder  # Options: encoder, decoder, encoder_decoder
   name: comprehensive_example_model
@@ -32,170 +7,70 @@ model:
   # ---------------------------------------------------------------------------
   global_config:
     dropout: 0.1              # Dropout probability (0.0 - 1.0)
-    batch_size: 32            # Batch size for training
+    batch_size: 128            # Batch size for training
     d_ff: 4                   # Feed-forward expansion factor (hidden_dim = d_model * d_ff)
-    device: cpu               # Device: cpu, cuda, cuda:0, cuda:1, etc.
+    device: cuda               # Device: cpu, cuda, cuda:0, cuda:1, etc.
   
   # ---------------------------------------------------------------------------
   # Encoder Configuration (for encoder and encoder_decoder models)
   # ---------------------------------------------------------------------------
   encoder:
     # Core architecture parameters
-    d_model: 512              # Model dimension / embedding size
-    num_layers: 6             # Number of encoder layers
+    d_model: 2048              # Model dimension / embedding size
+    num_layers: 4             # Number of encoder layers
     num_heads: 8              # Number of attention heads (must divide d_model)
     
     # Attention configuration
-    attention_type: linear    # Options: softmax, linear, causal_linear
-    nb_features: 256          # Number of random features for linear attention (None = auto)
+    attention_type: sofmax    # Options: softmax, linear, causal_linear
+    nb_features: null          # Number of random features for linear attention (None = auto)
     
     # Activation function
-    activation: GEGLU         # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
+    activation: REGLU         # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
     
     # Normalization options
-    use_rezero: false         # Use ReZero instead of LayerNorm
-    use_scalenorm: false      # Use PreScaleNorm instead of LayerNorm
+    use_rezero: true         # Use ReZero instead of LayerNorm
+    use_scalenorm: true      # Use PreScaleNorm instead of LayerNorm
     
     # Linear attention feature management
-    feature_redraw_interval: 1000  # Redraw random features every N steps (None = never)
-    auto_check_redraw: true        # Automatically check when to redraw
+    # feature_redraw_interval: 1000  # Redraw random features every N steps (None = never)
+    # auto_check_redraw: true        # Automatically check when to redraw
     
-    # Classification head (optional)
-    num_classes: null         # Number of output classes (None = no classification head)
-  
   # ---------------------------------------------------------------------------
   # Decoder Configuration (for decoder and encoder_decoder models)
   # ---------------------------------------------------------------------------
   decoder:
     # Core architecture parameters
-    d_model: 512              # Model dimension (should match encoder for encoder_decoder)
-    num_layers: 6             # Number of decoder layers
+    d_model: 2048              # Model dimension (should match encoder for encoder_decoder)
+    num_layers: 4             # Number of decoder layers
     num_heads: 8              # Number of attention heads
     
     # Attention configuration
-    attention_type: causal_linear  # Options: softmax, linear, causal_linear
-    nb_features: 256          # Number of random features for linear attention
+    attention_type: softmax  # Options: softmax, linear, causal_linear
+    # nb_features: 256          # Number of random features for linear attention
     
     # Activation function
-    activation: SWIGLU        # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
+    activation: REGLU        # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
     
     # Cross-attention (for encoder-decoder)
     use_cross_attention: true # true for encoder_decoder, false for decoder-only LM
     
     # Normalization options
-    use_rezero: false         # Use ReZero instead of LayerNorm
-    use_scalenorm: false      # Use PreScaleNorm instead of LayerNorm
+    use_rezero: true         # Use ReZero instead of LayerNorm
+    use_scalenorm: true      # Use PreScaleNorm instead of LayerNorm
     
     # Linear attention feature management
-    feature_redraw_interval: 1000  # Redraw random features every N steps
-    auto_check_redraw: true        # Automatically check when to redraw
+    # feature_redraw_interval: 1000  # Redraw random features every N steps
+    # auto_check_redraw: true        # Automatically check when to redraw
     
     # Classification head (optional)
-    num_classes: null         # Number of output classes (None = no classification head)
-
-# =============================================================================
-# SECTION 2: GLOBAL DATASET CONFIGURATION
-# =============================================================================
-# Global configuration applies defaults to all datasets
-
-global_config:
-  # Directory configuration
-  corpus_dir: ./data              # Root directory for dataset storage
-  output_dir: ./manifests         # Directory for manifest files
-  force_download: false           # Force re-download of datasets
-  
-  # ---------------------------------------------------------------------------
-  # Feature Extraction Configuration (COMPREHENSIVE)
-  # ---------------------------------------------------------------------------
-  # Feature type
-  feature_type: fbank               # Options: fbank, mfcc, spectrogram
-  
-  # Basic audio parameters
-  sampling_rate: 16000              # Target sampling rate in Hz
-  frame_length: 0.025               # Frame/window length in seconds (25ms)
-  frame_shift: 0.01                 # Frame shift/hop length in seconds (10ms)
-  
-  # Window and FFT parameters
-  round_to_power_of_two: true       # Round window size to power of 2
-  remove_dc_offset: true            # Remove DC offset before processing
-  preemph_coeff: 0.97               # Pre-emphasis coefficient
-  window_type: povey                # Window function: povey, hanning, hamming, blackman
-  dither: 0.0                       # Dithering factor for numerical stability
-  snip_edges: false                 # Whether to snip edges during feature extraction
-  
-  # Energy parameters
-  energy_floor: 0.0000000001        # Floor value for energy computation (1e-10)
-  raw_energy: true                  # Use raw energy (before windowing)
-  use_energy: false                 # Use energy instead of C0 for MFCC
-  use_fft_mag: false                # Use FFT magnitude instead of power
-  
-  # Mel filterbank parameters
-  low_freq: 20.0                    # Lower frequency bound in Hz
-  high_freq: -400.0                 # Upper frequency bound (-400 = nyquist - 400)
-  num_filters: 23                   # Number of triangular mel filters (for spectrogram)
-  num_mel_bins: 80                  # Number of mel-frequency bins (for fbank/mfcc)
-  torchaudio_compatible_mel_scale: true  # Use torchaudio-compatible mel scale
-  norm_filters: false               # Normalize mel filter weights
-  
-  # MFCC-specific parameters
-  num_ceps: 13                      # Number of cepstral coefficients (MFCC only)
-  cepstral_lifter: 22               # Cepstral liftering coefficient (MFCC only)
-  
-  # Feature computation and storage
-  storage_path: null                # Path to store features (None = in-memory)
-  num_jobs: 1                       # Number of parallel jobs for extraction
-  storage_type: lilcom_chunky       # Options: lilcom_chunky, lilcom_files, numpy, hdf5
-  mix_eagerly: true                 # Whether to mix cuts eagerly during extraction
-  progress_bar: true                # Show progress bar during feature extraction
-  
-  # Hardware
-  device: cpu                       # Device for computation: cpu, cuda
-
-# =============================================================================
-# SECTION 3: DATASET CONFIGURATION
-# =============================================================================
-# List of datasets to load and process
-
-datasets:
-  # Example 1: Simple dataset with defaults
-  - name: yesno
-  
-  # Example 2: Dataset with custom download parameters
-  - name: librispeech
-    download_params:
-      target_dir: ./data/librispeech
-      force_download: false
-      dataset_parts: mini_librispeech  # LibriSpeech-specific parameter
-  
-  # Example 3: Dataset with custom processing parameters
-  - name: timit
-    process_params:
-      corpus_dir: ./data/timit
-      output_dir: ./manifests/timit
-      num_phones: 48                   # TIMIT-specific parameter
-  
-  # Example 4: Dataset with both download and process params
-  - name: ami
-    download_params:
-      target_dir: ./data/ami
-      force_download: false
-    process_params:
-      corpus_dir: ./data/ami
-      output_dir: ./manifests/ami
-      mic: ihm                         # AMI-specific: ihm, sdm, mdm
-      download_url: https://example.com/ami  # Custom download URL
-
-# =============================================================================
-# SECTION 4: TRAINING CONFIGURATION (COMPREHENSIVE)
-# =============================================================================
-# Complete training pipeline configuration with all options
+    num_classes: 5         # Number of output classes (None = no classification head)
 
 training:
   # ---------------------------------------------------------------------------
   # Basic Training Settings
   # ---------------------------------------------------------------------------
   epochs: 100                       # Number of training epochs
-  batch_size: 32                    # Training batch size
+  batch_size: 128                    # Training batch size
   random_seed: 42                   # Random seed for reproducibility
   max_steps: null                   # Maximum training steps (null = use epochs)
   
@@ -242,8 +117,8 @@ training:
   # ---------------------------------------------------------------------------
   # Performer-Specific Settings
   # ---------------------------------------------------------------------------
-  feature_redraw_interval: 100      # Redraw projection matrices every N steps
-  fixed_projection: false           # Use fixed projection for Performer
+  # feature_redraw_interval: 100      # Redraw projection matrices every N steps
+  # fixed_projection: false           # Use fixed projection for Performer
   
   # ---------------------------------------------------------------------------
   # Loss Configuration
@@ -285,7 +160,7 @@ training:
   # Checkpoint Configuration
   # ---------------------------------------------------------------------------
   checkpoint:
-    save_dir: ./checkpoints/comprehensive_experiment
+    save_dir: ./checkpoints
     interval: 1000                  # Save checkpoint every N steps
     save_total_limit: 5             # Maximum number of checkpoints to keep
     resume: null                    # Path to checkpoint to resume from
@@ -312,23 +187,22 @@ training:
   # ---------------------------------------------------------------------------
   logging:
     interval: 50                    # Log every N steps
-    tensorboard: true               # Enable TensorBoard logging
-    wandb: false                    # Enable Weights & Biases logging
+    tensorboard: false               # Enable TensorBoard logging
+    wandb: true                    # Enable Weights & Biases logging
     wandb_project: ts-dia-training  # WandB project name
-    wandb_entity: null              # WandB entity/team name
-    log_metrics: [loss, accuracy, memory, compute_time]  # Metrics to log
+    wandb_entity: digital-future/TS-DIA           # WandB entity/team name
     log_model: true                 # Log model architecture
   
   # ---------------------------------------------------------------------------
   # Performance Optimization Configuration
   # ---------------------------------------------------------------------------
   performance:
-    num_workers: 4                  # Number of DataLoader worker processes
+    num_workers: 32                  # Number of DataLoader worker processes
     pin_memory: true                # Pin memory for faster GPU transfer
     batch_shim: false               # Use batch shim for irregular batch sizes
     prefetch_factor: 2              # Number of batches to prefetch per worker
     persistent_workers: true        # Keep workers alive between epochs
-    compile_model: false            # Use torch.compile (PyTorch 2.0+)
+    compile_model: false            # Use torch.compile (PyTorch 2.0+) not implemented yet
   
   # ---------------------------------------------------------------------------
   # Callbacks (Advanced)
@@ -367,17 +241,271 @@ training:
       # batch_size: [32, 64]
       # dropout: [0.1, 0.2, 0.3]
 
-# =============================================================================
-# END OF CONFIGURATION
-# =============================================================================
-# This configuration demonstrates every available option in the TS-DIA
-# training pipeline. When creating your own configs, you only need to specify
-# the options you want to change from the defaults.
-#
-# For simpler configurations, see:
-#   - configs/training_simple.yml (minimal training config)
-#   - configs/decoder_model.yml (decoder-only model)
-#   - configs/encoder_model.yml (encoder-only model)
-#   - configs/training_example.yml (typical training setup)
-# =============================================================================
+global_config:
+  force_download: false
+  random_seed: 42
+  corpus_dir: ./outputs/data
+  output_dir: ./outputs/manifests
+  storage_path: ./outputs/features
+  sampling_rate: 8000
 
+  features:
+    feature_type: "mfcc"
+    sampling_rate: 8000
+    frame_length: 0.025         # 25 ms -> 200 samples @ 8kHz
+    frame_shift: 0.01           # 80 samples @ 8kHz -> 0.01 s
+    num_mel_bins: 40
+    num_ceps: 40               # keep all cepstra (no reduction)
+    use_energy: false
+    low_freq: 40.0
+    high_freq: 3700.0          # or -200.0 for Nyquist - 200
+    snip_edges: false
+    preemph_coeff: 0.97
+    window_type: "povey"
+    dither: 0.0
+    round_to_power_of_two: true
+    torchaudio_compatible_mel_scale: true
+    norm_filters: false
+    cepstral_lifter: 22
+    num_jobs: 4
+    storage_type: "lilcom_chunky"
+    mix_eagerly: true
+  
+  # Data loading configuration
+  data_loading:
+    strategy: on_the_fly_features   # precomputed_features | on_the_fly_features
+    input_strategy:
+      num_workers: 0
+      executor_type: thread
+      use_batch_extract: true
+      fault_tolerant: false
+      return_audio: false
+    sampler:
+      type: simple               # bucketing | dynamic_bucketing | simple
+      num_buckets: 10
+      shuffle: true
+      drop_last: true
+    dataloader:
+      num_workers: 0             # if input_strategy.num_workers > 0, this is forced to 0
+      pin_memory: true
+      persistent_workers: false
+      prefetch_factor: 2
+  
+  # Storage and computation
+  storage_type: lilcom_chunky
+  num_jobs: 1  # Use single process for reliable caching
+  device: cpu
+  progress_bar: true
+  cut_window_seconds: 50  # Window long recordings before extraction
+
+datasets:
+  # - name: ava_avd
+  #   download_params:
+  #     download_annotations: true
+  #     download_videos: true
+
+  # - name: libriheavy_mix
+  #   download_params:
+  #     # Dataset splits to download
+  #     # Options: small (~100h), medium (~900h), large (~9000h), dev, test
+  #     dataset_parts: small
+      
+  #     # Number of speakers per mixture
+  #     # Options: 1, 2, 3, 4 (can be int or list)
+  #     speaker_counts: [1, 2, 3, 4]
+      
+  #     # HuggingFace cache directory
+  #     cache_dir: null
+    
+  #   process_params:
+  #     # Dataset splits to process
+  #     dataset_parts: small
+
+  #     # Speaker counts to process
+  #     speaker_counts: [1, 2, 3, 4]
+      
+  #     # Speaker filtering
+  #     min_speakers: 1
+  #     max_speakers: 4
+      
+  #     # Custom split mapping (optional)
+  #     splits: null
+
+  # - name: ami
+  #   download_params:
+  #     # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
+  #     mic: ihm-mix
+  #     url: http://groups.inf.ed.ac.uk/ami
+  #     annotations: null  # Auto-downloaded
+    
+  #   process_params:
+  #     # Microphone type to process (must match download)
+  #     mic: ihm-mix
+      
+  #     # Partition selection
+  #     # Options: full-corpus, full-corpus-asr, scenario-only
+  #     partition: full-corpus
+      
+  #     # Text normalization
+  #     # Options: none, upper, kaldi
+  #     normalize_text: none
+      
+  #     # Segmentation options
+  #     max_words_per_segment: null  # null = no splitting
+  #     merge_consecutive: false  # Merge same-speaker consecutive segments
+
+  # - name: icsi
+  #   download_params:
+  #     # Microphone type: ihm (individual headset), mdm (multiple distant)
+  #     mic: ihm-mix
+  #     url: http://groups.inf.ed.ac.uk/ami
+  #     transcripts_dir: ./outputs/data/icsi/ICSI
+
+  #   process_params:
+  #     # Microphone type to process
+  #     mic: ihm-mix
+      
+  #     # Text normalization
+  #     # Options: none, upper, kaldi
+  #     normalize_text: none
+      
+  #     # Audio format conversion
+  #     save_to_wav: true  # Convert SPH files to WAV if needed
+  #     output_dir: ./outputs/manifests/icsi
+  #     audio_dir: ./outputs/data/icsi/speech
+  #     transcripts_dir: ./outputs/data/icsi/ICSI
+
+  # - name: aishell4
+  #   download_params:
+  #     # Base URL for downloads
+  #     base_url: http://www.openslr.org/resources
+    
+  #   process_params:
+  #     # Chinese text normalization
+  #     normalize_text: false  # Set true to normalize Chinese characters
+
+  # - name: voxconverse
+  #   download_params:
+  #     corpus_dir: null  # Will use global_config corpus_dir/voxconverse
+    
+  #   process_params:
+  #     split_test: false  # Whether to split test set
+
+
+  # - name: ego4d
+  #   download_params:
+  #     # Dataset parts to download
+  #     # Options: clips, annotations, metadata, takes, captures, etc.
+  #     dataset_parts: ["clips", "annotations"]
+      
+  #     # Auto-install Ego4D CLI if not available
+  #     install_cli: true
+      
+  #     # Download timeout (seconds)
+  #     timeout: 3600
+      
+  #     # Path to .env file for environment variables
+  #     env_file: ./.env  # Load AWS credentials from project .env file
+    
+  #   process_params:
+  #     # Audio extraction settings
+  #     extract_audio: true
+  #     audio_sample_rate: 16000
+      
+  #     # Segment duration constraints
+  #     min_segment_duration: 0.5  # seconds
+  #     max_segment_duration: 30.0  # seconds
+      
+  #     # Limit number of clips for testing (0 = no limit)
+  #     max_clips: 0
+      
+  #     # Filter annotations by type (e.g., "av" for audio-visual)
+  #     annotation_subset: "av"  # null = all annotations
+
+  # - name: mswild
+  #   download_params:
+  #     # Multi-modal data downloads
+  #     download_audio: true  # ~7.56 GB (required)
+  #     download_video: false  # ~43.14 GB (manual download required)
+  #     download_faces: false  # ~14.49 GB (manual download required)
+
+    # process_params:
+    #   # Split name to RTTM pattern mapping
+    #   # Default: {"train": "few_train", "dev": "few_val", "test": "many_val"}
+    #   splits:
+    #     train: few_train
+    #     dev: few_val
+    #     test: many_val
+
+
+  # - name: voxceleb1
+  #   download_params: {}
+    
+  #   # Note: VoxCeleb processing combines voxceleb1 and voxceleb2
+  #   # Use voxceleb1_root in process_params
+  #   process_params: {}
+
+  # - name: voxceleb2
+  #   download_params: {}
+    
+  #   # Note: VoxCeleb processing combines voxceleb1 and voxceleb2
+  #   # Use voxceleb2_root in process_params
+  #   process_params: {}
+
+  # - name: tedlium
+  #   download_params: {}
+    
+  #   process_params:
+  #     # TED-LIUM root directory
+  #     tedlium_root: null
+      
+  #     # Dataset parts to process
+  #     # Options: null (auto-detect), or specific parts
+  #     dataset_parts: null
+      
+  #     # Text normalization
+  #     # Options: none, upper, lower, kaldi
+  #     normalize_text: none
+
+  - name: libricss
+    download_params: {}
+    
+    process_params:
+      # Recording type
+      # Options: mdm (multiple distant microphone)
+      type: ihm-mix
+      
+      # Generate segmented cuts
+      segmented_cuts: false
+      
+  - name: chime6
+    download_params: {}
+    
+    process_params:
+      # Dataset parts to process
+      # Options: all, train, dev, eval
+      dataset_parts: all
+      
+      # Microphone type: mdm (multiple distant microphone)
+      mic: ihm-mix
+      
+      # Use reference array
+      use_reference_array: false
+      
+      # Perform array synchronization
+      perform_array_sync: false
+      
+      # Verify MD5 checksums
+      verify_md5_checksums: false
+      
+      # Number of threads per job
+      num_threads_per_job: 1
+      
+      # Path to sox binary
+      sox_path: /usr/bin/sox
+      
+      # Text normalization
+      normalize_text: null
+      
+      # Use CHiME-7 split
+      use_chime7_split: false

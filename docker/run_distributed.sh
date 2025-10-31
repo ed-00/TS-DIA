@@ -21,6 +21,12 @@ IMAGE_NAME=${3:-ts-dia-training}
 CONTAINER_NAME=${4:-ts-dia-ddp-$(date +%Y%m%d-%H%M%S)}
 ACCELERATE_CONFIG=${5:-}
 
+# Export host user info so container can resolve UID/GID to names and avoid "I have no name!"
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+HOST_USER=$(id -un)
+PASSWD_MOUNTS="-v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+
 # Validate config file
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Error: Config file not found: $CONFIG_FILE"
@@ -54,9 +60,10 @@ fi
 # Run distributed training with Accelerate and entire workspace and storage volumes mounted
 docker run --rm \
     --gpus all \
-    --user $(id -u):$(id -g) \
+    --user ${HOST_UID}:${HOST_GID} \
     -e HOME=/tmp \
-    -e USER=nvidia \
+    -e USER=${HOST_USER} \
+    ${PASSWD_MOUNTS} \
     -w /workspace \
     --ipc=host \
     --shm-size=16g \

@@ -56,97 +56,97 @@ global_config:
   cut_window_seconds: 50  # Window long recordings before extraction
 
 datasets:
-  # - name: ava_avd
-  #   download_params:
-  #     download_annotations: true
-  #     download_videos: true
+  - name: ava_avd
+    download_params:
+      download_annotations: true
+      download_videos: true
 
-  # - name: libriheavy_mix
-  #   download_params:
-  #     # Dataset splits to download
-  #     # Options: small (~100h), medium (~900h), large (~9000h), dev, test
-  #     dataset_parts: small
+  - name: libriheavy_mix
+    download_params:
+      # Dataset splits to download
+      # Options: small (~100h), medium (~900h), large (~9000h), dev, test
+      dataset_parts: small
       
-  #     # Number of speakers per mixture
-  #     # Options: 1, 2, 3, 4 (can be int or list)
-  #     speaker_counts: [1, 2, 3, 4]
+      # Number of speakers per mixture
+      # Options: 1, 2, 3, 4 (can be int or list)
+      speaker_counts: [1, 2, 3, 4]
       
-  #     # HuggingFace cache directory
-  #     cache_dir: null
+      # HuggingFace cache directory
+      cache_dir: null
     
-  #   process_params:
-  #     # Dataset splits to process
-  #     dataset_parts: small
+    process_params:
+      # Dataset splits to process
+      dataset_parts: small
 
-  #     # Speaker counts to process
-  #     speaker_counts: [1, 2, 3, 4]
+      # Speaker counts to process
+      speaker_counts: [1, 2, 3, 4]
       
-  #     # Speaker filtering
-  #     min_speakers: 1
-  #     max_speakers: 4
+      # Speaker filtering
+      min_speakers: 1
+      max_speakers: 4
       
-  #     # Custom split mapping (optional)
-  #     splits: null
+      # Custom split mapping (optional)
+      splits: null
 
-  # - name: ami
-  #   download_params:
-  #     # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
-  #     mic: ihm-mix
-  #     url: http://groups.inf.ed.ac.uk/ami
-  #     annotations: null  # Auto-downloaded
+  - name: ami
+    download_params:
+      # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
+      mic: ihm-mix
+      url: http://groups.inf.ed.ac.uk/ami
+      annotations: null  # Auto-downloaded
     
-  #   process_params:
-  #     # Microphone type to process (must match download)
-  #     mic: ihm-mix
+    process_params:
+      # Microphone type to process (must match download)
+      mic: ihm-mix
       
-  #     # Partition selection
-  #     # Options: full-corpus, full-corpus-asr, scenario-only
-  #     partition: full-corpus
+      # Partition selection
+      # Options: full-corpus, full-corpus-asr, scenario-only
+      partition: full-corpus
       
-  #     # Text normalization
-  #     # Options: none, upper, kaldi
-  #     normalize_text: none
+      # Text normalization
+      # Options: none, upper, kaldi
+      normalize_text: none
       
-  #     # Segmentation options
-  #     max_words_per_segment: null  # null = no splitting
-  #     merge_consecutive: false  # Merge same-speaker consecutive segments
+      # Segmentation options
+      max_words_per_segment: null  # null = no splitting
+      merge_consecutive: false  # Merge same-speaker consecutive segments
 
-  # - name: icsi
-  #   download_params:
-  #     # Microphone type: ihm (individual headset), mdm (multiple distant)
-  #     mic: ihm-mix
-  #     url: http://groups.inf.ed.ac.uk/ami
-  #     transcripts_dir: ./outputs/data/icsi/ICSI
+  - name: icsi
+    download_params:
+      # Microphone type: ihm (individual headset), mdm (multiple distant)
+      mic: ihm-mix
+      url: http://groups.inf.ed.ac.uk/ami
+      transcripts_dir: ./outputs/data/icsi/ICSI
 
-  #   process_params:
-  #     # Microphone type to process
-  #     mic: ihm-mix
+    process_params:
+      # Microphone type to process
+      mic: ihm-mix
       
-  #     # Text normalization
-  #     # Options: none, upper, kaldi
-  #     normalize_text: none
+      # Text normalization
+      # Options: none, upper, kaldi
+      normalize_text: none
       
-  #     # Audio format conversion
-  #     save_to_wav: true  # Convert SPH files to WAV if needed
-  #     output_dir: ./outputs/manifests/icsi
-  #     audio_dir: ./outputs/data/icsi/speech
-  #     transcripts_dir: ./outputs/data/icsi/ICSI
+      # Audio format conversion
+      save_to_wav: true  # Convert SPH files to WAV if needed
+      output_dir: ./outputs/manifests/icsi
+      audio_dir: ./outputs/data/icsi/speech
+      transcripts_dir: ./outputs/data/icsi/ICSI
 
-  # - name: aishell4
-  #   download_params:
-  #     # Base URL for downloads
-  #     base_url: http://www.openslr.org/resources
+  - name: aishell4
+    download_params:
+      # Base URL for downloads
+      base_url: http://www.openslr.org/resources
     
-  #   process_params:
-  #     # Chinese text normalization
-  #     normalize_text: false  # Set true to normalize Chinese characters
+    process_params:
+      # Chinese text normalization
+      normalize_text: false  # Set true to normalize Chinese characters
 
-  # - name: voxconverse
-  #   download_params:
-  #     corpus_dir: null  # Will use global_config corpus_dir/voxconverse
+  - name: voxconverse
+    download_params:
+      corpus_dir: null  # Will use global_config corpus_dir/voxconverse
     
-  #   process_params:
-  #     split_test: false  # Whether to split test set
+    process_params:
+      split_test: false  # Whether to split test set
 
 
   # - name: ego4d
@@ -224,45 +224,45 @@ datasets:
   #     # Options: none, upper, lower, kaldi
   #     normalize_text: none
 
-  - name: libricss
-    download_params: {}
+  # - name: libricss
+  #   download_params: {}
     
-    process_params:
-      # Recording type
-      # Options: mdm (multiple distant microphone)
-      type: ihm-mix
+  #   process_params:
+  #     # Recording type
+  #     # Options: mdm (multiple distant microphone)
+  #     type: ihm-mix
       
-      # Generate segmented cuts
-      segmented_cuts: false
+  #     # Generate segmented cuts
+  #     segmented_cuts: false
       
-  - name: chime6
-    download_params: {}
+  # - name: chime6
+  #   download_params: {}
     
-    process_params:
-      # Dataset parts to process
-      # Options: all, train, dev, eval
-      dataset_parts: all
+  #   process_params:
+  #     # Dataset parts to process
+  #     # Options: all, train, dev, eval
+  #     dataset_parts: all
       
-      # Microphone type: mdm (multiple distant microphone)
-      mic: ihm-mix
+  #     # Microphone type: mdm (multiple distant microphone)
+  #     mic: ihm-mix
       
-      # Use reference array
-      use_reference_array: false
+  #     # Use reference array
+  #     use_reference_array: false
       
-      # Perform array synchronization
-      perform_array_sync: false
+  #     # Perform array synchronization
+  #     perform_array_sync: false
       
-      # Verify MD5 checksums
-      verify_md5_checksums: false
+  #     # Verify MD5 checksums
+  #     verify_md5_checksums: false
       
-      # Number of threads per job
-      num_threads_per_job: 1
+  #     # Number of threads per job
+  #     num_threads_per_job: 1
       
-      # Path to sox binary
-      sox_path: /usr/bin/sox
+  #     # Path to sox binary
+  #     sox_path: /usr/bin/sox
       
-      # Text normalization
-      normalize_text: null
+  #     # Text normalization
+  #     normalize_text: null
       
-      # Use CHiME-7 split
-      use_chime7_split: false
+  #     # Use CHiME-7 split
+  #     use_chime7_split: false

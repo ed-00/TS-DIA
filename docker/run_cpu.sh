@@ -19,6 +19,12 @@ IMAGE_NAME=${1:-ts-dia-training}
 CONTAINER_NAME=${2:-ts-dia-cpu-$(date +%Y%m%d-%H%M%S)}
 COMMAND=${3:-/bin/bash}
 
+# Export host user info so container can resolve UID/GID to names and avoid "I have no name!"
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+HOST_USER=$(id -un)
+PASSWD_MOUNTS="-v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+
 echo "======================================"
 echo "Running TS-DIA CPU-Only Container"
 echo "======================================"
@@ -32,9 +38,10 @@ if [ "$COMMAND" = "/bin/bash" ]; then
     # Interactive mode
     docker run -it --rm \
         --cpus="$(nproc)" \
-        --user $(id -u):$(id -g) \
+        --user ${HOST_UID}:${HOST_GID} \
         -e HOME=/tmp \
-        -e USER=nvidia \
+        -e USER=${HOST_USER} \
+        ${PASSWD_MOUNTS} \
         -w /workspace \
         --ipc=host \
         --shm-size=16g \
@@ -48,9 +55,10 @@ else
     echo "Command: ${COMMAND}"
     docker run --rm \
         --cpus="$(nproc)" \
-        --user $(id -u):$(id -g) \
+        --user ${HOST_UID}:${HOST_GID} \
         -e HOME=/tmp \
-        -e USER=nvidia \
+        -e USER=${HOST_USER} \
+        ${PASSWD_MOUNTS} \
         -w /workspace \
         --ipc=host \
         --shm-size=16g \

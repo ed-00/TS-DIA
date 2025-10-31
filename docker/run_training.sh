@@ -19,6 +19,10 @@ CONFIG_FILE=${1:-configs/train/training_example.yml}
 IMAGE_NAME=${2:-ts-dia-training}
 CONTAINER_NAME=${3:-ts-dia-training-$(date +%Y%m%d-%H%M%S)}
 GPU_IDS=${4:-all}
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+HOST_USER=$(id -un)
+PASSWD_MOUNTS="-v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
 
 # Validate config file
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -45,9 +49,10 @@ echo ""
 # Run training in container with entire workspace and storage volumes mounted
 eval docker run --rm \
     ${GPU_FLAG} \
-    --user $(id -u):$(id -g) \
+     --user ${HOST_UID}:${HOST_GID} \
     -e HOME=/tmp \
-    -e USER=nvidia \
+     -e USER=${HOST_USER} \
+     ${PASSWD_MOUNTS} \
     -w /workspace \
     --ipc=host \
     --shm-size=16g \

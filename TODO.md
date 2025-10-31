@@ -75,18 +75,30 @@ Week 43, the transformer model is implementd, the data need to be preped to star
 [ ] Write the Datasets sections in the paper. 
 
 [ ] prep data simiulation useing mini_librispeech
-    [ ] Setup kaldi continer 
-    [ ] clone mini_librispeech recipe
-    [ ] prepare datasets with varing overlap threshold 
-        [ ] train 20k h 
-        [ ] 1 - 4 speakers N(1, 4)
-            [ ] overlap threshold modification 
-            [ ] 100 h val for each combo
-
-    [ ] ensure lhosete compatability 
+    [x] Setup kaldi continer 
+    [x] clone mini_librispeech recipe
+    [x] prepare datasets with varing overlap threshold 
+        [x] train 20k h 
+        [x] 1 - 5 speakers N(1, 4)
+            [x] overlap threshold modification 
+            [x] atleast 100 h val for each combo
+    [ ] ensure lhoste compatability 
 
 [ ] setup training experiments 
     [ ] softmax attention
+        [ ] validate all arguments for the training script are passed through
+            [ ] ADD HERE
+        [ ] Ensure the Ego-dataset is being used 
+        [ ] Test run speed, utilization, and select optimal:
+            [ ] batch size
+            [ ] dataloader config
+        [ ] validate learning rate scheduler is working properly
+        [ ] validate hyper-parameters 
+            [ ] learning rate
+            [ ] weight decay
+            [ ] gradient clipping
+            [ ] lable smoothing
+
     [ ] linear attention 
 
  

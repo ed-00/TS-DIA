@@ -21,6 +21,12 @@ IMAGE_NAME=${1:-ts-dia-training}
 CONTAINER_NAME=${2:-ts-dia-training-$(date +%Y%m%d-%H%M%S)}
 GPU_IDS=${3:-all}
 
+# Export host user info so container can resolve UID/GID to names and avoid "I have no name!"
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+HOST_USER=$(id -un)
+PASSWD_MOUNTS="-v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+
 # Set GPU device based on input
 if [ "$GPU_IDS" = "all" ]; then
     GPU_FLAG="--gpus all"
@@ -44,9 +50,11 @@ echo ""
 # Run the container with entire workspace and storage volumes mounted
 eval docker run -it --rm \
     ${GPU_FLAG} \
-    --user $(id -u):$(id -g) \
+    --user ${HOST_UID}:${HOST_GID} \
     -e HOME=/tmp \
-    -e USER=nvidia \
+    -e USER=${HOST_USER} \
+    -e HOST_UID=${HOST_UID} \
+    -e HOST_GID=${HOST_GID} \
     -w /workspace \
     --ipc=host \
     --shm-size=16g \
@@ -54,6 +62,7 @@ eval docker run -it --rm \
     --ulimit stack=67108864 \
     --name ${CONTAINER_NAME} \
     -v "$(pwd):/workspace" \
+    ${PASSWD_MOUNTS} \
     ${VOLUME_MOUNTS} \
     -p 6006:6006 \
     -p 8888:8888 \
