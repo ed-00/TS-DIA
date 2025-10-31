@@ -1,29 +1,19 @@
-# Accelerate Configuration for 2-GPU Testing
-# Usage: ./docker/run_distributed.sh configs/train/training_example.yml 2 ts-dia-training test-2gpu configs/accelerate_2gpu_test.yaml
-# Use this config for quick testing and debugging on 2 GPUs before scaling to full 8-GPU training
-
 compute_environment: LOCAL_MACHINE
 debug: false
-
-# Distributed settings
-distributed_type: MULTI_GPU
+distributed_type: 'NO'
 downcast_bf16: 'no'
-
-# GPU configuration
-gpu_ids: all
+dynamo_config:
+  dynamo_backend: INDUCTOR
+enable_cpu_affinity: true
+gpu_ids: 0,1
 machine_rank: 0
 main_training_function: main
+mixed_precision: bf16
 num_machines: 1
-num_processes: 2  # Fixed at 2 GPUs for testing
-
-# Mixed precision
-mixed_precision: bf16  # Options: no, fp16, bf16
-
-# Other settings
+num_processes: 1
 rdzv_backend: static
 same_network: true
 tpu_env: []
 tpu_use_cluster: false
 tpu_use_sudo: false
 use_cpu: false
-

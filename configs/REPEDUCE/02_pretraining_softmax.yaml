@@ -21,7 +21,7 @@ model:
     num_heads: 8              # Number of attention heads (must divide d_model)
     
     # Attention configuration
-    attention_type: sofmax    # Options: softmax, linear, causal_linear
+    attention_type: softmax    # Options: softmax, linear, causal_linear
     nb_features: null          # Number of random features for linear attention (None = auto)
     
     # Activation function
@@ -142,7 +142,7 @@ training:
   # ---------------------------------------------------------------------------
   validation:
     interval: 500                   # Validate every N steps
-    batch_size: 64                  # Validation batch size
+    batch_size: 128                  # Validation batch size
     metric_for_best_model: val_loss # Metric to track for best model
     greater_is_better: false        # Whether higher metric is better
   
@@ -273,32 +273,36 @@ global_config:
   
   # Data loading configuration
   data_loading:
-    strategy: on_the_fly_features   # precomputed_features | on_the_fly_features
+    strategy: precomputed_features   # precomputed_features | on_the_fly_features
+
     input_strategy:
-      num_workers: 0
+      num_workers: 32
       executor_type: thread
       use_batch_extract: true
       fault_tolerant: false
       return_audio: false
+
     sampler:
       type: simple               # bucketing | dynamic_bucketing | simple
       num_buckets: 10
       shuffle: true
       drop_last: true
+
     dataloader:
-      num_workers: 0             # if input_strategy.num_workers > 0, this is forced to 0
+      num_workers: 32             # if input_strategy.num_workers > 0, this is forced to 0
       pin_memory: true
       persistent_workers: false
       prefetch_factor: 2
   
   # Storage and computation
   storage_type: lilcom_chunky
-  num_jobs: 1  # Use single process for reliable caching
-  device: cpu
+  num_jobs: 32  # Use single process for reliable caching
+  device: cuda
   progress_bar: true
   cut_window_seconds: 50  # Window long recordings before extraction
 
 datasets:
+
   # - name: ava_avd
   #   download_params:
   #     download_annotations: true
@@ -331,28 +335,28 @@ datasets:
   #     # Custom split mapping (optional)
   #     splits: null
 
-  # - name: ami
-  #   download_params:
-  #     # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
-  #     mic: ihm-mix
-  #     url: http://groups.inf.ed.ac.uk/ami
-  #     annotations: null  # Auto-downloaded
+  - name: ami
+    download_params:
+      # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
+      mic: ihm-mix
+      url: http://groups.inf.ed.ac.uk/ami
+      annotations: null  # Auto-downloaded
     
-  #   process_params:
-  #     # Microphone type to process (must match download)
-  #     mic: ihm-mix
+    process_params:
+      # Microphone type to process (must match download)
+      mic: ihm-mix
       
-  #     # Partition selection
-  #     # Options: full-corpus, full-corpus-asr, scenario-only
-  #     partition: full-corpus
+      # Partition selection
+      # Options: full-corpus, full-corpus-asr, scenario-only
+      partition: full-corpus
       
-  #     # Text normalization
-  #     # Options: none, upper, kaldi
-  #     normalize_text: none
+      # Text normalization
+      # Options: none, upper, kaldi
+      normalize_text: none
       
-  #     # Segmentation options
-  #     max_words_per_segment: null  # null = no splitting
-  #     merge_consecutive: false  # Merge same-speaker consecutive segments
+      # Segmentation options
+      max_words_per_segment: null  # null = no splitting
+      merge_consecutive: false  # Merge same-speaker consecutive segments
 
   # - name: icsi
   #   download_params:
@@ -467,45 +471,45 @@ datasets:
   #     # Options: none, upper, lower, kaldi
   #     normalize_text: none
 
-  - name: libricss
-    download_params: {}
+  # - name: libricss
+  #   download_params: {}
     
-    process_params:
-      # Recording type
-      # Options: mdm (multiple distant microphone)
-      type: ihm-mix
+  #   process_params:
+  #     # Recording type
+  #     # Options: mdm (multiple distant microphone)
+  #     type: ihm-mix
       
-      # Generate segmented cuts
-      segmented_cuts: false
+  #     # Generate segmented cuts
+  #     segmented_cuts: false
       
-  - name: chime6
-    download_params: {}
+  # - name: chime6
+  #   download_params: {}
     
-    process_params:
-      # Dataset parts to process
-      # Options: all, train, dev, eval
-      dataset_parts: all
+  #   process_params:
+  #     # Dataset parts to process
+  #     # Options: all, train, dev, eval
+  #     dataset_parts: all
       
-      # Microphone type: mdm (multiple distant microphone)
-      mic: ihm-mix
+  #     # Microphone type: mdm (multiple distant microphone)
+  #     mic: ihm-mix
       
-      # Use reference array
-      use_reference_array: false
+  #     # Use reference array
+  #     use_reference_array: false
       
-      # Perform array synchronization
-      perform_array_sync: false
+  #     # Perform array synchronization
+  #     perform_array_sync: false
       
-      # Verify MD5 checksums
-      verify_md5_checksums: false
+  #     # Verify MD5 checksums
+  #     verify_md5_checksums: false
       
-      # Number of threads per job
-      num_threads_per_job: 1
+  #     # Number of threads per job
+  #     num_threads_per_job: 1
       
-      # Path to sox binary
-      sox_path: /usr/bin/sox
+  #     # Path to sox binary
+  #     sox_path: /usr/bin/sox
       
-      # Text normalization
-      normalize_text: null
+  #     # Text normalization
+  #     normalize_text: null
       
-      # Use CHiME-7 split
-      use_chime7_split: false
+  #     # Use CHiME-7 split
+  #     use_chime7_split: false

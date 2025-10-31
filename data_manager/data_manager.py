@@ -62,7 +62,12 @@ from lhotse import (
     RecordingSet,
     SupervisionSet,
 )
-
+from lhotse.features.io import 
+(
+    LilcomChunkyWriter,
+    LilcomFilesWriter,
+    NumpyFilesWriter,
+)
 from data_manager import recipes
 from data_manager.dataset_types import FeatureConfig, LoadDatasetsParams
 from data_manager.parse_args import datasets_manager_parser
@@ -596,13 +601,6 @@ class DatasetManager:
         dataset_storage_path = Path(storage_root) / dataset_name
         dataset_storage_path.mkdir(parents=True, exist_ok=True)
 
-        # Prefer Executor API for robust multiprocessing; falls back to num_jobs when None
-        # Resolve storage writer class from dataclass field
-        from lhotse.features.io import (
-            LilcomChunkyWriter,
-            LilcomFilesWriter,
-            NumpyFilesWriter,
-        )
 
         storage_type_map = {
             "lilcom_chunky": LilcomChunkyWriter,
@@ -617,6 +615,9 @@ class DatasetManager:
         if hasattr(cuts, "to_eager"):
             cuts = cuts.to_eager()
 
+    
+        
+        
         cuts_with_feats = cuts.compute_and_store_features(
             extractor=extractor,
             storage_path=str(dataset_storage_path),
@@ -793,8 +794,31 @@ class DatasetManager:
             # Download dataset if download function exists
             corpus_path = None
             if download_function:
-                 corpus_path = download_function(
-                    **dataset.get_download_kwargs())
+                # Inspect download kwargs to determine target path and force flag
+                dl_kwargs = dataset.get_download_kwargs()
+                target_dir = dl_kwargs.get("target_dir")
+                force_dl = dl_kwargs.get("force_download", False)
+
+                # If the target directory already exists and user did not request a
+                # forced re-download, skip calling the download function.
+                if target_dir:
+                    try:
+                        target_path = Path(target_dir)
+                        if target_path.exists() and not force_dl:
+                            print(
+                                f"→ Skipping download for {dataset.name}: target_dir {target_path} exists (force_download={force_dl})"
+                            )
+                            corpus_path = target_path
+                        else:
+                            corpus_path = download_function(**dl_kwargs)
+                    except Exception:
+                        # If anything goes wrong while probing the path, fall back to
+                        # calling the download function so the dataset can still be
+                        # obtained (safer default than silent failure).
+                        corpus_path = download_function(**dl_kwargs)
+                else:
+                    # No explicit target_dir provided by DatasetConfig; call download
+                    corpus_path = download_function(**dl_kwargs)
 
             # Process dataset to get manifests
             if process_function:

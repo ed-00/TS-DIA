@@ -106,6 +106,7 @@ class ModelFactory:
             ```
         """
         params_dict = config.to_dict()
+        
         # Ensure encoder doesn't have cross-attention
         params_dict["use_cross_attention"] = False
         return PerformerEncoder(**params_dict)
