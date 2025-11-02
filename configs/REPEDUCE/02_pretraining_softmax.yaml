@@ -16,7 +16,10 @@ model:
   # ---------------------------------------------------------------------------
   encoder:
     # Core architecture parameters
-    input_dim: 23             # Input feature dimension (23 MFCC coefficients from mfcc.conf)
+    input_dim: 360            # Input feature dimension (40-dim MFCC × 9 frames = 360)
+                              # Base features are 40-dim MFCC
+                              # Frame stacking: 9 frames (4 left + current + 4 right context)
+                              # This provides temporal context for better diarization
     d_model: 2048              # Model dimension / embedding size
     num_layers: 4             # Number of encoder layers
     num_heads: 8              # Number of attention heads (must divide d_model)
@@ -280,6 +283,8 @@ global_config:
   # Data loading configuration
   data_loading:
     strategy: precomputed_features   # precomputed_features | on_the_fly_features
+    frame_stack: 9                   # Stack 9 frames for temporal context (40-dim × 9 = 360-dim)
+                                     # This creates 360-dim features from 40-dim base MFCC
 
     input_strategy:
       num_workers: 32

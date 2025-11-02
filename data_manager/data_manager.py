@@ -835,6 +835,7 @@ class DatasetManager:
     def _create_dataset(
         cuts: CutSet,
         label_type: LabelType = "binary",
+        data_loading: Optional[DataLoadingConfig] = None,
     ) -> Union[DiarizationDataset, Any]:
         """
         Create a diarization dataset based on the label type.
@@ -842,6 +843,7 @@ class DatasetManager:
         Args:
             cuts: CutSet containing audio cuts with supervisions
             label_type: Type of labeling strategy ("ego" or "binary")
+            data_loading: Data loading configuration (for frame_stack, etc.)
 
         Returns:
             Dataset object appropriate for the specified label type
@@ -852,7 +854,9 @@ class DatasetManager:
         if label_type == "ego":
             # Import here to avoid circular dependency
             from training.ego_dataset import EgoCentricDiarizationDataset
-            return EgoCentricDiarizationDataset(cuts=cuts)
+            # Get frame_stack from data_loading config if available
+            frame_stack = getattr(data_loading, 'frame_stack', 1) if data_loading else 1
+            return EgoCentricDiarizationDataset(cuts=cuts, frame_stack=frame_stack)
         elif label_type == "binary":
             return DiarizationDataset(cuts)
         else:
@@ -903,7 +907,7 @@ class DatasetManager:
         sampler = DatasetManager._create_sampler(cuts=cuts, data_loading=data_loading)
 
         # Create dataset
-        dataset = DatasetManager._create_dataset(cuts=cuts, label_type=label_type)
+        dataset = DatasetManager._create_dataset(cuts=cuts, label_type=label_type, data_loading=data_loading)
 
         # Create worker init function for reproducibility
         worker_init_fn = make_worker_init_fn(seed=random_seed)

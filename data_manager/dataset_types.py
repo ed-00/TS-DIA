@@ -245,6 +245,7 @@ class DataLoadingConfig:
         "on_the_fly_features",
         "audio_samples",
     ] = "precomputed_features"
+    frame_stack: int = 1  # Number of frames to stack for temporal context
     input_strategy: InputStrategyConfig = field(
         default_factory=InputStrategyConfig)
     sampler: SamplerConfig = field(default_factory=SamplerConfig)

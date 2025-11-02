@@ -1,13 +1,15 @@
+import random
+
 import torch
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 from typing import Dict, Optional, List
 
-from lhotse import validate, CutSet
+from lhotse import validate, CutSet, SupervisionSet, RecordingSet
 from lhotse.cut import Cut
 from lhotse.dataset.collation import collate_features
-from lhotse.supervision import SupervisionSet, RecordingSet
+from lhotse.supervision import SupervisionSegment
 
 
 class EgoCentricDiarizationDataset(Dataset):
@@ -46,9 +48,16 @@ class EgoCentricDiarizationDataset(Dataset):
         self,
         cuts: CutSet,
         uem: Optional[SupervisionSet] = None,
+        min_enroll_len: float = 1.0,
+        max_enroll_len: float = 5.0,
+        frame_stack: int = 1,
     ) -> None:
         super().__init__()
         validate(cuts)
+        self.min_enroll_len = min_enroll_len
+        self.max_enroll_len = max_enroll_len
+        self.frame_stack = frame_stack
+        
         if not uem:
             self.cuts = cuts
         else:
@@ -75,7 +84,6 @@ class EgoCentricDiarizationDataset(Dataset):
                 recordings=recordings,
                 supervisions=SupervisionSet.from_segments(supervisions),
             )
-        self.cuts = cuts
 
     def __getitem__(self, batch_cuts: CutSet) -> Dict[str, torch.Tensor]:
         """
@@ -88,24 +96,29 @@ class EgoCentricDiarizationDataset(Dataset):
 
         # 1. Expand the batch
         for cut in batch_cuts:
-            all_speakers_in_cut = cut.speakers
+            # Get unique speakers from supervisions
+            all_speakers_in_cut: List[str] = sorted(
+                set(s.speaker for s in cut.supervisions if s.speaker)
+            )
             if not all_speakers_in_cut:
                 continue
 
             for target_spk_id in all_speakers_in_cut:
-                # Get the enrollment speech from this cut
-                # using the ground-truth supervisions.
-                enroll_cutset = cut.trim_to_supervisions(
-                    speaker=target_spk_id,
-                    keep_overlapping=False
-                )
-
-                # If the speaker has no speech in this cut, we can't enroll.
-                if not enroll_cutset:
+                # Filter supervisions for target speaker only (no overlap)
+                target_supervisions: List[SupervisionSegment] = [
+                    s for s in cut.supervisions if s.speaker == target_spk_id
+                ]
+                
+                if not target_supervisions:
                     continue
-
-                # Stack all their speech segments into one single cut
-                enroll_cut = enroll_cutset.stack()
+                
+                # Get enrollment segment by randomly sampling from continuous speech
+                enroll_cut = self._get_random_enrollment(
+                    cut, target_spk_id, target_supervisions
+                )
+                
+                if enroll_cut is None:
+                    continue
 
                 # Add the full mixture cut
                 mixture_cuts.append(cut)
@@ -140,6 +153,15 @@ class EgoCentricDiarizationDataset(Dataset):
             CutSet.from_cuts(enroll_cuts)
         )
 
+        # Apply frame stacking if configured
+        if self.frame_stack > 1:
+            features = self._stack_frames(features)
+            enroll_features = self._stack_frames(enroll_features)
+            # Update lengths after stacking
+            # unfold with size=frame_stack and step=1 produces T' = T - frame_stack + 1 frames
+            features_lens = features_lens - self.frame_stack + 1
+            enroll_features_lens = enroll_features_lens - self.frame_stack + 1
+
         # Collate labels: (B x T)
         labels = pad_sequence(
             labels_list,
@@ -154,6 +176,120 @@ class EgoCentricDiarizationDataset(Dataset):
             "enroll_features_lens": enroll_features_lens,
             "labels": labels,
         }
+
+    def _stack_frames(self, features: torch.Tensor) -> torch.Tensor:
+        """
+        Stack consecutive frames to add temporal context using efficient vectorized operations.
+        
+        Args:
+            features: Input features of shape (B, T, F) where
+                     B = batch size, T = time frames, F = feature dim
+        
+        Returns:
+            Stacked features of shape (B, T', F * frame_stack) where
+            T' = T - 2*context (reduced due to context windows on both sides)
+        
+        Example:
+            If frame_stack=9 and F=40:
+            - Input: (B, T, 40)
+            - Output: (B, T-8, 360) with 4 left + current + 4 right context
+        """
+        if self.frame_stack == 1:
+            return features
+        
+        batch_size, num_frames, feat_dim = features.shape
+        context = self.frame_stack // 2  # Symmetric context
+        
+        # Use unfold to create sliding windows efficiently
+        # unfold(dimension, size, step) creates sliding windows
+        # features: (B, T, F) -> (B, F, T) for unfold
+        features_transposed = features.transpose(1, 2)  # (B, F, T)
+        
+        # Create sliding windows of size frame_stack with step 1
+        # Result: (B, F, T', frame_stack) where T' = T - frame_stack + 1
+        unfolded = features_transposed.unfold(2, self.frame_stack, 1)  # (B, F, T', frame_stack)
+        
+        # Reshape to (B, T', F * frame_stack)
+        stacked = unfolded.permute(0, 2, 1, 3).contiguous()  # (B, T', F, frame_stack)
+        stacked = stacked.view(batch_size, -1, feat_dim * self.frame_stack)  # (B, T', F*frame_stack)
+        
+        return stacked
+
+    def _get_random_enrollment(
+        self,
+        cut: Cut,
+        target_speaker_id: str,
+        target_supervisions: List[SupervisionSegment]
+    ) -> Optional[Cut]:
+        """
+        Randomly sample a continuous enrollment segment from the target speaker's speech.
+        
+        The enrollment segment:
+        - Has a random length between min_enroll_len and max_enroll_len
+        - Starts at a random position within a continuous speech segment
+        - Contains only the target speaker (no overlap with other speakers)
+        - Contains no non-speech regions
+        
+        Returns None if no suitable segment can be found.
+        """
+        # Get all other speakers' supervisions to detect overlap
+        other_supervisions = [
+            s for s in cut.supervisions 
+            if s.speaker and s.speaker != target_speaker_id
+        ]
+        
+        # Find continuous segments (no overlap with other speakers)
+        continuous_segments = []
+        for sup in target_supervisions:
+            # Check if this supervision overlaps with any other speaker
+            has_overlap = False
+            for other_sup in other_supervisions:
+                # Check for temporal overlap
+                if (sup.start < other_sup.end and sup.end > other_sup.start):
+                    has_overlap = True
+                    break
+            
+            if not has_overlap and sup.duration > 0:
+                continuous_segments.append(sup)
+        
+        if not continuous_segments:
+            return None
+        
+        # Try to find a segment long enough for enrollment
+        # Sample a random enrollment length
+        enroll_len = random.uniform(self.min_enroll_len, self.max_enroll_len)
+        
+        # Filter segments that are long enough
+        valid_segments = [s for s in continuous_segments if s.duration >= enroll_len]
+        
+        if not valid_segments:
+            # If no segment is long enough, use the longest available segment
+            # and adjust enroll_len to fit
+            longest_segment = max(continuous_segments, key=lambda s: s.duration)
+            if longest_segment.duration < self.min_enroll_len:
+                # Even the longest segment is too short
+                return None
+            enroll_len = min(longest_segment.duration, self.max_enroll_len)
+            valid_segments = [longest_segment]
+        
+        # Randomly select a segment
+        selected_segment = random.choice(valid_segments)
+        
+        # Randomly select a start position within the segment
+        max_start_offset = selected_segment.duration - enroll_len
+        start_offset = random.uniform(0, max_start_offset) if max_start_offset > 0 else 0
+        
+        # Calculate absolute start time
+        enroll_start = selected_segment.start + start_offset
+        
+        # Trim the cut to the enrollment region
+        enroll_cut = cut.truncate(
+            offset=enroll_start,
+            duration=enroll_len,
+            preserve_id=False
+        )
+        
+        return enroll_cut
 
     def _generate_ego_centric_labels(
         self,
@@ -173,21 +309,24 @@ class EgoCentricDiarizationDataset(Dataset):
         target_mask = torch.zeros(num_frames, dtype=torch.bool)
         other_speaker_count = torch.zeros(num_frames, dtype=torch.int)
 
-        other_speaker_ids = {
-            spk for spk in cut.speakers if spk != target_speaker_id
-        }
+        # Get other speaker IDs from supervisions
+        all_speakers: set[str] = {s.speaker for s in cut.supervisions if s.speaker}
+        other_speaker_ids: set[str] = all_speakers - {target_speaker_id}
 
         # Create target speaker mask
-        for sup in cut.supervisions.filter(lambda s: s.speaker == target_speaker_id):
-            start_frame, end_frame = self._supervision_to_frames(sup, num_frames, frame_shift)
-            target_mask[start_frame:end_frame] = True
+        for sup in cut.supervisions:
+            if sup.speaker == target_speaker_id:
+                start_frame, end_frame = self._supervision_to_frames(sup, num_frames, frame_shift)
+                target_mask[start_frame:end_frame] = True
 
         # Create other speaker masks and sum them
         for other_spk_id in other_speaker_ids:
             other_spk_mask = torch.zeros(num_frames, dtype=torch.bool)
-            for sup in cut.supervisions.filter(lambda s: s.speaker == other_spk_id):
-                start_frame, end_frame = self._supervision_to_frames(sup, num_frames, frame_shift)
-                other_spk_mask[start_frame:end_frame] = True
+            # Filter supervisions for this specific speaker
+            for sup in cut.supervisions:
+                if sup.speaker == other_spk_id:
+                    start_frame, end_frame = self._supervision_to_frames(sup, num_frames, frame_shift)
+                    other_spk_mask[start_frame:end_frame] = True
             other_speaker_count += other_spk_mask.int()
 
         # Map masks to the 5 categorical labels
