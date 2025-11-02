@@ -393,9 +393,15 @@ class Trainer:
                 # Forward pass - extract features from diarization batch
                 outputs = self.model(x=batch["features"])
 
-                # Transpose target from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]
-                # Convert to float32 to match model output dtype
-                targets = batch["speaker_activity"].transpose(1, 2).float()
+                # Handle different label formats (ego-centric vs binary diarization)
+                if "labels" in batch:
+                    # Ego-centric diarization: labels are [batch, num_frames] with class indices
+                    targets = batch["labels"]
+                elif "speaker_activity" in batch:
+                    # Binary diarization: transpose from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]
+                    targets = batch["speaker_activity"].transpose(1, 2).float()
+                else:
+                    raise ValueError("Batch must contain either 'labels' or 'speaker_activity'")
 
                 # Compute loss
                 loss_dict = compute_loss(
@@ -527,9 +533,15 @@ class Trainer:
 
             outputs = self.model(x=batch["features"])
 
-            # Transpose target from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]
-            # Convert to float32 to match model output dtype
-            targets = batch["speaker_activity"].transpose(1, 2).float()
+            # Handle different label formats (ego-centric vs binary diarization)
+            if "labels" in batch:
+                # Ego-centric diarization: labels are [batch, num_frames] with class indices
+                targets = batch["labels"]
+            elif "speaker_activity" in batch:
+                # Binary diarization: transpose from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]
+                targets = batch["speaker_activity"].transpose(1, 2).float()
+            else:
+                raise ValueError("Batch must contain either 'labels' or 'speaker_activity'")
 
             # Compute loss
             loss_dict = compute_loss(
@@ -650,9 +662,15 @@ class Trainer:
 
             outputs = self.model(x=batch["features"])
 
-            # Transpose target from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]
-            # Convert to float32 to match model output dtype
-            targets = batch["speaker_activity"].transpose(1, 2).float()
+            # Handle different label formats (ego-centric vs binary diarization)
+            if "labels" in batch:
+                # Ego-centric diarization: labels are [batch, num_frames] with class indices
+                targets = batch["labels"]
+            elif "speaker_activity" in batch:
+                # Binary diarization: transpose from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]
+                targets = batch["speaker_activity"].transpose(1, 2).float()
+            else:
+                raise ValueError("Batch must contain either 'labels' or 'speaker_activity'")
 
             # Compute loss
             loss_dict = compute_loss(

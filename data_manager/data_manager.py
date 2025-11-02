@@ -84,6 +84,7 @@ from data_manager.dataset_types import (
     LabelType,
 )
 from data_manager.parse_args import datasets_manager_parser
+from training.ego_dataset import EgoCentricDiarizationDataset
 
 
 def __is_custom_recipe(dataset_name: str) -> bool:
@@ -853,10 +854,10 @@ class DatasetManager:
         """
         if label_type == "ego":
             # Import here to avoid circular dependency
-            from training.ego_dataset import EgoCentricDiarizationDataset
-            # Get frame_stack from data_loading config if available
+            # Get frame_stack and subsampling from data_loading config if available
             frame_stack = getattr(data_loading, 'frame_stack', 1) if data_loading else 1
-            return EgoCentricDiarizationDataset(cuts=cuts, frame_stack=frame_stack)
+            subsampling = getattr(data_loading, 'subsampling', 1) if data_loading else 1
+            return EgoCentricDiarizationDataset(cuts=cuts, frame_stack=frame_stack, subsampling=subsampling)
         elif label_type == "binary":
             return DiarizationDataset(cuts)
         else:

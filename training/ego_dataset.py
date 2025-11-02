@@ -51,12 +51,14 @@ class EgoCentricDiarizationDataset(Dataset):
         min_enroll_len: float = 1.0,
         max_enroll_len: float = 5.0,
         frame_stack: int = 1,
+        subsampling: int = 1,
     ) -> None:
         super().__init__()
         validate(cuts)
         self.min_enroll_len = min_enroll_len
         self.max_enroll_len = max_enroll_len
         self.frame_stack = frame_stack
+        self.subsampling = subsampling
         
         if not uem:
             self.cuts = cuts
@@ -161,6 +163,15 @@ class EgoCentricDiarizationDataset(Dataset):
             # unfold with size=frame_stack and step=1 produces T' = T - frame_stack + 1 frames
             features_lens = features_lens - self.frame_stack + 1
             enroll_features_lens = enroll_features_lens - self.frame_stack + 1
+
+        # Apply subsampling if configured (like Kaldi: keep every Nth frame)
+        if self.subsampling > 1:
+            features = features[:, ::self.subsampling, :]
+            enroll_features = enroll_features[:, ::self.subsampling, :]
+            features_lens = (features_lens + self.subsampling - 1) // self.subsampling  # Ceiling division
+            enroll_features_lens = (enroll_features_lens + self.subsampling - 1) // self.subsampling
+            # Subsample labels too
+            labels_list = [label[::self.subsampling] for label in labels_list]
 
         # Collate labels: (B x T)
         labels = pad_sequence(

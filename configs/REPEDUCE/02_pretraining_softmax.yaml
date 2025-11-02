@@ -7,7 +7,7 @@ model:
   # ---------------------------------------------------------------------------
   global_config:
     dropout: 0.1              # Dropout probability (0.0 - 1.0)
-    batch_size: 128            # Batch size for training
+    batch_size: 32            # Batch size for training (matching EEND reference)
     d_ff: 4                   # Feed-forward expansion factor (hidden_dim = d_model * d_ff)
     device: cuda               # Device: cpu, cuda, cuda:0, cuda:1, etc.
   
@@ -16,13 +16,12 @@ model:
   # ---------------------------------------------------------------------------
   encoder:
     # Core architecture parameters
-    input_dim: 360            # Input feature dimension (40-dim MFCC × 9 frames = 360)
-                              # Base features are 40-dim MFCC
-                              # Frame stacking: 9 frames (4 left + current + 4 right context)
-                              # This provides temporal context for better diarization
+    input_dim: 23             # Input feature dimension (23-dim MFCC, NO frame stacking)
+                              # Base features are 23-dim MFCC (matching EEND reference)
+                              # Context is handled by the transformer, not by stacking
     d_model: 2048              # Model dimension / embedding size
     num_layers: 4             # Number of encoder layers
-    num_heads: 8              # Number of attention heads (must divide d_model)
+    num_heads: 4              # Number of attention heads (matching EEND: 4 heads)
     
     # Attention configuration
     attention_type: softmax    # Options: softmax, linear, causal_linear
@@ -47,7 +46,7 @@ model:
     input_dim: null            # Input feature dimension (null = use encoder output, or specify for decoder-only)
     d_model: 2048              # Model dimension (should match encoder for encoder_decoder)
     num_layers: 4             # Number of decoder layers
-    num_heads: 8              # Number of attention heads
+    num_heads: 4              # Number of attention heads (matching EEND: 4 heads)
     
     # Attention configuration
     attention_type: softmax  # Options: softmax, linear, causal_linear
@@ -80,7 +79,7 @@ training:
   # Basic Training Settings
   # ---------------------------------------------------------------------------
   epochs: 100                       # Number of training epochs
-  batch_size: 128                    # Training batch size
+  batch_size: 32                    # Training batch size (matching EEND reference)
   random_seed: 42                   # Random seed for reproducibility
   max_steps: null                   # Maximum training steps (null = use epochs)
   
@@ -115,7 +114,7 @@ training:
   # ---------------------------------------------------------------------------
   # Gradient Management
   # ---------------------------------------------------------------------------
-  gradient_clipping: 1.0            # Max gradient norm (null to disable)
+  gradient_clipping: 5.0            # Max gradient norm (matching EEND: 5.0)
   gradient_accumulation_steps: 4    # Number of gradient accumulation steps
   
   # ---------------------------------------------------------------------------
@@ -152,7 +151,7 @@ training:
   # ---------------------------------------------------------------------------
   validation:
     interval: 500                   # Validate every N steps
-    batch_size: 128                  # Validation batch size
+    batch_size: 32                  # Validation batch size (matching training)
     metric_for_best_model: val_loss # Metric to track for best model
     greater_is_better: false        # Whether higher metric is better
   
@@ -232,7 +231,7 @@ training:
   # Evaluation Knobs (for inference and diarization)
   # ---------------------------------------------------------------------------
   eval_knobs:
-    batch_size: 128                 # Batch size for evaluation/inference
+    batch_size: 32                  # Batch size for evaluation/inference (matching training)
     beam_width: 5                   # Beam width for beam search
     sliding_window: 512             # Sliding window size for long sequences
     
@@ -283,8 +282,11 @@ global_config:
   # Data loading configuration
   data_loading:
     strategy: precomputed_features   # precomputed_features | on_the_fly_features
-    frame_stack: 9                   # Stack 9 frames for temporal context (40-dim × 9 = 360-dim)
-                                     # This creates 360-dim features from 40-dim base MFCC
+    frame_stack: 1                   # NO frame stacking (EEND doesn't use it)
+                                     # Features are 23-dim MFCC directly
+    subsampling: 10                  # Subsample by 10x (like Kaldi) to reduce sequence length
+                                     # 30s @ 10ms shift = 3000 frames → 300 frames after subsampling
+                                     # This dramatically reduces memory for attention (3000² → 300²)
 
     input_strategy:
       num_workers: 32
@@ -295,7 +297,12 @@ global_config:
 
     sampler:
       type: simple               # bucketing | dynamic_bucketing | simple
-      max_duration: 300.0        # Maximum duration in seconds per batch (null = no limit)
+      max_duration: 30.0         # Maximum TOTAL duration in seconds per batch (reduced from 60s)
+      max_cuts: 4                # Maximum number of cuts per batch (reduced from 8)
+                                 # With 10ms frame shift + 10x subsampling: 
+                                 # 30s audio: 3000 frames → 300 frames after subsampling
+                                 # With ego-centric expansion (2-4 speakers per cut): 4 cuts × 3 speakers = 12 examples
+                                 # Attention matrix: (12, 8 heads, 300, 300) = ~2.6 GB (manageable)
       num_buckets: 10
       shuffle: true
       drop_last: true

@@ -575,10 +575,18 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
         raise DatasetConfigError(
             "global_config.data_loading.frame_stack must be an integer when provided"
         )
+    
+    # Extract subsampling from data_loading config
+    subsampling_value = data_loading_dict.get("subsampling", 1)
+    if not isinstance(subsampling_value, int):
+        raise DatasetConfigError(
+            "global_config.data_loading.subsampling must be an integer when provided"
+        )
 
     data_loading_cfg = DataLoadingConfig(
         strategy=strategy_value,
         frame_stack=frame_stack_value,
+        subsampling=subsampling_value,
         input_strategy=input_strategy_cfg,
         sampler=sampler_cfg,
         dataloader=dataloader_cfg,

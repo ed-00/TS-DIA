@@ -246,6 +246,7 @@ class DataLoadingConfig:
         "audio_samples",
     ] = "precomputed_features"
     frame_stack: int = 1  # Number of frames to stack for temporal context
+    subsampling: int = 1  # Subsampling factor (e.g., 10 = keep every 10th frame)
     input_strategy: InputStrategyConfig = field(
         default_factory=InputStrategyConfig)
     sampler: SamplerConfig = field(default_factory=SamplerConfig)
