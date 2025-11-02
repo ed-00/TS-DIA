@@ -330,11 +330,12 @@ class Performer(nn.Module):
 
 class PerformerEncoder(Performer):
     """
-    Performer encoder with optional final normalization and output projection.
+    Performer encoder with optional input/output projections and final normalization.
 
     Encoder-only architecture for bidirectional encoding of input sequences.
     Uses self-attention without cross-attention.
-    Can include a task-specific output projection for classification tasks.
+    Can include input projection (for feature dimension mismatch) and
+    output projection (for classification tasks).
     """
 
     def __init__(self, **kwargs: Unpack[PerformerParams]):
@@ -344,11 +345,19 @@ class PerformerEncoder(Performer):
         Args:
             kwargs: PerformerParams - see Performer for details
                 Note: use_cross_attention will be forced to False
+                input_dim: int | None - if provided, adds input projection layer
                 num_classes: int | None - if provided, adds output projection layer
         """
         # Ensure encoder doesn't have cross-attention
         kwargs["use_cross_attention"] = False
         super().__init__(**kwargs)
+
+        # Optional input projection for feature dimension mismatch
+        input_dim = kwargs.get("input_dim")
+        if input_dim is not None and input_dim != kwargs["d_model"]:
+            self.input_proj = nn.Linear(input_dim, kwargs["d_model"])
+        else:
+            self.input_proj = None
 
         # Optional final layer normalization
         if not kwargs.get("use_rezero", False):
@@ -368,8 +377,8 @@ class PerformerEncoder(Performer):
         Encode input sequence.
 
         Args:
-            x: Tensor of shape (batch_size, seq_len, d_model)
-                Input embeddings
+            x: Tensor of shape (batch_size, seq_len, input_dim) or (batch_size, seq_len, d_model)
+                Input features (will be projected if input_dim != d_model)
             mask: Tensor of shape (batch_size, seq_len, seq_len) | None
                 Self-attention mask
             **kwargs: Additional arguments
@@ -379,6 +388,10 @@ class PerformerEncoder(Performer):
             Tensor of shape (batch_size, seq_len, num_classes) if output_proj exists
                 Encoded representations
         """
+        # Apply input projection if exists
+        if self.input_proj is not None:
+            x = self.input_proj(x)
+
         x = super().forward(x, self_attn_mask=mask, **kwargs)
 
         # Apply final normalization if using LayerNorm
@@ -394,12 +407,14 @@ class PerformerEncoder(Performer):
 
 class PerformerDecoder(Performer):
     """
-    Performer decoder with cross-attention for encoder-decoder models.
+    Performer decoder with optional input projection and cross-attention.
 
     Decoder architecture with:
+    - Optional input projection (for feature dimension mismatch)
     - Causal self-attention
     - Cross-attention to encoder outputs
     - Feed-forward networks
+    - Optional output projection (for classification)
 
     Can be used standalone for language modeling or with encoder for seq2seq tasks.
     """
@@ -410,8 +425,10 @@ class PerformerDecoder(Performer):
 
         Args:
             kwargs: PerformerParams - see Performer for details
+                input_dim: int | None - if provided, adds input projection layer
                 use_cross_attention: bool - add cross-attention (default True for decoder)
                 attention_type: AttentionType - typically "causal_linear" for self-attention
+                num_classes: int | None - if provided, adds output projection layer
         """
         # Decoders typically have cross-attention for encoder-decoder models
         # Set to True by default but can be overridden for decoder-only models
@@ -420,11 +437,25 @@ class PerformerDecoder(Performer):
 
         super().__init__(**kwargs)
 
+        # Optional input projection for feature dimension mismatch
+        input_dim = kwargs.get("input_dim")
+        if input_dim is not None and input_dim != kwargs["d_model"]:
+            self.input_proj = nn.Linear(input_dim, kwargs["d_model"])
+        else:
+            self.input_proj = None
+
         # Optional final layer normalization
         if not kwargs.get("use_rezero", False):
             self.final_norm = nn.LayerNorm(kwargs["d_model"])
         else:
             self.final_norm = None
+
+        # Optional output projection for classification tasks
+        num_classes = kwargs.get("num_classes")
+        if num_classes is not None:
+            self.output_proj = nn.Linear(kwargs["d_model"], num_classes)
+        else:
+            self.output_proj = None
 
     def create_causal_mask(self, seq_len: int, device: torch.device) -> Tensor:
         """
@@ -453,8 +484,8 @@ class PerformerDecoder(Performer):
         Decode sequence with optional encoder context.
 
         Args:
-            x: Tensor of shape (batch_size, seq_len, d_model)
-                Input embeddings
+            x: Tensor of shape (batch_size, seq_len, input_dim) or (batch_size, seq_len, d_model)
+                Input features (will be projected if input_dim != d_model)
             encoder_output: Tensor of shape (batch_size, src_len, d_model) | None
                 Encoder output for cross-attention
             self_attn_mask: Tensor of shape (batch_size, seq_len, seq_len) | None
@@ -465,9 +496,14 @@ class PerformerDecoder(Performer):
             **kwargs: Additional arguments
 
         Returns:
-            Tensor of shape (batch_size, seq_len, d_model)
+            Tensor of shape (batch_size, seq_len, d_model) or
+            Tensor of shape (batch_size, seq_len, num_classes) if output_proj exists
                 Decoded representations
         """
+        # Apply input projection if exists
+        if self.input_proj is not None:
+            x = self.input_proj(x)
+
         # Create causal mask if requested and no mask provided
         if use_causal_mask and self_attn_mask is None:
             batch_size, seq_len, _ = x.shape
@@ -485,6 +521,10 @@ class PerformerDecoder(Performer):
         # Apply final normalization if using LayerNorm
         if self.final_norm is not None:
             x = self.final_norm(x)
+
+        # Apply output projection if exists
+        if self.output_proj is not None:
+            x = self.output_proj(x)
 
         return x
 

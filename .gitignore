@@ -25,7 +25,7 @@ wandb/*
 *.log
 *.lca
 data_simu/mini_librispeech/data
-
+outputs/*
 data_simu/tools/miniconda3.sh
 data_simu/tools/miniconda3
 data_simu/tools/kaldi

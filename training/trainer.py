@@ -366,14 +366,28 @@ class Trainer:
         total_loss = 0.0
         num_batches = 0
 
+        # Estimate total batches for tqdm (Lhotse samplers don't have fixed length)
+        try:
+            total_batches = len(self.train_dataloader)
+        except TypeError:
+            # Sampler doesn't support __len__, estimate from dataset
+            total_batches = None
+
         progress_bar = tqdm(
             self.train_dataloader,
             desc=f"Epoch {self.current_epoch}",
             disable=not self.accelerator.is_local_main_process,
+            total=total_batches,
         )
 
         for batch_idx, batch in enumerate(progress_bar):
             self.callback_handler.on_batch_begin(self, batch, batch_idx)
+
+            # Move batch tensors to device (Accelerate doesn't auto-move dict values)
+            batch = {
+                k: v.to(self.accelerator.device) if isinstance(v, torch.Tensor) else v
+                for k, v in batch.items()
+            }
 
             with self.accelerator.accumulate(self.model):
                 # Forward pass - extract features from diarization batch
@@ -466,8 +480,7 @@ class Trainer:
             # Check if we've reached max steps
             if self.config.max_steps and self.global_step >= self.config.max_steps:
                 break
-        print(total_loss)
-        print(num_batches)
+  
         avg_loss = total_loss / num_batches
         return {"train_loss": avg_loss}
 
@@ -488,16 +501,30 @@ class Trainer:
             else None
         )
 
+        # Estimate total batches for tqdm (Lhotse samplers don't have fixed length)
+        try:
+            total_batches = len(self.val_dataloader)
+        except TypeError:
+            total_batches = None
+
         for batch_idx, batch in enumerate(
             tqdm(
                 self.val_dataloader,
                 desc="Validation",
                 disable=not self.accelerator.is_local_main_process,
+                total=total_batches,
             )
         ):
             # Stop if max_steps reached
             if max_val_steps is not None and batch_idx >= max_val_steps:
                 break
+
+            # Move batch tensors to device (Accelerate doesn't auto-move dict values)
+            batch = {
+                k: v.to(self.accelerator.device) if isinstance(v, torch.Tensor) else v
+                for k, v in batch.items()
+            }
+
             outputs = self.model(x=batch["features"])
 
             # Transpose target from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]
@@ -603,11 +630,24 @@ class Trainer:
         total_samples = 0
         all_metrics = []
 
+        # Estimate total batches for tqdm (Lhotse samplers don't have fixed length)
+        try:
+            total_batches = len(self.test_dataloader)
+        except TypeError:
+            total_batches = None
+
         for batch in tqdm(
             self.test_dataloader,
             desc="Testing",
             disable=not self.accelerator.is_local_main_process,
+            total=total_batches,
         ):
+            # Move batch tensors to device (Accelerate doesn't auto-move dict values)
+            batch = {
+                k: v.to(self.accelerator.device) if isinstance(v, torch.Tensor) else v
+                for k, v in batch.items()
+            }
+
             outputs = self.model(x=batch["features"])
 
             # Transpose target from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]

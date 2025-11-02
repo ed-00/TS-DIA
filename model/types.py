@@ -236,6 +236,11 @@ class PerformerParams(TransformerSharedParams):
             Redraw projections every N iterations. None = never redraw.
         auto_check_redraw: bool
             Automatically check and redraw projections. Default True.
+        input_dim: int | None
+            Input feature dimension. If specified and different from d_model,
+            adds an input projection layer: input_dim -> d_model.
+            Used when input features don't match model dimension.
+            Default None (no input projection, expects d_model dimension).
         num_classes: int | None
             Number of output classes for classification tasks. If specified,
             adds a linear projection layer: d_model -> num_classes.
@@ -255,4 +260,5 @@ class PerformerParams(TransformerSharedParams):
     nb_features: int | None = None
     feature_redraw_interval: int | None = 1000
     auto_check_redraw: bool = True
+    input_dim: int | None = None
     num_classes: int | None = None

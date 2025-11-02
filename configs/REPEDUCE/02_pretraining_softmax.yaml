@@ -16,6 +16,7 @@ model:
   # ---------------------------------------------------------------------------
   encoder:
     # Core architecture parameters
+    input_dim: 23             # Input feature dimension (23 MFCC coefficients from mfcc.conf)
     d_model: 2048              # Model dimension / embedding size
     num_layers: 4             # Number of encoder layers
     num_heads: 8              # Number of attention heads (must divide d_model)
@@ -40,6 +41,7 @@ model:
   # ---------------------------------------------------------------------------
   decoder:
     # Core architecture parameters
+    input_dim: null            # Input feature dimension (null = use encoder output, or specify for decoder-only)
     d_model: 2048              # Model dimension (should match encoder for encoder_decoder)
     num_layers: 4             # Number of decoder layers
     num_heads: 8              # Number of attention heads
@@ -62,8 +64,13 @@ model:
     # feature_redraw_interval: 1000  # Redraw random features every N steps
     # auto_check_redraw: true        # Automatically check when to redraw
     
-    # Classification head (optional)
-    num_classes: 5         # Number of output classes (None = no classification head)
+    # Classification head (output projection)
+    num_classes: 5         # Number of output classes for ego-centric diarization:
+                           # 0: ts (target speaker only)
+                           # 1: ts_ovl (target speaker overlapping)
+                           # 2: others_sgl (one non-target speaker)
+                           # 3: others_ovl (multiple non-target speakers)
+                           # 4: ns (non-speech)
 
 training:
   # ---------------------------------------------------------------------------
@@ -227,7 +234,7 @@ training:
     sliding_window: 512             # Sliding window size for long sequences
     
     # Diarization-specific settings
-    label_type: binary              # Options: binary, speaker_id, custom
+    label_type: ego                 # Options: binary, ego (5-class ego-centric diarization)
     max_duration: null              # Maximum duration per batch (null = no limit)
   
   # ---------------------------------------------------------------------------
@@ -251,15 +258,14 @@ global_config:
 
   features:
     feature_type: "mfcc"
-    sampling_rate: 8000
-    frame_length: 0.025         # 25 ms -> 200 samples @ 8kHz
+    sampling_rate: 8000         # --sample-frequency=8000 from mfcc.conf
+    frame_length: 0.025         # --frame-length=25 ms from mfcc.conf
     frame_shift: 0.01           # 80 samples @ 8kHz -> 0.01 s
-    num_mel_bins: 40
-    num_ceps: 40               # keep all cepstra (no reduction)
+    num_ceps: 23                # --num-ceps=23 from mfcc.conf (higher than default 12)
     use_energy: false
-    low_freq: 40.0
-    high_freq: 3700.0          # or -200.0 for Nyquist - 200
-    snip_edges: false
+    low_freq: 20.0              # --low-freq=20 from mfcc.conf
+    high_freq: 3700.0           # --high-freq=3700 from mfcc.conf (Nyquist for 8kHz)
+    snip_edges: false           # --snip-edges=false from mfcc.conf
     preemph_coeff: 0.97
     window_type: "povey"
     dither: 0.0
@@ -284,6 +290,7 @@ global_config:
 
     sampler:
       type: simple               # bucketing | dynamic_bucketing | simple
+      max_duration: 300.0        # Maximum duration in seconds per batch (null = no limit)
       num_buckets: 10
       shuffle: true
       drop_last: true

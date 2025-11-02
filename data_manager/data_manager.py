@@ -824,7 +824,7 @@ class DatasetManager:
             return SimpleCutSampler(
                 cuts,
                 max_duration=sampler_config.max_duration if isinstance(
-                    sampler_config.max_duration, float) else 0,
+                    sampler_config.max_duration, (float, int)) and sampler_config.max_duration > 0 else None,
                 shuffle=sampler_config.shuffle,
                 drop_last=sampler_config.drop_last,
             )
@@ -1157,8 +1157,11 @@ class DatasetManager:
         Returns:
             Updated dictionary with CutSets containing features
         """
+        # Get global_config
+        global_config = getattr(dataset, "global_config", None)
+        
         # Get data loading strategy
-        data_loading = getattr(dataset, "data_loading", None)
+        data_loading = global_config.data_loading if global_config else None
         dl_strategy = (
             data_loading.strategy
             if data_loading is not None
@@ -1174,7 +1177,7 @@ class DatasetManager:
 
         # Process precomputed features
         print(f"\nChecking feature cache for {dataset.name}...")
-        base_storage_path = getattr(dataset, "storage_path", None)
+        base_storage_path = global_config.storage_path if global_config else None
 
         if not base_storage_path:
             print("  → No storage_path configured, features will be extracted on demand")
@@ -1196,7 +1199,8 @@ class DatasetManager:
                 print(
                     f"  → {split_name}: Computing features and caching to {storage_path}"
                 )
-                feature_config = getattr(dataset, "feature_config", None)
+                # Get feature_config from global_config
+                feature_config = global_config.features if global_config else None
                 if feature_config is None:
                     feature_config = FeatureConfig()
 
