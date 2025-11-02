@@ -67,9 +67,22 @@ from lhotse.features.io import (
     LilcomFilesWriter,
     NumpyFilesWriter,
 )
+from lhotse.dataset import (
+    DiarizationDataset,
+    BucketingSampler,
+    DynamicBucketingSampler,
+    SimpleCutSampler,
+    make_worker_init_fn,
+)
+from torch.utils.data import DataLoader
 
 from data_manager import recipes
-from data_manager.dataset_types import FeatureConfig, LoadDatasetsParams
+from data_manager.dataset_types import (
+    FeatureConfig,
+    LoadDatasetsParams,
+    DataLoadingConfig,
+    LabelType,
+)
 from data_manager.parse_args import datasets_manager_parser
 
 
@@ -771,6 +784,498 @@ class DatasetManager:
         return normalized
 
     @staticmethod
+    def _create_sampler(
+        cuts: CutSet,
+        data_loading: DataLoadingConfig,
+    ) -> Union[BucketingSampler, DynamicBucketingSampler, SimpleCutSampler]:
+        """
+        Create a Lhotse sampler based on the data loading configuration.
+
+        Args:
+            cuts: The CutSet to sample from
+            data_loading: Configuration object containing sampler settings
+
+        Returns:
+            An initialized Lhotse sampler instance
+
+        Raises:
+            ValueError: If an unsupported sampler type is specified
+        """
+        sampler_config = data_loading.sampler
+        sampler_type = sampler_config.type
+
+        if sampler_type == "bucketing":
+            return BucketingSampler(
+                cuts,
+                max_duration=sampler_config.max_duration,
+                shuffle=sampler_config.shuffle,
+                drop_last=sampler_config.drop_last,
+                num_buckets=sampler_config.num_buckets,
+            )
+        elif sampler_type == "dynamic_bucketing":
+            return DynamicBucketingSampler(
+                cuts,
+                max_duration=sampler_config.max_duration,
+                shuffle=sampler_config.shuffle,
+                drop_last=sampler_config.drop_last,
+                num_buckets=sampler_config.num_buckets,
+            )
+        elif sampler_type == "simple":
+            return SimpleCutSampler(
+                cuts,
+                max_duration=sampler_config.max_duration if isinstance(
+                    sampler_config.max_duration, float) else 0,
+                shuffle=sampler_config.shuffle,
+                drop_last=sampler_config.drop_last,
+            )
+        else:
+            raise ValueError(f"Unsupported sampler type: {sampler_type}")
+
+    @staticmethod
+    def _create_dataset(
+        cuts: CutSet,
+        label_type: LabelType = "binary",
+    ) -> Union[DiarizationDataset, Any]:
+        """
+        Create a diarization dataset based on the label type.
+
+        Args:
+            cuts: CutSet containing audio cuts with supervisions
+            label_type: Type of labeling strategy ("ego" or "binary")
+
+        Returns:
+            Dataset object appropriate for the specified label type
+
+        Raises:
+            ValueError: If an unsupported label_type is provided
+        """
+        if label_type == "ego":
+            # Import here to avoid circular dependency
+            from training.ego_dataset import EgoCentricDiarizationDataset
+            return EgoCentricDiarizationDataset(cuts=cuts)
+        elif label_type == "binary":
+            return DiarizationDataset(cuts)
+        else:
+            raise ValueError(f"Unsupported label_type: {label_type}")
+
+    @staticmethod
+    def create_dataloader(
+        cuts: CutSet,
+        data_loading: DataLoadingConfig,
+        label_type: LabelType = "binary",
+        random_seed: int = 42,
+    ) -> DataLoader[Any]:
+        """
+        Create a PyTorch DataLoader from Lhotse CutSet for diarization.
+
+        This method creates a complete dataloader pipeline with:
+        - Sampler (bucketing/dynamic_bucketing/simple)
+        - Dataset (binary or ego-centric diarization)
+        - DataLoader with worker initialization
+
+        Args:
+            cuts: Lhotse CutSet containing audio cuts with supervisions and precomputed features
+            data_loading: Configuration for data loading (sampler, dataloader settings)
+            label_type: Type of labels ("ego" or "binary")
+            random_seed: Random seed for reproducibility
+
+        Returns:
+            PyTorch DataLoader configured for diarization
+
+        Example:
+            ```python
+            from data_manager import DatasetManager, DataLoadingConfig
+            from lhotse import CutSet
+
+            # Load cuts with precomputed features
+            cuts = CutSet.from_file("cuts_train_with_feats.jsonl.gz")
+
+            # Create dataloader
+            dataloader = DatasetManager.create_dataloader(
+                cuts=cuts,
+                data_loading=data_loading_config,
+                label_type="binary",
+                random_seed=42,
+            )
+            ```
+        """
+        # Create sampler
+        sampler = DatasetManager._create_sampler(cuts=cuts, data_loading=data_loading)
+
+        # Create dataset
+        dataset = DatasetManager._create_dataset(cuts=cuts, label_type=label_type)
+
+        # Create worker init function for reproducibility
+        worker_init_fn = make_worker_init_fn(seed=random_seed)
+
+        # Create DataLoader
+        dataloader_cfg = data_loading.dataloader
+        dataloader: DataLoader[Any] = DataLoader(
+            dataset,
+            batch_size=None,  # Lhotse samplers handle batching
+            sampler=sampler,
+            num_workers=dataloader_cfg.num_workers,
+            pin_memory=dataloader_cfg.pin_memory,
+            worker_init_fn=worker_init_fn,
+            persistent_workers=dataloader_cfg.persistent_workers if dataloader_cfg.num_workers > 0 else False,
+            prefetch_factor=dataloader_cfg.prefetch_factor if dataloader_cfg.num_workers > 0 else None,
+        )
+
+        return dataloader
+
+    @staticmethod
+    def create_train_val_dataloaders(
+        train_cuts: CutSet,
+        val_cuts: Optional[CutSet],
+        data_loading: DataLoadingConfig,
+        label_type: LabelType = "binary",
+        random_seed: int = 42,
+    ) -> Tuple[DataLoader[Any], Optional[DataLoader[Any]]]:
+        """
+        Create training and validation DataLoaders for diarization.
+
+        Args:
+            train_cuts: Training CutSet with precomputed features
+            val_cuts: Validation CutSet with precomputed features (optional)
+            data_loading: Configuration for data loading
+            label_type: Type of labels ("ego" or "binary")
+            random_seed: Random seed for reproducibility
+
+        Returns:
+            Tuple of (train_dataloader, val_dataloader)
+
+        Example:
+            ```python
+            from data_manager import DatasetManager
+
+            # Load datasets
+            cut_sets = DatasetManager.load_datasets(datasets=configs)
+            train_cuts = cut_sets["ami"]["train"]
+            val_cuts = cut_sets["ami"]["val"]
+
+            # Create dataloaders
+            train_dl, val_dl = DatasetManager.create_train_val_dataloaders(
+                train_cuts=train_cuts,
+                val_cuts=val_cuts,
+                data_loading=data_loading_config,
+                label_type="binary",
+                random_seed=42,
+            )
+            ```
+        """
+        print("=" * 60)
+        print("Creating training dataloader")
+        print("=" * 60)
+
+        train_dataloader = DatasetManager.create_dataloader(
+            cuts=train_cuts,
+            data_loading=data_loading,
+            label_type=label_type,
+            random_seed=random_seed,
+        )
+
+        val_dataloader = None
+        if val_cuts:
+            print("\n" + "=" * 60)
+            print("Creating validation dataloader")
+            print("=" * 60)
+
+            # Use same config but disable shuffle for validation
+            val_data_loading = DataLoadingConfig(
+                strategy=data_loading.strategy,
+                input_strategy=data_loading.input_strategy,
+                sampler=data_loading.sampler,
+                dataloader=data_loading.dataloader,
+            )
+            val_data_loading.sampler.shuffle = False
+
+            val_dataloader = DatasetManager.create_dataloader(
+                cuts=val_cuts,
+                data_loading=val_data_loading,
+                label_type=label_type,
+                random_seed=random_seed,
+            )
+
+        return train_dataloader, val_dataloader
+
+    @staticmethod
+    def _download_dataset(
+        dataset: Any,
+        download_function: Optional[Callable[..., Union[Path, None, Any]]],
+    ) -> Optional[Path]:
+        """
+        Download a dataset if needed.
+
+        Args:
+            dataset: Dataset configuration
+            download_function: Function to download the dataset
+
+        Returns:
+            Path to downloaded corpus, or None if no download needed
+        """
+        if not download_function:
+            return None
+
+        dl_kwargs = dataset.get_download_kwargs()
+        target_dir = dl_kwargs.get("target_dir")
+        force_dl = dl_kwargs.get("force_download", False)
+
+        # Skip download if target directory exists and force_download is False
+        if target_dir:
+            try:
+                target_path = Path(target_dir)
+                if target_path.exists() and not force_dl:
+                    print(
+                        f"→ Skipping download for {dataset.name}: "
+                        f"target_dir {target_path} exists (force_download={force_dl})"
+                    )
+                    return target_path
+                else:
+                    return download_function(**dl_kwargs)
+            except Exception:
+                # Fall back to calling download function if path check fails
+                return download_function(**dl_kwargs)
+        else:
+            # No target_dir specified, call download function
+            return download_function(**dl_kwargs)
+
+    @staticmethod
+    def _prepare_process_kwargs(
+        dataset: Any,
+        corpus_path: Optional[Path],
+        process_function: Callable[..., Any],
+    ) -> Dict[str, Any]:
+        """
+        Prepare and validate kwargs for the process function.
+
+        Args:
+            dataset: Dataset configuration
+            corpus_path: Path to corpus from download
+            process_function: Function to process the dataset
+
+        Returns:
+            Filtered kwargs valid for the process function
+        """
+        process_kwargs = dataset.get_process_kwargs()
+
+        # Set corpus_dir from download path if not already set
+        if corpus_path and "corpus_dir" not in process_kwargs:
+            process_kwargs["corpus_dir"] = corpus_path
+        elif corpus_path and "corpus_dir" in process_kwargs:
+            process_kwargs["corpus_dir"] = corpus_path
+
+        # Get valid parameters for the process function
+        sig = inspect.signature(process_function)
+        valid_keys = set(sig.parameters.keys())
+
+        # Map corpus_path to different parameter names if needed
+        if corpus_path:
+            if "audio_dir" in valid_keys:
+                process_kwargs["audio_dir"] = corpus_path
+            elif "data_dir" in valid_keys:
+                process_kwargs["data_dir"] = corpus_path
+            elif "corpus_dir" in valid_keys:
+                process_kwargs["corpus_dir"] = corpus_path
+
+        # Filter to only valid parameters
+        filtered_kwargs = {
+            k: v for k, v in process_kwargs.items() if k in valid_keys
+        }
+
+        # Handle parameter name mismatches
+        if len(filtered_kwargs) < len(process_kwargs):
+            ignored_keys = set(process_kwargs.keys()) - valid_keys
+
+            # Try to remap corpus_dir to audio_dir or data_dir
+            if "corpus_dir" in ignored_keys:
+                if "audio_dir" in valid_keys:
+                    filtered_kwargs["audio_dir"] = process_kwargs["corpus_dir"]
+                    print("Note: 'corpus_dir' renamed to 'audio_dir' for this recipe.")
+                    ignored_keys.remove("corpus_dir")
+                elif "data_dir" in valid_keys:
+                    filtered_kwargs["data_dir"] = process_kwargs["corpus_dir"]
+                    print("Note: 'corpus_dir' renamed to 'data_dir' for this recipe.")
+                    ignored_keys.remove("corpus_dir")
+
+            if ignored_keys:
+                print(
+                    f"⚠️  Warning: Ignoring unsupported process parameters "
+                    f"for {dataset.name}: {ignored_keys}"
+                )
+
+        return filtered_kwargs
+
+    @staticmethod
+    def _load_or_prepare_manifests(
+        dataset: Any,
+        process_function: Callable[..., Any],
+        process_kwargs: Dict[str, Any],
+    ) -> Any:
+        """
+        Load existing manifests or prepare new ones.
+
+        Args:
+            dataset: Dataset configuration
+            process_function: Function to process the dataset
+            process_kwargs: Kwargs for the process function
+
+        Returns:
+            Manifests (format varies by dataset)
+        """
+        output_dir = Path(process_kwargs.get("output_dir", "./manifests"))
+
+        # Try to load existing manifests
+        existing_manifests = DatasetManager._try_load_existing_manifests(
+            output_dir, dataset.name
+        )
+
+        if existing_manifests:
+            print(
+                f"✓ Using existing manifests for {dataset.name} "
+                f"(skip audio extraction & manifest creation)"
+            )
+            return existing_manifests
+        else:
+            print(
+                f"→ Preparing {dataset.name} dataset "
+                f"(manifests not found, will extract audio & create manifests)"
+            )
+            return process_function(**process_kwargs)
+
+    @staticmethod
+    def _process_features_for_dataset(
+        dataset: Any,
+        dataset_cut_sets: Dict[str, CutSet],
+    ) -> Dict[str, CutSet]:
+        """
+        Load cached features or compute new ones for all splits.
+
+        Args:
+            dataset: Dataset configuration
+            dataset_cut_sets: Dictionary of CutSets by split name
+
+        Returns:
+            Updated dictionary with CutSets containing features
+        """
+        # Get data loading strategy
+        data_loading = getattr(dataset, "data_loading", None)
+        dl_strategy = (
+            data_loading.strategy
+            if data_loading is not None
+            else "precomputed_features"
+        )
+
+        if dl_strategy != "precomputed_features":
+            print(
+                f"\nData loading strategy '{dl_strategy}' selected — "
+                f"skipping feature precomputation."
+            )
+            return dataset_cut_sets
+
+        # Process precomputed features
+        print(f"\nChecking feature cache for {dataset.name}...")
+        base_storage_path = getattr(dataset, "storage_path", None)
+
+        if not base_storage_path:
+            print("  → No storage_path configured, features will be extracted on demand")
+            return dataset_cut_sets
+
+        # Process each split
+        for split_name, cuts in dataset_cut_sets.items():
+            storage_path = Path(base_storage_path) / dataset.name
+
+            # Try to load cached features
+            cached_cuts = DatasetManager._load_cached_cuts_with_features(
+                storage_path, split_name
+            )
+
+            if cached_cuts is not None:
+                dataset_cut_sets[split_name] = cached_cuts
+            else:
+                # Compute and cache features
+                print(
+                    f"  → {split_name}: Computing features and caching to {storage_path}"
+                )
+                feature_config = getattr(dataset, "feature_config", None)
+                if feature_config is None:
+                    feature_config = FeatureConfig()
+
+                dataset_cut_sets[split_name] = (
+                    DatasetManager._compute_and_cache_features_for_split(
+                        cuts,
+                        dataset.name,
+                        split_name,
+                        feature_config,
+                        Path(base_storage_path),
+                    )
+                )
+
+        return dataset_cut_sets
+
+    @staticmethod
+    def _process_single_dataset(
+        dataset: Any,
+        process_function: Optional[Callable[..., Any]],
+        download_function: Optional[Callable[..., Union[Path, None, Any]]],
+        validation_split: float,
+    ) -> Dict[str, CutSet]:
+        """
+        Process a single dataset: download, prepare manifests, extract features.
+
+        Args:
+            dataset: Dataset configuration
+            process_function: Function to process the dataset
+            download_function: Function to download the dataset
+            validation_split: Ratio for validation split if auto-splitting
+
+        Returns:
+            Dictionary of CutSets by split name
+
+        Raises:
+            ValueError: If dataset has no download or process function
+        """
+        if download_function is None and process_function is None:
+            raise ValueError(
+                f"Dataset {dataset.name} has no download or process function"
+            )
+
+        print(f"\n{'=' * 60}")
+        print(f"Processing dataset: {dataset.name}")
+        print(f"{'=' * 60}")
+
+        # Step 1: Download dataset
+        corpus_path = DatasetManager._download_dataset(dataset, download_function)
+
+        # Step 2: Prepare manifests
+        if process_function is None:
+            raise ValueError(f"Dataset {dataset.name} has no process function")
+
+        process_kwargs = DatasetManager._prepare_process_kwargs(
+            dataset, corpus_path, process_function
+        )
+        manifests = DatasetManager._load_or_prepare_manifests(
+            dataset, process_function, process_kwargs
+        )
+
+        # Step 3: Convert manifests to CutSets
+        dataset_cut_sets = DatasetManager._manifests_to_cutsets_dict(
+            manifests, dataset.name
+        )
+
+        # Step 4: Normalize split names (dev → val, auto-split if needed)
+        dataset_cut_sets = DatasetManager._normalize_splits(
+            dataset_cut_sets, dataset.name, validation_split
+        )
+
+        # Step 5: Load or compute features
+        dataset_cut_sets = DatasetManager._process_features_for_dataset(
+            dataset, dataset_cut_sets
+        )
+
+        print(f"✓ {dataset.name} ready!\n")
+        return dataset_cut_sets
+
+    @staticmethod
     def load_datasets(
         datasets: List[Any],
         batch_size: int = 32,
@@ -828,6 +1333,7 @@ class DatasetManager:
             ami_train = cut_sets["ami"]["train"]  # From cache: manifests/ami/
             ```
         """
+        # Create params object for validation split ratio
         params = LoadDatasetsParams(
             datasets=datasets,
             batch_size=batch_size,
@@ -837,185 +1343,22 @@ class DatasetManager:
             validation_split=validation_split,
             test_split=test_split
         )
+
+        # Import recipes for all datasets
         recipes = [
             (import_recipe(dataset.name), dataset) for dataset in params.datasets
         ]
+
+        # Process each dataset
         all_cut_sets: Dict[str, Dict[str, CutSet]] = {}
-
-        for recipe in recipes:
-            (process_function, download_function), dataset = recipe
-            if download_function is None and process_function is None:
-                raise ValueError(
-                    f"Dataset {dataset.name} has no download or process function"
-                )
-
-            print(f"\n{'=' * 60}")
-            print(f"Processing dataset: {dataset.name}")
-            print(f"{'=' * 60}")
-
-            # Download dataset if download function exists
-            corpus_path = None
-            if download_function:
-                # Inspect download kwargs to determine target path and force flag
-                dl_kwargs = dataset.get_download_kwargs()
-                target_dir = dl_kwargs.get("target_dir")
-                force_dl = dl_kwargs.get("force_download", False)
-
-                # If the target directory already exists and user did not request a
-                # forced re-download, skip calling the download function.
-                if target_dir:
-                    try:
-                        target_path = Path(target_dir)
-                        if target_path.exists() and not force_dl:
-                            print(
-                                f"→ Skipping download for {dataset.name}: target_dir {target_path} exists (force_download={force_dl})"
-                            )
-                            corpus_path = target_path
-                        else:
-                            corpus_path = download_function(**dl_kwargs)
-                    except Exception:
-                        # If anything goes wrong while probing the path, fall back to
-                        # calling the download function so the dataset can still be
-                        # obtained (safer default than silent failure).
-                        corpus_path = download_function(**dl_kwargs)
-                else:
-                    # No explicit target_dir provided by DatasetConfig; call download
-                    corpus_path = download_function(**dl_kwargs)
-
-            # Process dataset to get manifests
-            if process_function is not None:
-                # Use the actual corpus path returned by download function if available
-                process_kwargs = dataset.get_process_kwargs()
-                if corpus_path and "corpus_dir" not in process_kwargs:
-                    process_kwargs["corpus_dir"] = corpus_path
-                elif corpus_path and "corpus_dir" in process_kwargs:
-                    # Override with actual path if download function provided one
-                    process_kwargs["corpus_dir"] = corpus_path
-
-                sig = inspect.signature(process_function)
-                valid_keys = set(sig.parameters.keys())
-
-                if corpus_path:
-                    if "audio_dir" in valid_keys:
-                        process_kwargs["audio_dir"] = corpus_path
-                    elif "data_dir" in valid_keys:
-                        process_kwargs["data_dir"] = corpus_path
-                    elif "corpus_dir" in valid_keys:
-                        process_kwargs["corpus_dir"] = corpus_path
-
-                filtered_kwargs = {
-                    k: v for k, v in process_kwargs.items() if k in valid_keys
-                }
-
-                if len(filtered_kwargs) < len(process_kwargs):
-                    ignored_keys = set(process_kwargs.keys()) - valid_keys
-                    # If the user provided a generic 'corpus_dir', remap it where possible
-                    if "corpus_dir" in ignored_keys:
-                        if "audio_dir" in valid_keys:
-                            filtered_kwargs["audio_dir"] = process_kwargs["corpus_dir"]
-                            print(
-                                "Note: 'corpus_dir' renamed to 'audio_dir' for this recipe.")
-                            ignored_keys.remove("corpus_dir")
-                        elif "data_dir" in valid_keys:
-                            filtered_kwargs["data_dir"] = process_kwargs["corpus_dir"]
-                            print(
-                                "Note: 'corpus_dir' renamed to 'data_dir' for this recipe.")
-                            ignored_keys.remove("corpus_dir")
-
-                    if ignored_keys:
-                        print(
-                            f"⚠️  Warning: Ignoring unsupported process parameters for {dataset.name}: {ignored_keys}"
-                        )
-
-                output_dir = Path(process_kwargs.get(
-                    "output_dir", "./manifests"))
-
-                # Check if we can load existing manifests to skip preparation
-                existing_manifests = DatasetManager._try_load_existing_manifests(
-                    output_dir, dataset.name
-                )
-
-                if existing_manifests:
-                    print(
-                        f"✓ Using existing manifests for {dataset.name} (skip audio extraction & manifest creation)"
-                    )
-                    manifests = existing_manifests
-                else:
-                    print(
-                        f"→ Preparing {dataset.name} dataset (manifests not found, will extract audio & create manifests)"
-                    )
-                    manifests = process_function(**filtered_kwargs)
-
-                # Convert manifests to structured CutSet dictionary
-                dataset_cut_sets = DatasetManager._manifests_to_cutsets_dict(
-                    manifests, dataset.name
-                )
-
-                # Normalize split names (dev → val, auto-split if needed)
-                val_split_ratio = (
-                    params.validation_split
-                    if hasattr(params, "validation_split")
-                    else 0.1
-                )
-                dataset_cut_sets = DatasetManager._normalize_splits(
-                    dataset_cut_sets, dataset.name, val_split_ratio
-                )
-
-                # Try to load or compute features depending on data loading strategy
-                data_loading = getattr(
-                    dataset, "data_loading", None)
-                dl_strategy = (
-                    data_loading.strategy
-                    if data_loading is not None
-                    else "precomputed_features"
-                )
-
-                if dl_strategy == "precomputed_features":
-                    print(f"\nChecking feature cache for {dataset.name}...")
-                    # Get feature storage path from dataset config and append dataset name
-                    base_storage_path = getattr(dataset, "storage_path", None)
-                    if base_storage_path:
-                        # Append dataset name to create dataset-specific cache directory
-                        for split_name, cuts in dataset_cut_sets.items():
-                            storage_path = Path(
-                                base_storage_path) / dataset.name
-                            cached_cuts = (
-                                DatasetManager._load_cached_cuts_with_features(
-                                    storage_path, split_name
-                                )
-                            )
-                            if cached_cuts is not None:
-                                dataset_cut_sets[split_name] = cached_cuts
-                            else:
-                                # Compute features now and cache them for this split
-                                print(
-                                    f"  → {split_name}: Computing features and caching to {storage_path}"
-                                )
-                                feature_config = getattr(dataset, "feature_config", None)
-                                if feature_config is None:
-                                    # Create default feature config if not available
-                                    feature_config = FeatureConfig()
-                                dataset_cut_sets[split_name] = (
-                                    DatasetManager._compute_and_cache_features_for_split(
-                                        cuts,
-                                        dataset.name,
-                                        split_name,
-                                        feature_config,
-                                        Path(base_storage_path),
-                                    )
-                                )
-                    else:
-                        print(
-                            "  → No storage_path configured, features will be extracted on demand"
-                        )
-                else:
-                    # On-the-fly/audio_samples strategies: skip precomputation entirely
-                    print(
-                        f"\nData loading strategy '{dl_strategy}' selected — skipping feature precomputation."
-                    )
-
-                all_cut_sets[dataset.name] = dataset_cut_sets
-                print(f"✓ {dataset.name} ready!\n")
+        for (process_function, download_function), dataset in recipes:
+            dataset_cut_sets = DatasetManager._process_single_dataset(
+                dataset=dataset,
+                process_function=process_function,
+                download_function=download_function,
+                validation_split=params.validation_split,
+            )
+            all_cut_sets[dataset.name] = dataset_cut_sets
 
         return all_cut_sets
 
@@ -1203,10 +1546,6 @@ class DatasetManager:
 
 
 if __name__ == "__main__":
-    """
-        Example usage
-        python datasets/data_manager.py --config configs/test_data.yml
-    """
     args, dataset_configs = datasets_manager_parser()
 
     # Create LoadDatasetsParams with the parsed dataset configurations

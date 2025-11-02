@@ -23,13 +23,10 @@ Usage:
     # Multi-GPU training with torchrun
     torchrun --nproc_per_node=4 train.py --config configs/training_example.yml
 """
-import os
-
 from data_manager.data_manager import DatasetManager
 from model.model_factory import create_model
 from parse_args import unified_parser
 from training import Trainer
-from training.diarization_dataloader import create_train_val_dataloaders
 
 
 def main():
@@ -46,61 +43,31 @@ def main():
             "No training configuration found — datasets downloaded and prepared. Exiting.")
         return
 
-    # Extract feature configuration (parser guarantees it's never None)
-    feature_config = dataset_configs[0].global_config.get_feature_config()
-
+    # Get dataset name and configuration
     dataset_name = dataset_configs[0].name
-    base_storage_path = dataset_configs[0].global_config.storage_path
-
-    print(
-        f"Using feature config: {feature_config.feature_type} with {feature_config.num_mel_bins} bins"
-    )
-
-    print(f"feature_config: {feature_config}")
+    global_config = dataset_configs[0].global_config
 
     # Get unified train/val splits (DatasetManager handles split mapping)
     dataset_cuts = cut_sets[dataset_name]
     train_cuts = dataset_cuts.get("train")
     val_cuts = dataset_cuts.get("val")
 
-    # Create diarization dataloaders
+    # Get label type from training config
     label_type = training_config.eval_knobs.get("label_type", "binary")
-    max_duration = training_config.eval_knobs.get("max_duration", None)
-    drop_last = (
-        training_config.performance.drop_last if training_config.performance else False
-    )
-    min_speaker_dim = training_config.eval_knobs.get("min_speaker_dim", None)
 
-    train_dataloader, val_dataloader, train_cuts_with_feats, val_cuts_with_feats = (
-        create_train_val_dataloaders(
-            train_cuts=train_cuts,
-            val_cuts=val_cuts,
-            batch_size=training_config.batch_size,
-            val_batch_size=training_config.validation.batch_size
-            if training_config.validation
-            else training_config.batch_size,
-            num_workers=training_config.performance.num_workers
-            if training_config.performance
-            else 0,
-            max_duration=max_duration,
-            label_type=label_type,
-            pin_memory=training_config.performance.pin_memory
-            if training_config.performance
-            else True,
-            feature_config=feature_config,
-            dataset_name=dataset_name,
-            base_storage_path=base_storage_path,
-            drop_last=drop_last,
-            min_speaker_dim=min_speaker_dim,
-            data_loading=dataset_configs[0].global_config.data_loading,
-            random_seed=training_config.random_seed
-            or dataset_configs[0].global_config.random_seed,
-        )
+    # Get random seed (training config takes precedence over global config)
+    random_seed = training_config.random_seed or global_config.random_seed
+
+    # Create diarization dataloaders using DatasetManager
+    train_dataloader, val_dataloader = DatasetManager.create_train_val_dataloaders(
+        train_cuts=train_cuts,
+        val_cuts=val_cuts,
+        data_loading=global_config.data_loading,
+        label_type=label_type,
+        random_seed=random_seed,
     )
-    print(f"Diarization dataloaders created with label_type='{label_type}'")
-    if training_config is None:
-        print("No training configuration provided. Preprocessing complete.")
-        return
+    print(f"\n✓ Diarization dataloaders created with label_type='{label_type}'")
+
     # Create model (parser ensures configs are never None)
     model = create_model(model_config)
     print(f"Model created: {model_config.name}")
