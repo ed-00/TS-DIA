@@ -11,7 +11,8 @@ and multiply it with the other half for improved expressiveness in neural networ
 
 from enum import Enum
 
-from torch import Tensor, nn
+from torch import Tensor
+import torch.nn as nn
 
 
 class GeGLU(nn.Module):

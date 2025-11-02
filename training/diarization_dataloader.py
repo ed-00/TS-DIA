@@ -13,27 +13,262 @@ Key Functions:
 """
 
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from typing import Optional, Tuple, Union
 from pathlib import Path
-from typing import Optional, Tuple
 
-import torch
-from lhotse import CutSet
-from lhotse.dataset import BucketingSampler, DiarizationDataset, SimpleCutSampler
-from lhotse.dataset.dataloading import make_worker_init_fn
-from lhotse.dataset.input_strategies import (
+from data_manager import FeatureConfig, LabelType
+from data_manager.dataset_types import DataLoadingConfig
+from training.ego_dataset import EgoCentricDiarizationDataset
+
+from lhotse.features import FeatureExtractor
+
+from lhotse import (
+    FbankConfig,
+    MfccConfig,
+    CutSet,
+    Fbank,
+    Mfcc,
+)
+
+from lhotse.dataset import (
+    DynamicBucketingSampler,
+    PrecomputedFeatures,
+    DiarizationDataset,
+    make_worker_init_fn,
+    BucketingSampler,
+    SimpleCutSampler,
     OnTheFlyFeatures,
 )
-from lhotse.dataset.sampling.dynamic_bucketing import DynamicBucketingSampler
-from torch.utils.data import DataLoader
 
-from data_manager import FeatureConfig
-from data_manager.dataset_types import DataLoadingConfig
-from training.diarization_dataset import DiarizationOnTheFlyDataset
+
+from torch.utils.data import Dataset, DataLoader
+from typing import Any
+
+
+def extractor_generator(feature_config: FeatureConfig) -> FeatureExtractor:
+    """Generate a feature extractor based on the provided configuration.
+
+    This function creates and returns an appropriate feature extractor (Fbank or MFCC)
+    based on the feature type specified in the configuration. It supports two types
+    of audio feature extraction: filter bank (fbank) and Mel-frequency cepstral
+    coefficients (MFCC).
+
+        feature_config (FeatureConfig): Configuration object containing feature
+            extraction parameters including feature type, sampling rate, frame
+            parameters, and various processing options.
+
+        ValueError: If the feature_config.feature_type is not "fbank" or "mfcc".
+
+        FeatureExtractor: An initialized feature extractor object (either Fbank
+            or Mfcc) configured with the specified parameters.
+
+    Example:
+        >>> config = FeatureConfig(feature_type="fbank", sampling_rate=16000)
+        >>> extractor = extractor_generator(config)
+        >>> features = extractor.extract(audio_data)
+    """
+    if feature_config.feature_type == "fbank":
+        print("Extractiong fbanks...")
+        extractor = Fbank(
+            FbankConfig(
+                sampling_rate=feature_config.sampling_rate,
+                num_mel_bins=feature_config.num_mel_bins,
+                frame_length=feature_config.frame_length,
+                frame_shift=feature_config.frame_shift,
+                dither=feature_config.dither,
+                snip_edges=feature_config.snip_edges,
+                round_to_power_of_two=feature_config.round_to_power_of_two,
+                remove_dc_offset=feature_config.remove_dc_offset,
+                preemph_coeff=feature_config.preemph_coeff,
+                window_type=feature_config.window_type,
+                energy_floor=feature_config.energy_floor,
+                raw_energy=feature_config.raw_energy,
+                use_fft_mag=feature_config.use_fft_mag,
+                low_freq=feature_config.low_freq,
+                high_freq=feature_config.high_freq,
+                torchaudio_compatible_mel_scale=feature_config.torchaudio_compatible_mel_scale,
+                norm_filters=feature_config.norm_filters,
+
+            )
+        )
+    elif feature_config.feature_type == "mfcc":
+        print("Extracting mfcc...")
+        extractor = Mfcc(
+            MfccConfig(
+                sampling_rate=feature_config.sampling_rate,
+                num_ceps=feature_config.num_ceps,
+                frame_length=feature_config.frame_length,
+                frame_shift=feature_config.frame_shift,
+                dither=feature_config.dither,
+                snip_edges=feature_config.snip_edges,
+                round_to_power_of_two=feature_config.round_to_power_of_two,
+                remove_dc_offset=feature_config.remove_dc_offset,
+                preemph_coeff=feature_config.preemph_coeff,
+                window_type=feature_config.window_type,
+                energy_floor=feature_config.energy_floor,
+                raw_energy=feature_config.raw_energy,
+                use_energy=feature_config.use_energy,
+                use_fft_mag=feature_config.use_fft_mag,
+                low_freq=feature_config.low_freq,
+                high_freq=feature_config.high_freq,
+                torchaudio_compatible_mel_scale=feature_config.torchaudio_compatible_mel_scale,
+                norm_filters=feature_config.norm_filters,
+                cepstral_lifter=feature_config.cepstral_lifter,
+
+            )
+        )
+    else:
+        raise ValueError(
+            f"Unsupported feature type for strategy: {feature_config.feature_type}"
+        )
+    return extractor
+
+
+def input_strategy_generator(
+    extractor: FeatureExtractor,
+    data_loading: DataLoadingConfig,
+    exec_cls: Union[type[ThreadPoolExecutor], type[ProcessPoolExecutor]]
+
+) -> Union[PrecomputedFeatures, OnTheFlyFeatures]:
+    """Generate an input strategy for diarization data loading based on configuration.
+
+    This function creates and returns an appropriate input strategy object based on the 
+    specified data loading strategy. It supports on-the-fly feature extraction and 
+    precomputed features strategies for diarization pipelines.
+    args:
+        extractor (Union[Mfcc, Fbank]): Feature extractor instance (MFCC or Fbank) 
+            used for audio feature extraction.
+        data_loading (DataLoadingConfig): Configuration object containing data loading 
+            parameters including strategy type and input strategy settings.
+        exec_cls (Union[ThreadPoolExecutor, ProcessPoolExecutor]): Executor class type 
+            for parallel processing during feature extraction.
+
+        ValueError: If the specified strategy is "audio_samples" which is not supported 
+            in diarization pipelines due to frame-label alignment requirements.
+
+        Union[BatchIO, PrecomputedFeatures, AudioSamples, OnTheFlyFeatures]: 
+            An input strategy object configured according to the specified strategy:
+            - OnTheFlyFeatures: For real-time feature extraction during data loading
+            - PrecomputedFeatures: For loading pre-extracted features from storage
+
+    Note:
+        The "audio_samples" strategy is intentionally not supported as diarization 
+        requires frame-level alignment with speaker labels.
+    """
+    if data_loading.strategy == "on_the_fly_features":
+        print("On the fly features stategy is choosen...")
+        # Build feature extractor
+        input_strategy = OnTheFlyFeatures(
+            extractor=extractor,
+            num_workers=data_loading.input_strategy.num_workers,
+            use_batch_extract=data_loading.input_strategy.use_batch_extract,
+            fault_tolerant=data_loading.input_strategy.fault_tolerant,
+            return_audio=data_loading.input_strategy.return_audio,
+            executor_type=exec_cls
+        )
+    elif data_loading.strategy == "precomputed_features":
+        input_strategy = PrecomputedFeatures(
+            num_workers=data_loading.input_strategy.num_workers,
+            executor_type=exec_cls,
+        )
+    else:
+        # Not supported in diarization path (labels align to frames).
+        raise ValueError(
+            "audio_samples strategy is not supported in diarization pipeline."
+        )
+    return input_strategy
+
+
+def sampler_generator(
+    cuts: CutSet,
+    data_loading: DataLoadingConfig,
+) -> Union[BucketingSampler, DynamicBucketingSampler, SimpleCutSampler]:
+    """
+    Generate a Lhotse sampler based on the provided configuration.
+
+    Args:
+        cuts: The CutSet to sample from.
+        data_loading: Configuration object containing sampler settings.
+
+    Returns:
+        An initialized Lhotse sampler instance.
+
+    Raises:
+        ValueError: If an unsupported sampler type is specified in the config.
+    """
+    # Access the sampler-specific configuration
+    sampler_config = data_loading.sampler
+    sampler_type = sampler_config.type
+
+    print(f"Initializing sampler of type: {sampler_type}")
+
+    if sampler_type == "bucketing":
+        return BucketingSampler(
+            cuts,
+            # max_duration is the main constraint for batch size
+            max_duration=sampler_config.max_duration,
+            shuffle=sampler_config.shuffle,
+            drop_last=sampler_config.drop_last,
+            # num_buckets controls the grouping of similar-duration cuts
+            num_buckets=sampler_config.num_buckets,
+        )
+    elif sampler_type == "dynamic_bucketing":
+        return DynamicBucketingSampler(
+            cuts,
+            max_duration=sampler_config.max_duration,
+            shuffle=sampler_config.shuffle,
+            drop_last=sampler_config.drop_last,
+            num_buckets=sampler_config.num_buckets,
+        )
+    elif sampler_type == "simple":
+        # SimpleCutSampler doesn't use buckets
+        return SimpleCutSampler(
+            cuts,
+            max_duration=sampler_config.max_duration if isinstance(
+                sampler_config.max_duration, float) else 0,
+            shuffle=sampler_config.shuffle,
+            drop_last=sampler_config.drop_last,
+        )
+    else:
+        # Handle any unsupported sampler types
+        raise ValueError(f"Unsupported sampler type in config: {sampler_type}")
+
+
+def dataset_generator(cuts: CutSet, lable_type: LabelType = "ego") -> Union[DiarizationDataset, EgoCentricDiarizationDataset]:
+    """
+    Creates and returns a dataset object based on the specified label type for diarization tasks.
+
+    This function serves as a factory method to instantiate different types of diarization 
+    datasets depending on the labeling approach required for training or evaluation.
+    Ags:
+        cuts (CutSet): A collection of audio cuts containing the audio data and metadata
+                      required for diarization processing.
+        lable_type (LabelType, optional): The type of labeling strategy to use for the dataset.
+                                        - "ego": Creates an ego-centric diarization dataset
+                                        - "binary": Creates a binary diarization dataset
+                                        Defaults to "ego".
+
+        Dataset: A dataset object appropriate for the specified label type. Returns either
+                an EgoCentricDiarizationDataset for ego-centric labeling or a 
+                DiarizationDataset for binary labeling.
+
+    Raises:
+        ValueError: If an unsupported lable_type is provided (neither "ego" nor "binary").
+    """
+    if lable_type == "ego":
+        return EgoCentricDiarizationDataset(
+            cuts=cuts,
+        )
+    else:
+        return DiarizationDataset(
+            cuts
+        )
 
 
 def create_diarization_dataloader(
     cuts: CutSet,
-    batch_size: int = None,
+    batch_size: Optional[int] = None,
+    label_type: LabelType = "ego",
     num_workers: int = 0,
     shuffle: bool = True,
     max_duration: Optional[float] = None,
@@ -46,7 +281,7 @@ def create_diarization_dataloader(
     min_speaker_dim: Optional[int] = None,
     data_loading: Optional[DataLoadingConfig] = None,
     random_seed: Optional[int] = 42,
-) -> Tuple[DataLoader, CutSet]:
+) -> Tuple[DataLoader[Any], CutSet]:
     """
     Create a DataLoader from Lhotse CutSet for diarization.
 
@@ -85,249 +320,65 @@ def create_diarization_dataloader(
         )
         ```
     """
-    # Expect features to be precomputed and cached in DatasetManager.load_datasets()
-    # Window overly long recordings before sampling to match feature cache layout
-    if feature_config and getattr(feature_config, "cut_window_seconds", None):
-        try:
-            window_sec = float(feature_config.cut_window_seconds)
-            if window_sec > 0:
-                cuts = cuts.cut_into_windows(duration=window_sec, hop=window_sec)
-        except Exception:
-            pass
+    if not data_loading:
+        raise ValueError("No data_loading config were passed")
+
+    if not feature_config:
+        raise ValueError(
+            "On-the-fly features strategy requires feature_config to be provided."
+        )
+
+    print("="*60)
+    print("Creating dataloader")
+    print("="*60)
 
     # Build InputStrategy from YAML config if provided
-    input_strategy = None
     dataloader_cfg_workers = num_workers
-    if data_loading is not None:
-        # Resolve executor type
-        exec_cls = (
-            ThreadPoolExecutor
-            if data_loading.input_strategy.executor_type == "thread"
-            else ProcessPoolExecutor
-        )
 
-        if data_loading.strategy == "on_the_fly_features":
-            # Build feature extractor
-            if feature_config is None:
-                raise ValueError(
-                    "On-the-fly features strategy requires feature_config to be provided."
-                )
-            from lhotse import Fbank, FbankConfig, Mfcc, MfccConfig
+    # Resolve executor type
+    exec_cls = (
+        ThreadPoolExecutor
+        if data_loading.input_strategy.executor_type == "thread"
+        else ProcessPoolExecutor
+    )
+    # Generate extractor
+    extractor = extractor_generator(feature_config)
 
-            if feature_config.feature_type == "fbank":
-                extractor = Fbank(
-                    FbankConfig(
-                        sampling_rate=feature_config.sampling_rate,
-                        num_mel_bins=feature_config.num_mel_bins or 80,
-                        frame_length=feature_config.frame_length,
-                        frame_shift=feature_config.frame_shift,
-                        dither=feature_config.dither,
-                        snip_edges=feature_config.snip_edges,
-                        round_to_power_of_two=feature_config.round_to_power_of_two,
-                        remove_dc_offset=feature_config.remove_dc_offset,
-                        preemph_coeff=feature_config.preemph_coeff,
-                        window_type=feature_config.window_type,
-                        energy_floor=feature_config.energy_floor,
-                        raw_energy=feature_config.raw_energy,
-                        use_fft_mag=feature_config.use_fft_mag,
-                        low_freq=feature_config.low_freq,
-                        high_freq=feature_config.high_freq,
-                        torchaudio_compatible_mel_scale=feature_config.torchaudio_compatible_mel_scale,
-                        norm_filters=feature_config.norm_filters,
-                    )
-                )
-            elif feature_config.feature_type == "mfcc":
-                extractor = Mfcc(
-                    MfccConfig(
-                        sampling_rate=feature_config.sampling_rate,
-                        num_ceps=feature_config.num_ceps,
-                        frame_length=feature_config.frame_length,
-                        frame_shift=feature_config.frame_shift,
-                        dither=feature_config.dither,
-                        snip_edges=feature_config.snip_edges,
-                        round_to_power_of_two=feature_config.round_to_power_of_two,
-                        remove_dc_offset=feature_config.remove_dc_offset,
-                        preemph_coeff=feature_config.preemph_coeff,
-                        window_type=feature_config.window_type,
-                        energy_floor=feature_config.energy_floor,
-                        raw_energy=feature_config.raw_energy,
-                        use_energy=feature_config.use_energy,
-                        use_fft_mag=feature_config.use_fft_mag,
-                        low_freq=feature_config.low_freq,
-                        high_freq=feature_config.high_freq,
-                        torchaudio_compatible_mel_scale=feature_config.torchaudio_compatible_mel_scale,
-                        norm_filters=feature_config.norm_filters,
-                        cepstral_lifter=feature_config.cepstral_lifter,
-                    )
-                )
-            else:
-                raise ValueError(
-                    f"Unsupported feature type for on-the-fly strategy: {feature_config.feature_type}"
-                )
+    # Generate input strategy
+    feature_strategy = input_strategy_generator(
+        extractor=extractor,
+        data_loading=data_loading,
+        exec_cls=exec_cls
+    )
 
-            input_strategy = OnTheFlyFeatures(
-                extractor=extractor,
-                num_workers=data_loading.input_strategy.num_workers,
-                use_batch_extract=data_loading.input_strategy.use_batch_extract,
-                fault_tolerant=data_loading.input_strategy.fault_tolerant,
-                return_audio=data_loading.input_strategy.return_audio,
-                executor_type=exec_cls,
-            )
-        elif data_loading.strategy == "audio_samples":
-            # Not supported in diarization path (labels align to frames).
-            raise ValueError(
-                "audio_samples strategy is not supported in diarization pipeline."
-            )
+    cuts = cuts.compute_and_store_features(
+        extractor,
+    )
+    # Generate sampler
+    sampler = sampler_generator(
+        cuts=cuts,
+        data_loading=data_loading
+    )
 
-        # If InputStrategy has its own workers, ensure DataLoader workers are disabled
-        if input_strategy is not None:
-            if (
-                data_loading.input_strategy.num_workers
-                and data_loading.input_strategy.num_workers > 0
-            ):
-                dataloader_cfg_workers = 0
+    # Generate worker init funciton
+    worker_init_fn = make_worker_init_fn(
+        seed=random_seed
+    )
 
-    # Choose Lhotse sampler (consider lazy vs eager and YAML config)
-    if data_loading is not None and data_loading.sampler.type == "dynamic_bucketing":
-        sampler = DynamicBucketingSampler(
-            cuts,
-            max_duration=data_loading.sampler.max_duration or max_duration,
-            num_buckets=data_loading.sampler.num_buckets,
-            shuffle=data_loading.sampler.shuffle if shuffle is None else shuffle,
-            drop_last=data_loading.sampler.drop_last
-            if drop_last is None
-            else drop_last,
-            seed=random_seed or 0,
-        )
-    else:
-        # If max_duration provided (via arg or YAML), prefer BucketingSampler
-        eff_max_duration = (
-            data_loading.sampler.max_duration if data_loading else None
-        ) or max_duration
-        if eff_max_duration:
-            # BucketingSampler doesn't support lazy CutSets; auto-switch to DynamicBucketingSampler
-            if getattr(cuts, "is_lazy", False):
-                sampler = DynamicBucketingSampler(
-                    cuts,
-                    max_duration=eff_max_duration,
-                    num_buckets=(
-                        data_loading.sampler.num_buckets if data_loading else 10
-                    ),
-                    shuffle=(data_loading.sampler.shuffle if data_loading else shuffle),
-                    drop_last=(
-                        data_loading.sampler.drop_last if data_loading else drop_last
-                    ),
-                    seed=random_seed or 0,
-                )
-            else:
-                sampler = BucketingSampler(
-                    cuts,
-                    sampler_type=SimpleCutSampler,
-                    num_buckets=(
-                        data_loading.sampler.num_buckets if data_loading else 10
-                    ),
-                    max_duration=eff_max_duration,
-                    shuffle=(data_loading.sampler.shuffle if data_loading else shuffle),
-                    drop_last=(
-                        data_loading.sampler.drop_last if data_loading else drop_last
-                    ),
-                )
-        else:
-            # SimpleCutSampler by number of cuts
-            eff_batch_size = batch_size
-            if eff_batch_size is None and data_loading is not None:
-                # No special default from YAML; keep None to fall back to max_duration in SimpleCutSampler
-                pass
-            if eff_batch_size:
-                sampler = SimpleCutSampler(
-                    cuts,
-                    max_cuts=eff_batch_size,
-                    shuffle=(data_loading.sampler.shuffle if data_loading else shuffle),
-                    drop_last=(
-                        data_loading.sampler.drop_last if data_loading else drop_last
-                    ),
-                )
-            else:
-                sampler = SimpleCutSampler(
-                    cuts,
-                    max_duration=300.0,
-                    shuffle=(data_loading.sampler.shuffle if data_loading else shuffle),
-                    drop_last=(
-                        data_loading.sampler.drop_last if data_loading else drop_last
-                    ),
-                )
+    # extract features
 
-    # Create dataset depending on strategy
-    if (
-        data_loading is not None
-        and data_loading.strategy == "on_the_fly_features"
-        and input_strategy is not None
-    ):
-        frame_shift = feature_config.frame_shift if feature_config else 0.01
-
-        dataset = DiarizationOnTheFlyDataset(
-            cuts=cuts,
-            input_strategy=input_strategy,
-            frame_shift=frame_shift,
-            min_speaker_dim=min_speaker_dim
-        )
-    else:
-        # Default precomputed-features path with wrapper to ensure min_speaker_dim
-        base_dataset = DiarizationDataset(cuts, min_speaker_dim=min_speaker_dim)
-
-        # Wrap to ensure min_speaker_dim is always respected
-        class _DiarizationDatasetWrapper(torch.utils.data.Dataset):
-            def __init__(self, base_dataset, min_speaker_dim: Optional[int] = None):
-                self.base_dataset = base_dataset
-                self.min_speaker_dim = min_speaker_dim
-
-            def __getitem__(self, cuts_batch: CutSet):
-                batch = self.base_dataset[cuts_batch]
-
-                # Ensure speaker dimension meets minimum requirement
-                if self.min_speaker_dim is not None:
-                    speaker_activity = batch["speaker_activity"]
-                    current_speaker_dim = speaker_activity.shape[
-                        1
-                    ]  # [batch, num_speakers, num_frames]
-
-                    if current_speaker_dim < self.min_speaker_dim:
-                        # Pad the speaker dimension
-                        padding_needed = self.min_speaker_dim - current_speaker_dim
-                        pad_shape = (
-                            speaker_activity.shape[0],
-                            padding_needed,
-                            speaker_activity.shape[2],
-                        )
-                        padding = torch.zeros(
-                            pad_shape,
-                            dtype=speaker_activity.dtype,
-                            device=speaker_activity.device,
-                        )
-                        batch["speaker_activity"] = torch.cat(
-                            [speaker_activity, padding], dim=1
-                        )
-
-                return batch
-
-        dataset = _DiarizationDatasetWrapper(
-            base_dataset, min_speaker_dim=min_speaker_dim
-        )
-
-    # Use native Lhotse dataset + sampler with DataLoader
-    worker_init_fn = None
-    if dataloader_cfg_workers and dataloader_cfg_workers > 0:
-        # Seed workers distinctly for randomized ops; rank/world_size inferred when possible
-        worker_init_fn = make_worker_init_fn(seed=random_seed or 0)
-
-    # Use Lhotse sampler with batch_size=None (per Lhotse docs)
-    dataloader = DataLoader(
+    # Generate dataset
+    dataset = dataset_generator(
+        cuts=cuts, lable_type=label_type
+    )
+    dataloader: DataLoader[Any] = DataLoader(
         dataset,
         batch_size=None,
         sampler=sampler,
         num_workers=dataloader_cfg_workers,
         pin_memory=pin_memory,
         worker_init_fn=worker_init_fn,
+    )
     )
 
     return (
@@ -378,13 +429,13 @@ def create_train_val_dataloaders(
     resolved_train_cuts = train_cuts
     if dataset_name and base_storage_path:
         train_cache = (
-            Path(base_storage_path) / dataset_name / "cuts_train_with_feats.jsonl.gz"
+            Path(base_storage_path) / dataset_name /
+            "cuts_train_with_feats.jsonl.gz"
         )
         if train_cache.exists():
-            try:
-                resolved_train_cuts = CutSet.from_file(train_cache)
-            except Exception:
-                pass
+            resolved_train_cuts = CutSet.from_file(train_cache)
+
+    resolved_train_cuts.describe()
 
     train_dataloader, train_cuts_with_feats = create_diarization_dataloader(
         cuts=resolved_train_cuts,
@@ -409,14 +460,13 @@ def create_train_val_dataloaders(
         resolved_val_cuts = val_cuts
         if dataset_name and base_storage_path:
             val_cache = (
-                Path(base_storage_path) / dataset_name / "cuts_val_with_feats.jsonl.gz"
+                Path(base_storage_path) / dataset_name /
+                "cuts_val_with_feats.jsonl.gz"
             )
             if val_cache.exists():
-                try:
-                    resolved_val_cuts = CutSet.from_file(val_cache)
-                except Exception:
-                    pass
+                resolved_val_cuts = CutSet.from_file(val_cache)
 
+        resolved_val_cuts.describe()
         val_dataloader, val_cuts_with_feats = create_diarization_dataloader(
             cuts=resolved_val_cuts,
             batch_size=val_batch_size,

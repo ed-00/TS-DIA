@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path
 from typing import Dict, Optional
 from data_manager.recipes.audio_utils import resample_if_needed
+from typing_extensions import Union, Tuple
 
 import gdown
 from lhotse import fix_manifests, validate_recordings_and_supervisions
@@ -71,7 +72,8 @@ def download_mswild(
             rttm_dir = dataset_dir / "rttms"
             rttm_dir.mkdir(exist_ok=True)
             if (annotations_dir / "rttms").exists():
-                shutil.copytree(annotations_dir / "rttms", rttm_dir, dirs_exist_ok=True)
+                shutil.copytree(annotations_dir / "rttms",
+                                rttm_dir, dirs_exist_ok=True)
 
             # Clean up
             shutil.rmtree(annotations_dir)
@@ -163,7 +165,7 @@ def prepare_mswild(
     output_dir: Optional[Pathlike] = None,
     splits: Optional[Dict[str, str]] = None,
     sampling_rate: Optional[int] = None,
-):
+) -> Dict[str, Dict[str, Union[SupervisionSet, RecordingSet]]]:
     """
     Prepare the MSDWILD dataset for use with lhotse.
 
@@ -181,7 +183,7 @@ def prepare_mswild(
     if splits is None:
         splits = {"train": "few.train", "dev": "few.val", "test": "many.val"}
 
-    manifests = {}
+    manifests: Dict[str, Dict[str, Union[SupervisionSet, RecordingSet]]] = {}
 
     for split_name, rttm_pattern in splits.items():
         logging.info(f"Preparing {split_name} split...")
@@ -200,13 +202,15 @@ def prepare_mswild(
                 logging.warning(f"No RTTM files found for {split_name} split")
                 continue
 
-        recordings = []
-        supervisions = []
-        processed_audio_ids = set()  # Track processed audio files to avoid duplicates
+        recordings: list[Recording] = []
+        supervisions: list[SupervisionSegment] = []
+        # Track processed audio files to avoid duplicates
+        processed_audio_ids: set[str] = set()
 
         for rttm_file in tqdm(rttm_files, desc=f"Processing {split_name}"):
             # Read RTTM file to get audio IDs and segments
-            audio_segments = {}  # audio_id -> list of segments
+            # audio_id -> list of segments
+            audio_segments: Dict[str, list[Tuple[float, float, str]]] = {}
 
             with open(rttm_file, "r") as f:
                 for line in f:
@@ -220,7 +224,8 @@ def prepare_mswild(
 
                             if audio_id not in audio_segments:
                                 audio_segments[audio_id] = []
-                            audio_segments[audio_id].append((start, duration, speaker))
+                            audio_segments[audio_id].append(
+                                (start, duration, speaker))
 
             # Process each audio file referenced in the RTTM
             for original_audio_id, segments in audio_segments.items():
@@ -228,31 +233,39 @@ def prepare_mswild(
                 if original_audio_id in processed_audio_ids:
                     continue
 
-                audio_file = corpus_dir / "wavs" / "wav" / f"{original_audio_id}.wav"
-                actual_audio_id = original_audio_id  # This will be updated if using resampled file
+                audio_file = corpus_dir / "wavs" / \
+                    "wav" / f"{original_audio_id}.wav"
+                # This will be updated if using resampled file
+                actual_audio_id = original_audio_id
 
                 # Check if audio file exists
                 if not audio_file.exists():
                     logging.warning(f"Audio file not found: {audio_file}")
                     # Look for any resampled version with pattern: original_id_sr*.wav
                     wavs_dir = corpus_dir / "wavs" / "wav"
-                    resampled_files = list(wavs_dir.glob(f"{original_audio_id}_sr*.wav"))
+                    resampled_files = list(wavs_dir.glob(
+                        f"{original_audio_id}_sr*.wav"))
                     if resampled_files:
                         # Use the first resampled file found
                         audio_file = resampled_files[0]
                         # Extract the actual filename without extension to use as ID
                         actual_audio_id = audio_file.stem
-                        logging.info(f"Using resampled audio file: {audio_file}")
+                        logging.info(
+                            f"Using resampled audio file: {audio_file}")
                     else:
-                        logging.warning(f"Neither original nor resampled audio file found for {original_audio_id}")
+                        logging.warning(
+                            f"Neither original nor resampled audio file found for {original_audio_id}")
                         continue
 
                 # Create recording (resample first if needed)
                 if sampling_rate:
-                    audio_to_use = resample_if_needed(audio_file, int(sampling_rate))
-                    recording = Recording.from_file(str(audio_to_use), recording_id=actual_audio_id)
+                    audio_to_use = resample_if_needed(
+                        audio_file, int(sampling_rate))
+                    recording = Recording.from_file(
+                        str(audio_to_use), recording_id=actual_audio_id)
                 else:
-                    recording = Recording.from_file(str(audio_file), recording_id=actual_audio_id)
+                    recording = Recording.from_file(
+                        str(audio_file), recording_id=actual_audio_id)
                 recordings.append(recording)
                 processed_audio_ids.add(original_audio_id)
 
@@ -278,7 +291,8 @@ def prepare_mswild(
         supervision_set = SupervisionSet.from_segments(supervisions)
 
         # Fix and validate manifests
-        recording_set, supervision_set = fix_manifests(recording_set, supervision_set)
+        recording_set, supervision_set = fix_manifests(
+            recording_set, supervision_set)
         validate_recordings_and_supervisions(recording_set, supervision_set)
 
         # Save manifests if output_dir is specified
@@ -298,21 +312,3 @@ def prepare_mswild(
         }
 
     return manifests
-
-
-def _read_rttm(filename: Pathlike):
-    """
-    Read RTTM file and yield (start, duration, speaker) tuples.
-
-    RTTM format: SPEAKER file 1 start_time duration <NA> <NA> speaker_id <NA> <NA>
-    """
-    with open(filename, "r") as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith("SPEAKER"):
-                parts = line.split()
-                if len(parts) >= 8:
-                    start = float(parts[3])
-                    duration = float(parts[4])
-                    speaker = parts[7]
-                    yield start, duration, speaker

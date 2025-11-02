@@ -4,8 +4,9 @@ import re
 import subprocess
 import tarfile
 from pathlib import Path
-from typing import Dict, Optional
-
+from typing import Dict, List, Optional, Tuple
+import zipfile
+import shutil
 import soundfile as sf
 
 from lhotse import fix_manifests, validate_recordings_and_supervisions
@@ -53,7 +54,6 @@ def download_ava_avd(
         subprocess.call(cmd, shell=True)
 
         # Extract repository
-        import zipfile
 
         with zipfile.ZipFile(repo_zip_path) as zip_f:
             zip_f.extractall(dataset_dir)
@@ -63,8 +63,6 @@ def download_ava_avd(
         if repo_dir.exists():
             # Copy dataset directory
             if (repo_dir / "dataset").exists():
-                import shutil
-
                 shutil.copytree(
                     repo_dir / "dataset", dataset_dir / "dataset", dirs_exist_ok=True
                 )
@@ -89,14 +87,17 @@ def download_ava_avd(
                     video_path = videos_dir / video_name
 
                     if video_path.exists() and not force_download:
-                        logging.info(f"Video {video_name} already exists, skipping...")
+                        logging.info(
+                            f"Video {video_name} already exists, skipping...")
                         continue
 
-                    logging.info(f"Downloading {video_name} [{i + 1}/{len(videos)}]")
+                    logging.info(
+                        f"Downloading {video_name} [{i + 1}/{len(videos)}]")
                     cmd = f"wget -P {videos_dir} {VIDEOS_BASE_URL}{video_name}"
                     subprocess.call(cmd, shell=True)
             else:
-                logging.warning(f"Video list file not found: {video_list_file}")
+                logging.warning(
+                    f"Video list file not found: {video_list_file}")
 
         # Download annotations if requested
         if download_annotations:
@@ -147,7 +148,7 @@ def prepare_ava_avd(
     if splits is None:
         splits = {"train": "train", "val": "val", "test": "test"}
 
-    manifests = {}
+    manifests: Dict[str, Dict[str, RecordingSet | SupervisionSet]] = {}
 
     for split_name, split_dir in splits.items():
         logging.info(f"Preparing {split_name} split...")
@@ -168,8 +169,8 @@ def prepare_ava_avd(
             logging.warning(f"Videos directory not found: {videos_dir}")
             continue
 
-        recordings = []
-        supervisions = []
+        recordings: List[Recording] = []
+        supervisions: List[SupervisionSegment] = []
         recordings_map: Dict[str, Recording] = {}
         failed_videos: set[str] = set()
         failed_chunks: set[str] = set()
@@ -186,7 +187,8 @@ def prepare_ava_avd(
         end_pad = 1.0
 
         # Get split list to filter videos
-        split_list_file = corpus_dir / "dataset" / "split" / f"{split_dir}.list"
+        split_list_file = corpus_dir / "dataset" / \
+            "split" / f"{split_dir}.list"
         if not split_list_file.exists():
             logging.warning(f"Split list file not found: {split_list_file}")
             continue
@@ -203,7 +205,8 @@ def prepare_ava_avd(
             annotation_files = list(rttms_dir.glob("*.rttm"))
 
         if not annotation_files:
-            logging.warning(f"No annotation files found for {split_name} split")
+            logging.warning(
+                f"No annotation files found for {split_name} split")
             continue
 
         for annotation_file in tqdm(annotation_files, desc=f"Processing {split_name}"):
@@ -231,7 +234,7 @@ def prepare_ava_avd(
                 continue
 
             try:
-                segments = []
+                segments: List[Tuple[int, float, float, str]] = []
                 min_start = float("inf")
                 max_end = 0.0
                 with open(annotation_file, "r") as f:
@@ -249,7 +252,8 @@ def prepare_ava_avd(
                             label = parts[2]
                             if label != "speech":
                                 continue
-                            segments.append((line_idx, start_time, end_time, "speech"))
+                            segments.append(
+                                (line_idx, start_time, end_time, "speech"))
                         elif annotation_file.suffix.lower() == ".rttm":
                             if not line.startswith("SPEAKER"):
                                 continue
@@ -260,7 +264,8 @@ def prepare_ava_avd(
                             duration = float(parts[4])
                             end_time = start_time + duration
                             speaker = parts[7]
-                            segments.append((line_idx, start_time, end_time, speaker))
+                            segments.append(
+                                (line_idx, start_time, end_time, speaker))
                         else:
                             continue
 
@@ -277,7 +282,8 @@ def prepare_ava_avd(
                 continue
 
             chunk_index = int(chunk_match.group(1))
-            expected_offset = base_chunk_offset + (chunk_index - 1) * chunk_stride
+            expected_offset = base_chunk_offset + \
+                (chunk_index - 1) * chunk_stride
             chunk_start = min(expected_offset, min_start) - start_pad
             if chunk_start < 0.0:
                 chunk_start = 0.0
@@ -294,7 +300,8 @@ def prepare_ava_avd(
                         video_path_cache[base_video_id] = candidate
                         break
                 if video_file is None:
-                    logging.warning(f"Video file not found for: {base_video_id}")
+                    logging.warning(
+                        f"Video file not found for: {base_video_id}")
                     failed_videos.add(base_video_id)
                     failed_chunks.add(chunk_id)
                     continue
@@ -310,7 +317,8 @@ def prepare_ava_avd(
                     "-show_format",
                     str(video_file),
                 ]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=10)
                 if result.returncode != 0:
                     logging.warning(
                         "ffprobe failed for %s: %s", video_file, result.stderr
@@ -414,15 +422,18 @@ def prepare_ava_avd(
                     failed_chunks.add(chunk_id)
                     continue
                 except subprocess.TimeoutExpired:
-                    logging.warning("Audio extraction timed out for %s", chunk_id)
+                    logging.warning(
+                        "Audio extraction timed out for %s", chunk_id)
                     failed_chunks.add(chunk_id)
                     continue
 
             if chunk_id not in recordings_map:
                 try:
-                    recording = Recording.from_file(audio_file, recording_id=chunk_id)
+                    recording = Recording.from_file(
+                        audio_file, recording_id=chunk_id)
                 except Exception as exc:  # noqa: BLE001
-                    logging.warning("Failed to create recording for %s: %s", chunk_id, exc)
+                    logging.warning(
+                        "Failed to create recording for %s: %s", chunk_id, exc)
                     failed_chunks.add(chunk_id)
                     continue
                 recordings.append(recording)
@@ -461,7 +472,8 @@ def prepare_ava_avd(
         supervision_set = SupervisionSet.from_segments(supervisions)
 
         # Fix and validate manifests
-        recording_set, supervision_set = fix_manifests(recording_set, supervision_set)
+        recording_set, supervision_set = fix_manifests(
+            recording_set, supervision_set)
         validate_recordings_and_supervisions(recording_set, supervision_set)
 
         # Save manifests if output_dir is specified

@@ -3,12 +3,15 @@ import shutil
 import zipfile
 from pathlib import Path
 from typing import Dict, Optional
-
+from typing_extensions import Union
 from lhotse import fix_manifests, validate_recordings_and_supervisions
 from lhotse.audio import Recording, RecordingSet
+
+from data_manager.recipes.audio_utils import resample_if_needed
 from lhotse.supervision import SupervisionSegment, SupervisionSet
 from lhotse.utils import Pathlike, resumable_download
 from tqdm.auto import tqdm
+
 
 # Dataset URLs from the VoxConverse repository
 DEV_AUDIO_URL = (
@@ -36,7 +39,7 @@ def download_voxconverse(
         download_test: If True, download test set audio files
     """
     # Create dataset-specific directory
-    dataset_dir = Path(target_dir) 
+    dataset_dir = Path(target_dir)
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
     completed_detector = dataset_dir / ".completed"
@@ -121,7 +124,7 @@ def prepare_voxconverse(
     output_dir: Optional[Pathlike] = None,
     splits: Optional[Dict[str, str]] = None,
     sampling_rate: Optional[int] = None,
-):
+) -> Dict[str, Dict[str, Union[RecordingSet, SupervisionSet]]]:
     """
     Prepare the VoxConverse dataset for use with lhotse.
 
@@ -140,7 +143,7 @@ def prepare_voxconverse(
     if splits is None:
         splits = {"dev": "dev", "test": "test"}
 
-    manifests = {}
+    manifests:  Dict[str, Dict[str, Union[RecordingSet, SupervisionSet]]] = {}
 
     for split_name, split_dir in splits.items():
         logging.info(f"Preparing {split_name} split...")
@@ -157,9 +160,10 @@ def prepare_voxconverse(
             logging.warning(f"Audio directory not found: {audio_dir}")
             continue
 
-        recordings = []
-        supervisions = []
-        processed_audio_ids = set()  # Track processed audio files to avoid duplicates
+        recordings: list[Recording] = []
+        supervisions: list[SupervisionSegment] = []
+        # Track processed audio files to avoid duplicates
+        processed_audio_ids: set[str] = set()
 
         # Get all RTTM files
         rttm_files = list(rttm_dir.glob("*.rttm"))
@@ -182,10 +186,10 @@ def prepare_voxconverse(
                 logging.warning(f"Audio file not found: {audio_file}")
                 continue
             # Optionally resample audio to target sampling_rate using shared helper
-            from data_manager.recipes.audio_utils import resample_if_needed
 
             if sampling_rate:
-                audio_to_use = resample_if_needed(Path(audio_file), int(sampling_rate))
+                audio_to_use = resample_if_needed(
+                    Path(audio_file), int(sampling_rate))
             else:
                 audio_to_use = Path(audio_file)
 
@@ -227,7 +231,8 @@ def prepare_voxconverse(
         supervision_set = SupervisionSet.from_segments(supervisions)
 
         # Fix and validate manifests
-        recording_set, supervision_set = fix_manifests(recording_set, supervision_set)
+        recording_set, supervision_set = fix_manifests(
+            recording_set, supervision_set)
         validate_recordings_and_supervisions(recording_set, supervision_set)
 
         # Save manifests if output_dir is specified
@@ -247,21 +252,3 @@ def prepare_voxconverse(
         }
 
     return manifests
-
-
-def _read_rttm(filename: Pathlike):
-    """
-    Read RTTM file and yield (start, duration, speaker) tuples.
-
-    RTTM format: SPEAKER file 1 start_time duration <NA> <NA> speaker_id <NA> <NA>
-    """
-    with open(filename, "r") as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith("SPEAKER"):
-                parts = line.split()
-                if len(parts) >= 8:
-                    start = float(parts[3])
-                    duration = float(parts[4])
-                    speaker = parts[7]
-                    yield start, duration, speaker

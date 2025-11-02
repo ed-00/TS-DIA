@@ -49,7 +49,7 @@ Supported Datasets:
 """
 import inspect
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 
 import lhotse as lh
 import torch
@@ -60,14 +60,14 @@ from lhotse import (
     Mfcc,
     MfccConfig,
     RecordingSet,
-    SupervisionSet,
-    load_manifest
+    SupervisionSet
 )
 from lhotse.features.io import (
     LilcomChunkyWriter,
     LilcomFilesWriter,
     NumpyFilesWriter,
 )
+
 from data_manager import recipes
 from data_manager.dataset_types import FeatureConfig, LoadDatasetsParams
 from data_manager.parse_args import datasets_manager_parser
@@ -147,6 +147,15 @@ def fetch_diversion(
         ]
     ],
 ]:
+    """Fetches dataset proces function that diviate from the normal naming 
+
+    Args:
+        dataset_name (str): Dataset name
+
+    Raises:
+        ValueError: If the dataset in not one of diversent datasets
+
+    """
     if not __is_divertion_from_standard(dataset_name):
         raise ValueError(
             f"Not in the Diversion list {dataset_name}, do not use this funciton for other than (voxceleb 1/2)")
@@ -304,6 +313,27 @@ def import_recipe(
         )
 
 
+def resolve_manifest(patterns: List[Path], glob_suffix: str, manifest_dir: Path) -> Optional[Path]:
+    """Resolve manifest file path from patterns or glob search.
+
+    Args:
+        patterns: List of Path objects to check for existence
+        glob_suffix: Suffix pattern for glob search if no patterns exist
+        manifest_dir: Directory to search for manifest files
+
+    Returns:
+        Path to the manifest file if found, None otherwise
+    """
+    for path in patterns:
+        if path.exists():
+            return path
+    wildcard = next(
+        (p for p in manifest_dir.glob(f"*{glob_suffix}")),
+        None,
+    )
+    return wildcard
+
+
 class DatasetManager:
     """
     Dataset manager with hybrid typed + dict parameter support.
@@ -363,7 +393,7 @@ class DatasetManager:
     @staticmethod
     def _try_load_existing_manifests(
         output_dir: Path, dataset_name: str
-    ) -> Optional[Dict[str, Dict[str, Any]]]:
+    ) -> Optional[Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]]]:
         """
         Try to load existing manifests from disk to skip re-preparation.
 
@@ -374,7 +404,6 @@ class DatasetManager:
         Returns:
             Dictionary of manifests by split if they exist, None otherwise
         """
-        from lhotse import CutSet, RecordingSet, SupervisionSet
 
         # output_dir already includes dataset name (e.g., manifests/ava_avd)
         # So we use it directly, not append dataset_name again
@@ -386,7 +415,7 @@ class DatasetManager:
         # Common patterns:
         #   - recordings_train.jsonl.gz
         #   - ava_avd_recordings_train.jsonl.gz (dataset-prefixed)
-        splits = set()
+        splits: set[str] = set()
         recordings_files = list(manifest_dir.glob("*recordings_*.jsonl.gz"))
 
         for file in recordings_files:
@@ -428,24 +457,14 @@ class DatasetManager:
             ]
 
             # Wildcard helpers handle recipe-specific prefixes (e.g., ami-ihm-mix_*)
-            def resolve_manifest(patterns, glob_suffix):
-                for path in patterns:
-                    if path.exists():
-                        return path
-                wildcard = next(
-                    (p for p in manifest_dir.glob(f"*{glob_suffix}")),
-                    None,
-                )
-                return wildcard
-
             recordings_path = resolve_manifest(
-                recordings_patterns, f"recordings_{split_name}.jsonl.gz"
+                recordings_patterns, f"recordings_{split_name}.jsonl.gz", manifest_dir
             )
             supervisions_path = resolve_manifest(
-                supervisions_patterns, f"supervisions_{split_name}.jsonl.gz"
+                supervisions_patterns, f"supervisions_{split_name}.jsonl.gz", manifest_dir
             )
             cuts_path = resolve_manifest(
-                cuts_patterns, f"cuts_{split_name}.jsonl.gz"
+                cuts_patterns, f"cuts_{split_name}.jsonl.gz", manifest_dir
             )
 
             # Need at least recordings or cuts
@@ -468,7 +487,13 @@ class DatasetManager:
             if split_manifests:
                 manifests[split_name] = split_manifests
 
-        return manifests if manifests else None
+        if not manifests:
+            return None
+
+        return cast(
+            Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]],
+            manifests,
+        )
 
     @staticmethod
     def _load_cached_cuts_with_features(
@@ -491,9 +516,8 @@ class DatasetManager:
         if cache_path.exists():
             print(
                 f"  ✓ {split_name}: Loaded from cache (skip feature extraction)")
-            # Use load_manifest (eager) instead of load_manifest_lazy for BucketingSampler compatibility
-            return load_manifest(cache_path)
-
+            # Use CutSet.from_file (eager) instead of load_manifest_lazy for BucketingSampler compatibility
+            return CutSet.from_file(cache_path)
         print(
             f"  → {split_name}: No cache found (will extract features on first use)")
         return None
@@ -521,7 +545,8 @@ class DatasetManager:
         """
         # Resampling audio
         if cuts[0].sampling_rate != feature_cfg.sampling_rate:
-            print(f"Resampling audio {cuts[0].sampling_rate} -> {eature_cfg.sampling_rate}")
+            print(
+                f"Resampling audio {cuts[0].sampling_rate} -> {feature_cfg.sampling_rate}")
             cuts = cuts.resample(feature_cfg.sampling_rate)
 
         # Build feature extractor from configuration
@@ -595,10 +620,13 @@ class DatasetManager:
         # Optionally window long recordings before feature extraction
         if getattr(feature_cfg, "cut_window_seconds", None):
             try:
-                window_sec = float(feature_cfg.cut_window_seconds)
-                # Use sliding windows with no overlap for simplicity; can be made configurable
-                cuts = cuts.cut_into_windows(
-                    duration=window_sec, hop=window_sec)
+                cut_window_seconds = getattr(
+                    feature_cfg, "cut_window_seconds", None)
+                if cut_window_seconds is not None:
+                    window_sec = float(cut_window_seconds)
+                    # Use sliding windows with no overlap for simplicity; can be made configurable
+                    cuts = cuts.cut_into_windows(
+                        duration=window_sec, hop=window_sec)
             except Exception as e:
                 print(f"Warning: failed to window cuts: {e}")
 
@@ -606,7 +634,7 @@ class DatasetManager:
         dataset_storage_path = Path(storage_root) / dataset_name
         dataset_storage_path.mkdir(parents=True, exist_ok=True)
 
-        storage_type_map = {
+        storage_type_map: Dict[str, Union[type[LilcomChunkyWriter], type[LilcomFilesWriter], type[NumpyFilesWriter]]] = {
             "lilcom_chunky": LilcomChunkyWriter,
             "lilcom_files": LilcomFilesWriter,
             "numpy": NumpyFilesWriter,
@@ -619,12 +647,20 @@ class DatasetManager:
         if hasattr(cuts, "to_eager"):
             cuts = cuts.to_eager()
 
-        cuts_with_feats = cuts.compute_and_store_features(
+        compute_and_store_untyped = getattr(cuts, "compute_and_store_features")
+        # Cast bound method to make the return type explicit for static checkers like Pylance.
+        compute_and_store = cast(
+            Callable[..., CutSet],
+            compute_and_store_untyped,
+        )
+
+        cuts_with_feats: CutSet = compute_and_store(
             extractor=extractor,
-            storage_path=str(dataset_storage_path),
+            storage_path=dataset_storage_path,
             storage_type=storage_writer_cls,
             num_jobs=num_jobs,
             mix_eagerly=feature_cfg.mix_eagerly,
+            progress_bar=True,
         )
 
         # Ensure eager CutSet for bucketing sampler compatibility
@@ -635,7 +671,7 @@ class DatasetManager:
         DatasetManager.save_cuts_with_features(
             cuts_with_feats, dataset_storage_path, split_name
         )
-        # Describe the dataset 
+        # Describe the dataset
         cuts_with_feats.describe()
         return cuts_with_feats
 
@@ -655,12 +691,21 @@ class DatasetManager:
         cache_path = storage_path / f"cuts_{split_name}_with_feats.jsonl.gz"
 
         # Check if cuts actually have features before saving
-        if cuts and any(cut.has_features for cut in cuts[: min(10, len(cuts))]):
-            print(f"💾 Saving {split_name} cuts with features to {cache_path}")
-            cuts.to_file(cache_path)
+        if cuts:
+            # Check first few cuts to see if they have features
+            sample_size = min(10, len(cuts))
+            sample_cuts = [cuts[i] for i in range(sample_size)]
+            if any(cut.has_features for cut in sample_cuts):
+                print(
+                    f"💾 Saving {split_name} cuts with features to {cache_path}")
+                cuts.to_file(cache_path)
+            else:
+                print(
+                    f"⚠️  Warning: {split_name} cuts don't have features yet, skipping save"
+                )
         else:
             print(
-                f"⚠️  Warning: {split_name} cuts don't have features yet, skipping save"
+                f"⚠️  Warning: {split_name} cuts is empty, skipping save"
             )
 
     @staticmethod
@@ -685,7 +730,7 @@ class DatasetManager:
         Returns:
             Dictionary with normalized split names (train, val, test)
         """
-        normalized = {}
+        normalized: Dict[str, Any] = {}
 
         # Map common split names
         split_mapping = {
@@ -704,7 +749,6 @@ class DatasetManager:
 
         # If we only have train, split it into train/val
         if "train" in normalized and "val" not in normalized:
-            from lhotse import CutSet
 
             train_cuts = normalized["train"]
 
@@ -727,7 +771,15 @@ class DatasetManager:
         return normalized
 
     @staticmethod
-    def load_datasets(**kwargs) -> Dict[str, Dict[str, CutSet]]:
+    def load_datasets(
+        datasets: List[Any],
+        batch_size: int = 32,
+        shuffle: bool = True,
+        num_workers: int = 4,
+        pin_memory: bool = True,
+        validation_split: float = 0.1,
+        test_split: float = 0.1
+    ) -> Dict[str, Dict[str, CutSet]]:
         """
         Load datasets and convert all manifest formats to CutSets for diarization tasks.
 
@@ -738,14 +790,13 @@ class DatasetManager:
         4. Returns structured dictionary of CutSets organized by dataset and split
 
         Args:
-            **kwargs: Keyword arguments passed to LoadDatasetsParams, including:
-                datasets: List of DatasetConfig objects
-                batch_size: Batch size for data loading (default: 32)
-                shuffle: Whether to shuffle data (default: True)
-                num_workers: Number of worker processes (default: 4)
-                pin_memory: Whether to pin memory (default: True)
-                validation_split: Validation split ratio (default: 0.1)
-                test_split: Test split ratio (default: 0.1)
+            datasets: List of DatasetConfig objects
+            batch_size: Batch size for data loading (default: 32)
+            shuffle: Whether to shuffle data (default: True)
+            num_workers: Number of worker processes (default: 4)
+            pin_memory: Whether to pin memory (default: True)
+            validation_split: Validation split ratio (default: 0.1)
+            test_split: Test split ratio (default: 0.1)
 
         Returns:
             Dict[str, Dict[str, CutSet]]: Dictionary mapping dataset names to split dictionaries.
@@ -777,15 +828,23 @@ class DatasetManager:
             ami_train = cut_sets["ami"]["train"]  # From cache: manifests/ami/
             ```
         """
-        params = LoadDatasetsParams(**kwargs)
+        params = LoadDatasetsParams(
+            datasets=datasets,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            validation_split=validation_split,
+            test_split=test_split
+        )
         recipes = [
             (import_recipe(dataset.name), dataset) for dataset in params.datasets
         ]
-        all_cut_sets = {}
+        all_cut_sets: Dict[str, Dict[str, CutSet]] = {}
 
         for recipe in recipes:
             (process_function, download_function), dataset = recipe
-            if not download_function and not process_function:
+            if download_function is None and process_function is None:
                 raise ValueError(
                     f"Dataset {dataset.name} has no download or process function"
                 )
@@ -824,7 +883,7 @@ class DatasetManager:
                     corpus_path = download_function(**dl_kwargs)
 
             # Process dataset to get manifests
-            if process_function:
+            if process_function is not None:
                 # Use the actual corpus path returned by download function if available
                 process_kwargs = dataset.get_process_kwargs()
                 if corpus_path and "corpus_dir" not in process_kwargs:
@@ -904,7 +963,7 @@ class DatasetManager:
 
                 # Try to load or compute features depending on data loading strategy
                 data_loading = getattr(
-                    dataset.global_config, "data_loading", None)
+                    dataset, "data_loading", None)
                 dl_strategy = (
                     data_loading.strategy
                     if data_loading is not None
@@ -913,8 +972,8 @@ class DatasetManager:
 
                 if dl_strategy == "precomputed_features":
                     print(f"\nChecking feature cache for {dataset.name}...")
-                    # Get feature storage path from global config and append dataset name
-                    base_storage_path = dataset.global_config.storage_path
+                    # Get feature storage path from dataset config and append dataset name
+                    base_storage_path = getattr(dataset, "storage_path", None)
                     if base_storage_path:
                         # Append dataset name to create dataset-specific cache directory
                         for split_name, cuts in dataset_cut_sets.items():
@@ -932,12 +991,16 @@ class DatasetManager:
                                 print(
                                     f"  → {split_name}: Computing features and caching to {storage_path}"
                                 )
+                                feature_config = getattr(dataset, "feature_config", None)
+                                if feature_config is None:
+                                    # Create default feature config if not available
+                                    feature_config = FeatureConfig()
                                 dataset_cut_sets[split_name] = (
                                     DatasetManager._compute_and_cache_features_for_split(
                                         cuts,
                                         dataset.name,
                                         split_name,
-                                        dataset.global_config.get_feature_config(),
+                                        feature_config,
                                         Path(base_storage_path),
                                     )
                                 )
@@ -973,10 +1036,12 @@ class DatasetManager:
         # If manifests is already a dict with splits
         if isinstance(manifests, dict):
             # Check if it's a nested dict (split-based)
-            if all(isinstance(v, dict) for v in manifests.values()):
+            manifest_dict = cast(Dict[str, Any], manifests)
+            if all(isinstance(v, dict) for v in manifest_dict.values()):
                 # Nested dict format - has splits with manifests
-                result = {}
-                for split_name, split_manifests in manifests.items():
+                result: Dict[str, CutSet] = {}
+                manifests_typed = cast(Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]], manifests)
+                for split_name, split_manifests in manifests_typed.items():
                     # Convert split manifests to CutSet
                     cut_sets_list = DatasetManager._manifests_to_cutsets(
                         split_manifests, f"{dataset_name}_{split_name}"
@@ -989,7 +1054,7 @@ class DatasetManager:
             # Check if it contains RecordingSet/SupervisionSet directly
             elif any(
                 isinstance(v, (RecordingSet, SupervisionSet, CutSet))
-                for v in manifests.values()
+                for v in cast(Dict[str, Any], manifests).values()
             ):
                 # Single split dict - convert to CutSet and return as "train"
                 cut_sets_list = DatasetManager._manifests_to_cutsets(
@@ -1017,21 +1082,26 @@ class DatasetManager:
     @staticmethod
     def _manifests_to_cutsets(manifests: Any, dataset_name: str) -> List[CutSet]:
         """Convert any manifest format to CutSet(s) for diarization tasks"""
-        cut_sets = []
+        cut_sets: List[CutSet] = []
 
         if manifests is None:
             raise ValueError(f"Dataset {dataset_name} has no manifests")
 
         # Handle Tuple format: (RecordingSet, SupervisionSet)
-        if isinstance(manifests, tuple) and len(manifests) == 2:
-            recording_set, supervision_set = manifests
-            if recording_set is not None and supervision_set is not None:
-                cut_sets.append(
-                    CutSet.from_manifests(
-                        recordings=recording_set,
-                        supervisions=supervision_set,
-                    )
+        if isinstance(manifests, tuple):
+            manifests_tuple = cast(Tuple[Any, ...], manifests)
+            if len(manifests_tuple) == 2:
+                recording_set, supervision_set = cast(
+                    Tuple[Optional[RecordingSet], Optional[SupervisionSet]],
+                    manifests_tuple,
                 )
+                if recording_set is not None and supervision_set is not None:
+                    cut_sets.append(
+                        CutSet.from_manifests(
+                            recordings=recording_set,
+                            supervisions=supervision_set,
+                        )
+                    )
 
         # Handle Union format: RecordingSet or SupervisionSet
         elif isinstance(manifests, (RecordingSet, SupervisionSet)):
@@ -1051,10 +1121,12 @@ class DatasetManager:
 
         # Handle Dict formats
         elif isinstance(manifests, dict):
+            manifest_dict = cast(Dict[str, Any], manifests)
             # Check if it's a nested dict (split-based): Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]]
-            if all(isinstance(v, dict) for v in manifests.values()):
+            if all(isinstance(v, dict) for v in manifest_dict.values()):
                 # Nested dict format - iterate through splits
-                for split_name, split_manifests in manifests.items():
+                nested_manifests = cast(Dict[str, Dict[str, Any]], manifest_dict)
+                for split_name, split_manifests in nested_manifests.items():
                     split_cut_sets = DatasetManager._manifests_to_cutsets(
                         split_manifests, f"{dataset_name}_{split_name}"
                     )
@@ -1063,18 +1135,24 @@ class DatasetManager:
             # Check if it's a flat dict: Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]
             elif any(
                 isinstance(v, (RecordingSet, SupervisionSet, CutSet))
-                for v in manifests.values()
+                for v in manifest_dict.values()
             ):
-                recording_set = manifests.get(
-                    "recordings", manifests.get("recording", None)
-                )
-                supervision_set = manifests.get(
-                    "supervisions", manifests.get("supervision", None)
+                recording_candidate = manifest_dict.get("recordings")
+                if recording_candidate is None:
+                    recording_candidate = manifest_dict.get("recording")
+                recording_set = cast(Optional[RecordingSet], recording_candidate)
+
+                supervision_candidate = manifest_dict.get("supervisions")
+                if supervision_candidate is None:
+                    supervision_candidate = manifest_dict.get("supervision")
+                supervision_set = cast(
+                    Optional[SupervisionSet], supervision_candidate
                 )
 
                 # Check if we have a CutSet directly
-                if isinstance(manifests.get("cuts"), CutSet):
-                    cut_sets.append(manifests["cuts"])
+                cuts_value = manifest_dict.get("cuts")
+                if isinstance(cuts_value, CutSet):
+                    cut_sets.append(cuts_value)
                 elif recording_set is not None and supervision_set is not None:
                     cut_sets.append(
                         CutSet.from_manifests(
@@ -1103,7 +1181,8 @@ class DatasetManager:
         # Handle Any type (functions without type annotations)
         else:
             # Try to extract manifests from unknown format
-            if hasattr(manifests, "recordings") and hasattr(manifests, "supervisions"):
+            # First check if it's not a tuple (which we already handled above)
+            if not isinstance(manifests, tuple) and hasattr(manifests, "recordings") and hasattr(manifests, "supervisions"):
                 cut_sets.append(
                     CutSet.from_manifests(
                         recordings=manifests.recordings,
@@ -1112,7 +1191,7 @@ class DatasetManager:
                 )
             else:
                 raise ValueError(
-                    f"Dataset {dataset_name} returned unrecognized manifest format: {type(manifests)}"
+                    f"Dataset {dataset_name} returned unrecognized manifest format"
                 )
 
         if not cut_sets:
@@ -1143,6 +1222,9 @@ if __name__ == "__main__":
 
     cut_sets = DatasetManager.load_datasets(**vars(load_params))
 
-    print(f"Loaded {len(cut_sets)} cut sets")
-    for cut_set in cut_sets:
-        cut_set.describe()
+    print(f"Loaded {len(cut_sets)} datasets")
+    for dataset_name, splits in cut_sets.items():
+        print(f"\nDataset: {dataset_name}")
+        for split_name, cut_set in splits.items():
+            print(f"  Split: {split_name}")
+            cut_set.describe()

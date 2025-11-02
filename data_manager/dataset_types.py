@@ -40,19 +40,20 @@ Example:
     ```
 """
 
+import os
 from abc import ABC
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
-from lhotse.utils import Pathlike
+LabelType = Literal["ego", "binary"]
 
 
 @dataclass
 class BaseDownloadParams(ABC):
     """Base class for download parameters with common fields across all datasets"""
 
-    target_dir: Pathlike = "."
+    target_dir: Optional[Union[str, Union[str, Sequence[str]]]] = "./"
     force_download: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
@@ -64,8 +65,8 @@ class BaseDownloadParams(ABC):
 class BaseProcessParams(ABC):
     """Base class for process parameters with common fields across all datasets"""
 
-    output_dir: Optional[Pathlike] = None
-    corpus_dir: Optional[Pathlike] = None
+    output_dir: Optional[Union[str, Sequence[str]]] = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for function calls"""
@@ -170,12 +171,15 @@ class FeatureConfig:
     cepstral_lifter: int = 22
 
     # Feature computation and storage parameters
-    storage_path: Optional[str] = None  # Path to store features (None = in-memory)
-    num_jobs: Optional[int] = 1  # Number of parallel jobs for feature extraction
+    # Path to store features (None = in-memory)
+    storage_path: Optional[str] = None
+    # Number of parallel jobs for feature extraction
+    num_jobs: Optional[int] = 1
     torch_threads: Optional[int] = (
         None  # PyTorch thread count (None = auto-set to 1 when num_jobs > 1)
     )
-    storage_type: str = "lilcom_chunky"  # Storage type: 'lilcom_chunky', 'lilcom_files', 'numpy', 'hdf5'
+    # Storage type: 'lilcom_chunky', 'lilcom_files', 'numpy', 'hdf5'
+    storage_type: str = "lilcom_chunky"
     mix_eagerly: bool = True  # Whether to mix cuts eagerly during feature extraction
     progress_bar: bool = True  # Show progress bar during feature extraction
 
@@ -241,7 +245,8 @@ class DataLoadingConfig:
         "on_the_fly_features",
         "audio_samples",
     ] = "precomputed_features"
-    input_strategy: InputStrategyConfig = field(default_factory=InputStrategyConfig)
+    input_strategy: InputStrategyConfig = field(
+        default_factory=InputStrategyConfig)
     sampler: SamplerConfig = field(default_factory=SamplerConfig)
     dataloader: DataLoaderConfig = field(default_factory=DataLoaderConfig)
 
@@ -335,7 +340,8 @@ class DatasetConfig:
 
     def get_download_kwargs(self) -> Dict[str, Any]:
         """Get download parameters as dictionary"""
-        kwargs = self.download_params if isinstance(self.download_params, dict) else self.download_params.to_dict()
+        kwargs = self.download_params if isinstance(
+            self.download_params, dict) else self.download_params.to_dict()
 
         # Ensure target_dir is dataset-specific by appending dataset name
         if "target_dir" in kwargs:
@@ -362,10 +368,7 @@ class DatasetConfig:
             if "force_download" not in self.download_params:
                 self.download_params["force_download"] = global_config.force_download
         else:
-            if (
-                not hasattr(self.download_params, "force_download")
-                or self.download_params.force_download is None
-            ):
+            if not hasattr(self.download_params, "force_download"):
                 self.download_params.force_download = global_config.force_download
 
         # Apply global process params
@@ -420,7 +423,7 @@ class AdeptDownloadParams(BaseDownloadParams):
 class AdeptProcessParams(BaseProcessParams):
     """Process parameters for ADEPT dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -439,7 +442,7 @@ class AishellDownloadParams(BaseDownloadParams):
 class AishellProcessParams(BaseProcessParams):
     """Process parameters for AISHELL dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -458,7 +461,7 @@ class Aishell3DownloadParams(BaseDownloadParams):
 class Aishell3ProcessParams(BaseProcessParams):
     """Process parameters for AISHELL3 dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -477,7 +480,7 @@ class Aishell4DownloadParams(BaseDownloadParams):
 class Aishell4ProcessParams(BaseProcessParams):
     """Process parameters for AISHELL4 dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     normalize_text: bool = False
     sampling_rate: Optional[int] = None
 
@@ -500,7 +503,7 @@ class AliMeetingDownloadParams(BaseDownloadParams):
 class AliMeetingProcessParams(BaseProcessParams):
     """Process parameters for ALI MEETING dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     mic: Optional[str] = "far"
     normalize_text: str = "none"
     save_mono: bool = False
@@ -515,7 +518,7 @@ class AliMeetingProcessParams(BaseProcessParams):
 class AmiDownloadParams(BaseDownloadParams):
     """Download parameters for AMI dataset"""
 
-    annotations: Optional[Pathlike] = None
+    annotations: Optional[Union[str, Sequence[str]]] = None
     url: Optional[str] = "http://groups.inf.ed.ac.uk/ami"
     mic: Optional[str] = "ihm"
 
@@ -524,15 +527,14 @@ class AmiDownloadParams(BaseDownloadParams):
 class AmiProcessParams(BaseProcessParams):
     """Process parameters for AMI dataset"""
 
-    data_dir: Pathlike = None
-    annotations_dir: Optional[Pathlike] = None
+    data_dir: Optional[Union[str, Sequence[str]]] = None
+    annotations_dir: Optional[Union[str, Sequence[str]]] = None
     mic: Optional[str] = "ihm"
     partition: Optional[str] = "full-corpus"
     normalize_text: str = "kaldi"
     max_words_per_segment: Optional[int] = None
     merge_consecutive: bool = False
     sampling_rate: Optional[int] = None
-
 
 
 # ============================================================================
@@ -551,7 +553,7 @@ class AtcosimDownloadParams(BaseDownloadParams):
 class AtcosimProcessParams(BaseProcessParams):
     """Process parameters for ATCOSIM dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     silence_sym: Optional[str] = ""
     breath_sym: Optional[str] = ""
     foreign_sym: Optional[str] = "<unk>"
@@ -575,7 +577,7 @@ class BakerZhDownloadParams(BaseDownloadParams):
 class BakerZhProcessParams(BaseProcessParams):
     """Process parameters for BAKER ZH dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -594,7 +596,7 @@ class ButReverbDbDownloadParams(BaseDownloadParams):
 class ButReverbDbProcessParams(BaseProcessParams):
     """Process parameters for BUT REVERB DB dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     parts: Sequence[str] = ("silence", "rir")
 
 
@@ -614,7 +616,7 @@ class BvccDownloadParams(BaseDownloadParams):
 class BvccProcessParams(BaseProcessParams):
     """Process parameters for BVCC dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -633,17 +635,17 @@ class Chime6DownloadParams(BaseDownloadParams):
 class Chime6ProcessParams(BaseProcessParams):
     """Process parameters for CHIME6 dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     dataset_parts: Optional[Union[str, Sequence[str]]] = "all"
     mic: str = "mdm"
     use_reference_array: bool = False
     perform_array_sync: bool = False
     verify_md5_checksums: bool = False
     num_threads_per_job: int = 1
-    sox_path: Pathlike = "/usr/bin/sox"
+    sox_path: Optional[Union[Union[str, Sequence[str]], str]] = "/usr/bin/sox"
     normalize_text: str = "kaldi"
     use_chime7_split: bool = False
-    sampling_rate: Optional[int] = None 
+    sampling_rate: Optional[int] = None
 
 
 # ============================================================================
@@ -655,7 +657,7 @@ class Chime6ProcessParams(BaseProcessParams):
 class CmuArcticDownloadParams(BaseDownloadParams):
     """Download parameters for CMU ARCTIC dataset"""
 
-    speakers: Sequence[str] = None  # SPEAKERS
+    speakers: Optional[Sequence[str]] = None  # SPEAKERS
     base_url: Optional[str] = None  # BASE_URL
 
 
@@ -663,7 +665,7 @@ class CmuArcticDownloadParams(BaseDownloadParams):
 class CmuArcticProcessParams(BaseProcessParams):
     """Process parameters for CMU ARCTIC dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -675,7 +677,7 @@ class CmuArcticProcessParams(BaseProcessParams):
 class CmuIndicDownloadParams(BaseDownloadParams):
     """Download parameters for CMU INDIC dataset"""
 
-    speakers: Sequence[str] = None  # SPEAKERS
+    speakers: Optional[Sequence[str]] = None  # SPEAKERS
     base_url: Optional[str] = None  # BASE_URL
 
 
@@ -683,7 +685,7 @@ class CmuIndicDownloadParams(BaseDownloadParams):
 class CmuIndicProcessParams(BaseProcessParams):
     """Process parameters for CMU INDIC dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -702,7 +704,7 @@ class DailyTalkDownloadParams(BaseDownloadParams):
 class DailyTalkProcessParams(BaseProcessParams):
     """Process parameters for DAILY TALK dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -721,7 +723,7 @@ class DipcoDownloadParams(BaseDownloadParams):
 class DipcoProcessParams(BaseProcessParams):
     """Process parameters for DIPCO dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     mic: Optional[str] = "mdm"
     normalize_text: Optional[str] = "kaldi"
     use_chime7_offset: Optional[bool] = False
@@ -743,7 +745,7 @@ class Earnings21DownloadParams(BaseDownloadParams):
 class Earnings21ProcessParams(BaseProcessParams):
     """Process parameters for EARNINGS21 dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     normalize_text: bool = False
 
 
@@ -763,7 +765,7 @@ class Earnings22DownloadParams(BaseDownloadParams):
 class Earnings22ProcessParams(BaseProcessParams):
     """Process parameters for EARNINGS22 dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     normalize_text: bool = False
 
 
@@ -783,7 +785,7 @@ class EarsDownloadParams(BaseDownloadParams):
 class EarsProcessParams(BaseProcessParams):
     """Process parameters for EARS dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -802,7 +804,7 @@ class EdaccDownloadParams(BaseDownloadParams):
 class EdaccProcessParams(BaseProcessParams):
     """Process parameters for EDACC dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -821,7 +823,7 @@ class FleursDownloadParams(BaseDownloadParams):
 class FleursProcessParams(BaseProcessParams):
     """Process parameters for FLEURS dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     languages: Optional[Union[str, Sequence[str]]] = "all"
 
 
@@ -841,8 +843,8 @@ class GigastDownloadParams(BaseDownloadParams):
 class GigastProcessParams(BaseProcessParams):
     """Process parameters for GIGAST dataset"""
 
-    corpus_dir: Pathlike = None
-    manifests_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
+    manifests_dir: Optional[Union[str, Sequence[str]]] = None
     languages: Union[str, Sequence[str]] = "auto"
     dataset_parts: Union[str, Sequence[str]] = "auto"
 
@@ -863,8 +865,8 @@ class GridDownloadParams(BaseDownloadParams):
 class GridProcessParams(BaseProcessParams):
     """Process parameters for GRID dataset"""
 
-    corpus_dir: Pathlike = None
-    output_dir: Optional[Pathlike] = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
+    output_dir: Optional[Union[str, Sequence[str]]] = None
     with_supervisions: bool = True
 
 
@@ -884,8 +886,8 @@ class HeroicoDownloadParams(BaseDownloadParams):
 class HeroicoProcessParams(BaseProcessParams):
     """Process parameters for HEROICO dataset"""
 
-    speech_dir: Pathlike = None
-    transcript_dir: Pathlike = None
+    speech_dir: Optional[Union[str, Sequence[str]]] = None
+    transcript_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -904,7 +906,7 @@ class HifittsDownloadParams(BaseDownloadParams):
 class HifittsProcessParams(BaseProcessParams):
     """Process parameters for HIFITTS dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -924,7 +926,7 @@ class HimiaDownloadParams(BaseDownloadParams):
 class HimiaProcessParams(BaseProcessParams):
     """Process parameters for HIMIA dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     dataset_parts: Union[str, Sequence[str]] = "auto"
 
 
@@ -937,8 +939,8 @@ class HimiaProcessParams(BaseProcessParams):
 class IcsiDownloadParams(BaseDownloadParams):
     """Download parameters for ICSI dataset"""
 
-    audio_dir: Optional[Pathlike] = None
-    transcripts_dir: Optional[Pathlike] = None
+    audio_dir: Optional[Union[str, Sequence[str]]] = None
+    transcripts_dir: Optional[Union[str, Sequence[str]]] = None
     url: Optional[str] = "http://groups.inf.ed.ac.uk/ami"
     mic: Optional[str] = "ihm"
 
@@ -947,8 +949,8 @@ class IcsiDownloadParams(BaseDownloadParams):
 class IcsiProcessParams(BaseProcessParams):
     """Process parameters for ICSI dataset"""
 
-    audio_dir: Pathlike = None
-    transcripts_dir: Optional[Pathlike] = None
+    audio_dir: Optional[Union[str, Sequence[str]]] = None
+    transcripts_dir: Optional[Union[str, Sequence[str]]] = None
     mic: Optional[str] = "ihm"
     normalize_text: str = "kaldi"
     save_to_wav: bool = False
@@ -970,10 +972,10 @@ class LibricssDownloadParams(BaseDownloadParams):
 class LibricssProcessParams(BaseProcessParams):
     """Process parameters for LIBRICSS dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     type: str = "mdm"
     segmented_cuts: bool = False
-    sampling_rate: Optional[int] = None 
+    sampling_rate: Optional[int] = None
 
 
 # ============================================================================
@@ -992,7 +994,7 @@ class LibrimixDownloadParams(BaseDownloadParams):
 class LibrimixProcessParams(BaseProcessParams):
     """Process parameters for LIBRIMIX dataset"""
 
-    librimix_csv: Pathlike = None
+    librimix_csv: Optional[Union[str, Sequence[str]]] = None
     with_precomputed_mixtures: bool = False
     sampling_rate: int = 16000
     min_segment_seconds: float = 3.0
@@ -1010,15 +1012,15 @@ class LibrispeechDownloadParams(BaseDownloadParams):
     dataset_parts: Optional[Union[str, Sequence[str]]] = "mini_librispeech"
     alignments: bool = False
     base_url: str = "http://www.openslr.org/resources"
-    alignments_url: str = None  # LIBRISPEECH_ALIGNMENTS_URL
+    alignments_url: Optional[str] = None  # LIBRISPEECH_ALIGNMENTS_URL
 
 
 @dataclass
 class LibrispeechProcessParams(BaseProcessParams):
     """Process parameters for LIBRISPEECH dataset"""
 
-    corpus_dir: Pathlike = None
-    alignments_dir: Optional[Pathlike] = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
+    alignments_dir: Optional[Union[str, Sequence[str]]] = None
     dataset_parts: Union[str, Sequence[str]] = "auto"
     normalize_text: str = "none"
 
@@ -1041,7 +1043,7 @@ class LibrittsDownloadParams(BaseDownloadParams):
 class LibrittsProcessParams(BaseProcessParams):
     """Process parameters for LIBRITTS dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     dataset_parts: Union[str, Sequence[str]] = "all"
     link_previous_utt: bool = False
 
@@ -1063,7 +1065,7 @@ class LibrittsrDownloadParams(BaseDownloadParams):
 class LibrittsrProcessParams(BaseProcessParams):
     """Process parameters for LIBRITTSR dataset (alias for LibrittsProcessParams)"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     dataset_parts: Union[str, Sequence[str]] = "all"
     link_previous_utt: bool = False
 
@@ -1084,8 +1086,8 @@ class LjspeechDownloadParams(BaseDownloadParams):
 class LjspeechProcessParams(BaseProcessParams):
     """Process parameters for LJSPEECH dataset"""
 
-    corpus_dir: Pathlike = None
-    output_dir: Optional[Pathlike] = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
+    output_dir: Optional[Union[str, Sequence[str]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for function calls - exclude num_jobs for LJSpeech"""
@@ -1110,7 +1112,7 @@ class MagicdataDownloadParams(BaseDownloadParams):
 class MagicdataProcessParams(BaseProcessParams):
     """Process parameters for MAGICDATA dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -1129,7 +1131,7 @@ class MdccDownloadParams(BaseDownloadParams):
 class MdccProcessParams(BaseProcessParams):
     """Process parameters for MDCC dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     dataset_parts: Union[str, Sequence[str]] = "all"
 
 
@@ -1149,7 +1151,7 @@ class MedicalDownloadParams(BaseDownloadParams):
 class MedicalProcessParams(BaseProcessParams):
     """Process parameters for MEDICAL dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -1168,7 +1170,7 @@ class MobvoihotwordsDownloadParams(BaseDownloadParams):
 class MobvoihotwordsProcessParams(BaseProcessParams):
     """Process parameters for MOBVOIHOTWORDS dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -1187,7 +1189,7 @@ class MtedxDownloadParams(BaseDownloadParams):
 class MtedxProcessParams(BaseProcessParams):
     """Process parameters for MTEDX dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     languages: Optional[Union[str, Sequence[str]]] = "all"
 
 
@@ -1207,7 +1209,7 @@ class MusanDownloadParams(BaseDownloadParams):
 class MusanProcessParams(BaseProcessParams):
     """Process parameters for MUSAN dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     parts: Sequence[str] = ("music", "speech", "noise")
     use_vocals: bool = True
 
@@ -1221,7 +1223,7 @@ class MusanProcessParams(BaseProcessParams):
 class NscProcessParams(BaseProcessParams):
     """Process parameters for NSC dataset (no download function)"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     dataset_part: str = "PART3_SameCloseMic"
 
 
@@ -1234,7 +1236,7 @@ class NscProcessParams(BaseProcessParams):
 class PeoplesSpeechProcessParams(BaseProcessParams):
     """Process parameters for PEOPLES SPEECH dataset (no download function)"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -1253,7 +1255,7 @@ class PrimewordsDownloadParams(BaseDownloadParams):
 class PrimewordsProcessParams(BaseProcessParams):
     """Process parameters for PRIMEWORDS dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -1272,8 +1274,9 @@ class SpgispeechDownloadParams(BaseDownloadParams):
 class SpgispeechProcessParams(BaseProcessParams):
     """Process parameters for SPGISPEECH dataset"""
 
-    corpus_dir: Pathlike = None
-    output_dir: Pathlike  # Required for this dataset
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
+    output_dir: Optional[Union[str, Sequence[str]]
+                         ] = None  # Required for this dataset
     normalize_text: bool = True
 
 
@@ -1293,7 +1296,7 @@ class StcmdsDownloadParams(BaseDownloadParams):
 class StcmdsProcessParams(BaseProcessParams):
     """Process parameters for STCMDS dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -1312,8 +1315,8 @@ class TedliumDownloadParams(BaseDownloadParams):
 class TedliumProcessParams(BaseProcessParams):
     """Process parameters for TEDLIUM dataset"""
 
-    tedlium_root: Pathlike = None
-    dataset_parts: Union[str, Sequence[str]] = None  # TEDLIUM_PARTS
+    tedlium_root: Optional[Union[str, Sequence[str]]] = None
+    dataset_parts: Optional[Union[str, Sequence[str]]] = None  # TEDLIUM_PARTS
     normalize_text: str = "none"
     sampling_rate: Optional[int] = None
 
@@ -1335,7 +1338,7 @@ class VctkDownloadParams(BaseDownloadParams):
 class VctkProcessParams(BaseProcessParams):
     """Process parameters for VCTK dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     use_edinburgh_vctk_url: Optional[bool] = False
     mic_id: Optional[str] = "mic2"
 
@@ -1363,8 +1366,8 @@ class Voxceleb2DownloadParams(BaseDownloadParams):
 class VoxcelebProcessParams(BaseProcessParams):
     """Process parameters for VOXCELEB dataset"""
 
-    voxceleb1_root: Optional[Pathlike] = None
-    voxceleb2_root: Optional[Pathlike] = None
+    voxceleb1_root: Optional[Union[str, Sequence[str]]] = None
+    voxceleb2_root: Optional[Union[str, Sequence[str]]] = None
     sampling_rate: Optional[int] = None
 
 
@@ -1385,7 +1388,7 @@ class ReazonspeechDownloadParams(BaseDownloadParams):
 class ReazonspeechProcessParams(BaseProcessParams):
     """Process parameters for REAZONSPEECH dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     num_jobs: int = 1
 
 
@@ -1405,7 +1408,7 @@ class RirNoiseDownloadParams(BaseDownloadParams):
 class RirNoiseProcessParams(BaseProcessParams):
     """Process parameters for RIR NOISE dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     parts: Sequence[str] = ("point_noise", "iso_noise", "real_rir", "sim_rir")
 
 
@@ -1426,8 +1429,8 @@ class SpeechcommandsProcessParams(BaseProcessParams):
     """Process parameters for SPEECHCOMMANDS dataset"""
 
     speechcommands_version: str = "2"
-    corpus_dir: Pathlike = None
-    output_dir: Optional[Pathlike] = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
+    output_dir: Optional[Union[str, Sequence[str]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for function calls - exclude num_jobs for SpeechCommands"""
@@ -1452,7 +1455,7 @@ class Thchs30DownloadParams(BaseDownloadParams):
 class Thchs30ProcessParams(BaseProcessParams):
     """Process parameters for THCHS_30 dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -1464,15 +1467,17 @@ class Thchs30ProcessParams(BaseProcessParams):
 class ThisAmericanLifeDownloadParams(BaseDownloadParams):
     """Download parameters for THIS AMERICAN LIFE dataset"""
 
-    metadata_url: None = "https://ipfs.io/ipfs/bafybeidyt3ch6t4dtu2ehdriod3jvuh34qu4pwjyoba2jrjpmqwckkr6q4/this_american_life.zip"
-    website_url: None = "https://thisamericanlife.org"
+    metadata_url: Optional[Union[str, os.PathLike[str]]
+                           ] = "https://ipfs.io/ipfs/bafybeidyt3ch6t4dtu2ehdriod3jvuh34qu4pwjyoba2jrjpmqwckkr6q4/this_american_life.zip"
+    website_url: Optional[Union[str, os.PathLike[str]]
+                          ] = "https://thisamericanlife.org"
 
 
 @dataclass
 class ThisAmericanLifeProcessParams(BaseProcessParams):
     """Process parameters for THIS AMERICAN LIFE dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -1491,7 +1496,7 @@ class TimitDownloadParams(BaseDownloadParams):
 class TimitProcessParams(BaseProcessParams):
     """Process parameters for TIMIT dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     num_phones: int = 48
 
 
@@ -1511,7 +1516,7 @@ class UwbAtccDownloadParams(BaseDownloadParams):
 class UwbAtccProcessParams(BaseProcessParams):
     """Process parameters for UWB ATCC dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     silence_sym: Optional[str] = ""
     breath_sym: Optional[str] = ""
     noise_sym: Optional[str] = ""
@@ -1530,14 +1535,14 @@ class UwbAtccProcessParams(BaseProcessParams):
 class VoxconverseDownloadParams(BaseDownloadParams):
     """Download parameters for VOXCONVERSE dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 @dataclass
 class VoxconverseProcessParams(BaseProcessParams):
     """Process parameters for VOXCONVERSE dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     split_test: bool = False
     sampling_rate: Optional[int] = None
 
@@ -1558,7 +1563,7 @@ class VoxpopuliDownloadParams(BaseDownloadParams):
 class VoxpopuliProcessParams(BaseProcessParams):
     """Process parameters for VOXPOPULI dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     task: str = "asr"
     lang: str = "en"
     source_lang: Optional[str] = None
@@ -1581,7 +1586,7 @@ class XbmuAmdo31DownloadParams(BaseDownloadParams):
 class XbmuAmdo31ProcessParams(BaseProcessParams):
     """Process parameters for XBMU AMDO31 dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 # ============================================================================
@@ -1595,23 +1600,26 @@ class Ego4dDownloadParams(BaseDownloadParams):
 
     # AWS credentials are loaded from environment variables:
     # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
-    dataset_parts: Optional[List[str]] = None  # Defaults to clips and annotations
+    # Defaults to clips and annotations
+    dataset_parts: Optional[List[str]] = None
     install_cli: bool = True  # Whether to install Ego4D CLI if not available
     timeout: int = 3600  # Timeout for download operations in seconds
-    env_file: Optional[Pathlike] = None  # Path to .env file for environment variables
+    # Path to .env file for environment variables
+    env_file: Optional[Union[str, Sequence[str]]] = None
 
 
 @dataclass
 class Ego4dProcessParams(BaseProcessParams):
     """Process parameters for EGO4D dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     extract_audio: bool = True  # Extract audio from video files
     audio_sample_rate: int = 16000  # Sample rate for extracted audio
     min_segment_duration: float = 0.5  # Minimum segment duration in seconds
     max_segment_duration: float = 30.0  # Maximum segment duration in seconds
     max_clips: int = 0  # 0 means no limit; otherwise limit number of clips
-    annotation_subset: Optional[str] = None  # e.g., "av" to target AV annotations
+    # e.g., "av" to target AV annotations
+    annotation_subset: Optional[str] = None
     sampling_rate: Optional[int] = None  # Target sampling rate for audio
 
 # ============================================================================
@@ -1630,8 +1638,8 @@ class YesnoDownloadParams(BaseDownloadParams):
 class YesnoProcessParams(BaseProcessParams):
     """Process parameters for YESNO dataset"""
 
-    corpus_dir: Pathlike = None
-    output_dir: Optional[Pathlike] = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
+    output_dir: Optional[Union[str, Sequence[str]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for function calls - exclude num_jobs for YESNO"""
@@ -1658,9 +1666,9 @@ class MswildDownloadParams(BaseDownloadParams):
 class MswildProcessParams(BaseProcessParams):
     """Process parameters for MSDWILD dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     splits: Optional[Dict[str, str]] = None
-    sampling_rate: int = Optional[int]
+    sampling_rate: Optional[int] = None
 
 
 # ============================================================================
@@ -1680,7 +1688,7 @@ class AvaAvdDownloadParams(BaseDownloadParams):
 class AvaAvdProcessParams(BaseProcessParams):
     """Process parameters for AVA-AVD dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     splits: Optional[Dict[str, str]] = None
     sampling_rate: int = 16000  # Target sampling rate for audio extraction
 
@@ -1698,14 +1706,14 @@ class LibriheavyMixDownloadParams(BaseDownloadParams):
     speaker_counts: Union[int, List[int]] = field(
         default_factory=lambda: [1, 2, 3, 4]
     )  # Number of speakers per mixture
-    cache_dir: Optional[Pathlike] = None
+    cache_dir: Optional[Union[str, Sequence[str]]] = None
 
 
 @dataclass
 class LibriheavyMixProcessParams(BaseProcessParams):
     """Process parameters for LibriheavyMix dataset"""
 
-    corpus_dir: Pathlike = None
+    corpus_dir: Optional[Union[str, Sequence[str]]] = None
     dataset_parts: Union[str, List[str]] = "small"
     speaker_counts: Union[int, List[int]] = field(
         default_factory=lambda: [1, 2, 3, 4]
@@ -1714,4 +1722,3 @@ class LibriheavyMixProcessParams(BaseProcessParams):
     min_speakers: int = 1  # Minimum number of speakers
     max_speakers: int = 4  # Maximum number of speakers
     sampling_rate: Optional[int] = None  # Target sampling rate for audio
-

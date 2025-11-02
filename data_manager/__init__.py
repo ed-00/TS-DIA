@@ -60,6 +60,8 @@ from .parse_args import (
     validate_dataset_config,
 )
 
+from .dataset_types import LabelType
+
 __all__ = [
     # Core classes
     "DatasetConfig",
@@ -72,6 +74,7 @@ __all__ = [
     "datasets_manager_parser",
     # Subpackages
     "recipes",
+    "LabelType"
 ]
 
 __version__ = "0.1.0"

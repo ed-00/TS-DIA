@@ -49,18 +49,18 @@ Usage:
 """
 
 from pathlib import Path
-from dataclasses import asdict
-from typing import Any, Dict, List, Type, Union
+from dataclasses import fields
+from typing import Any, Dict, List, Literal, Mapping, Optional, Tuple, Type, Union, cast
+from types import SimpleNamespace
 
 import yaml
 from yamlargparse import ArgumentParser
-    # Extract DataLoadingConfig from global_config (optional)
 
 from data_manager.dataset_types import (
-        DataLoaderConfig,
-        DataLoadingConfig,
-        InputStrategyConfig,
-        SamplerConfig,
+    DataLoaderConfig,
+    DataLoadingConfig,
+    InputStrategyConfig,
+    SamplerConfig,
 )
 
 from data_manager.dataset_types import (
@@ -326,13 +326,42 @@ DATASET_PROCESS_PARAMS_MAP: Dict[str, Type[BaseProcessParams]] = {
 
 
 class DatasetConfigError(Exception):
-    """Custom exception for dataset configuration errors"""
+    """Custom exception for dataset configuration errors."""
 
-    pass
+
+def _ensure_str_mapping(value: Any, context: str) -> Dict[str, Any]:
+    """Return a shallow copy of *value* if it is a mapping with string keys."""
+
+    if not isinstance(value, Mapping):
+        raise DatasetConfigError(f"{context} must be a mapping")
+
+    mapping_value = cast(Mapping[Any, Any], value)
+    result: Dict[str, Any] = {}
+    for key, item in mapping_value.items():
+        if not isinstance(key, str):
+            raise DatasetConfigError(f"{context} keys must be strings")
+        result[key] = item
+    return result
+
+
+def _optional_str_mapping(value: Any, context: str) -> Dict[str, Any]:
+    """Return a mapping if provided, otherwise an empty dict."""
+
+    if value is None:
+        return {}
+    return _ensure_str_mapping(value, context)
+
+
+def _filter_dataclass_kwargs(dataclass_type: Type[Any], data: Dict[str, Any]) -> Dict[str, Any]:
+    """Filter mapping keys so that only dataclass fields remain."""
+
+    valid_fields = {field.name for field in fields(dataclass_type)}
+    return {key: value for key, value in data.items() if key in valid_fields}
 
 
 def validate_dataset_config(
-    dataset_config: Dict[str, Any], global_config: Dict[str, Any] = None
+    dataset_config: Mapping[str, Any],
+    global_config: Optional[Mapping[str, Any]] = None,
 ) -> DatasetConfig:
     """
     Validate and convert a dataset configuration dictionary to a DatasetConfig object
@@ -347,14 +376,18 @@ def validate_dataset_config(
     Raises:
         DatasetConfigError: If validation fails
     """
-    if "name" not in dataset_config:
+    dataset_config_dict = _ensure_str_mapping(dataset_config, "dataset configuration")
+
+    dataset_name_raw = dataset_config_dict.get("name")
+    if not isinstance(dataset_name_raw, str) or not dataset_name_raw.strip():
         raise DatasetConfigError("Dataset configuration must include 'name' field")
 
-    dataset_name = dataset_config["name"].lower()
+    dataset_name = dataset_name_raw.lower()
 
     # Validate dataset name exists
     if dataset_name not in DATASET_DOWNLOAD_PARAMS_MAP:
-        available_datasets = ", ".join(sorted(DATASET_DOWNLOAD_PARAMS_MAP.keys()))
+        available_datasets = ", ".join(
+            sorted(DATASET_DOWNLOAD_PARAMS_MAP.keys()))
         raise DatasetConfigError(
             f"Unknown dataset '{dataset_name}'. Available datasets: {available_datasets}"
         )
@@ -364,56 +397,69 @@ def validate_dataset_config(
     process_params_class = DATASET_PROCESS_PARAMS_MAP[dataset_name]
 
     # Apply global config defaults
-    download_params_dict = dataset_config.get("download_params", {})
-    process_params_dict = dataset_config.get("process_params", {})
+    download_params_dict = _optional_str_mapping(
+        dataset_config_dict.get("download_params"),
+        f"download_params for '{dataset_name}'",
+    )
+    process_params_dict = _optional_str_mapping(
+        dataset_config_dict.get("process_params"),
+        f"process_params for '{dataset_name}'",
+    )
 
-    if global_config:
-        # Apply global download defaults
-        global_download = global_config.get("download_params", {})
+    global_config_dict: Optional[Dict[str, Any]] = None
+    if global_config is not None:
+        global_config_dict = _ensure_str_mapping(global_config, "global configuration")
+
+        global_download = _optional_str_mapping(
+            global_config_dict.get("download_params"),
+            "global_config.download_params",
+        )
         for key, value in global_download.items():
-            if key not in download_params_dict:
-                download_params_dict[key] = value
+            download_params_dict.setdefault(key, value)
 
-        # Apply global process defaults
-        global_process = global_config.get("process_params", {})
+        global_process = _optional_str_mapping(
+            global_config_dict.get("process_params"),
+            "global_config.process_params",
+        )
         for key, value in global_process.items():
-            if key not in process_params_dict:
-                process_params_dict[key] = value
+            process_params_dict.setdefault(key, value)
 
-        # Apply global corpus_dir and output_dir defaults
-        global_corpus_dir = global_config.get("corpus_dir")
-        global_output_dir = global_config.get("output_dir")
+        global_corpus_dir = global_config_dict.get("corpus_dir")
+        global_output_dir = global_config_dict.get("output_dir")
 
         # Apply global corpus_dir to download target_dir
-        if global_corpus_dir:
-            # Set download target_dir to global corpus_dir
-            if "target_dir" not in download_params_dict:
-                download_params_dict["target_dir"] = global_corpus_dir
+        if isinstance(global_corpus_dir, str) and global_corpus_dir:
+            download_params_dict.setdefault("target_dir", global_corpus_dir)
 
-            # Note: corpus_dir for processing will be determined by the download function
-            # We don't set it here as different datasets extract to different subdirectories
-
-        if global_output_dir and "output_dir" not in process_params_dict:
-            # Create dataset-specific output directory: global_output_dir/dataset_name
-            process_params_dict["output_dir"] = f"{global_output_dir}/{dataset_name}"
+        if isinstance(global_output_dir, str) and global_output_dir:
+            process_params_dict.setdefault(
+                "output_dir", f"{global_output_dir}/{dataset_name}"
+            )
 
         # Pass sampling_rate from global_config to process_params for audio extraction
         # This ensures audio is resampled to match feature extraction requirements
-        global_sampling_rate = global_config.get("sampling_rate")
-        if global_sampling_rate and "sampling_rate" not in process_params_dict:
+        global_sampling_rate = global_config_dict.get("sampling_rate")
+        if (
+            isinstance(global_sampling_rate, (int, float))
+            and "sampling_rate" not in process_params_dict
+        ):
             process_params_dict["sampling_rate"] = global_sampling_rate
 
     # Extract and validate download parameters
     try:
         download_params = download_params_class(**download_params_dict)
     except TypeError as e:
-        raise DatasetConfigError(f"Invalid download parameters for {dataset_name}: {e}")
+        raise DatasetConfigError(
+            f"Invalid download parameters for {dataset_name}: {e}"
+        ) from e
 
     # Extract and validate process parameters
     try:
         process_params = process_params_class(**process_params_dict)
     except TypeError as e:
-        raise DatasetConfigError(f"Invalid process parameters for {dataset_name}: {e}")
+        raise DatasetConfigError(
+            f"Invalid process parameters for {dataset_name}: {e}"
+        ) from e
 
     return DatasetConfig(
         name=dataset_name,
@@ -423,144 +469,188 @@ def validate_dataset_config(
 
 
 def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
-    """
-    Parse YAML configuration file and extract dataset configurations
+    """Parse a YAML configuration file and return validated dataset configs."""
 
-    Args:
-        config_path: Path to YAML configuration file
-
-    Returns:
-        List of validated DatasetConfig objects
-
-    Raises:
-        DatasetConfigError: If parsing or validation fails
-    """
-    config_path = Path(config_path)
-
-    if not config_path.exists():
-        raise DatasetConfigError(f"Configuration file not found: {config_path}")
+    path_obj = Path(config_path)
+    if not path_obj.exists():
+        raise DatasetConfigError(f"Configuration file not found: {path_obj}")
 
     try:
-        with open(config_path, "r") as f:
-            config_data = yaml.safe_load(f)
-    except yaml.YAMLError as e:
-        raise DatasetConfigError(f"Invalid YAML file: {e}")
+        with open(path_obj, "r", encoding="utf-8") as config_file:
+            config_data_raw = yaml.safe_load(config_file)
+    except yaml.YAMLError as exc:
+        raise DatasetConfigError(f"Invalid YAML file: {exc}") from exc
 
-    if not isinstance(config_data, dict):
+    if not isinstance(config_data_raw, Mapping):
         raise DatasetConfigError("Configuration file must contain a dictionary")
 
-    if "datasets" not in config_data:
+    config_data = _ensure_str_mapping(config_data_raw, "root configuration")
+
+    datasets_section = config_data.get("datasets")
+    if datasets_section is None:
         raise DatasetConfigError("Configuration file must contain 'datasets' field")
-
-    datasets_config = config_data["datasets"]
-    if not isinstance(datasets_config, list):
+    if not isinstance(datasets_section, list):
         raise DatasetConfigError("'datasets' field must be a list")
-
-    if not datasets_config:
+    if not datasets_section:
         raise DatasetConfigError("'datasets' list cannot be empty")
 
-    # Extract and parse global configuration
-    global_config_dict = config_data.get("global_config", None)
+    datasets_config: List[Dict[str, Any]] = []
+    datasets_section_list = cast(List[Any], datasets_section)
+    for index, dataset_entry in enumerate(datasets_section_list):
+        if not isinstance(dataset_entry, Mapping):
+            raise DatasetConfigError(
+                f"Dataset configuration at index {index} must be a mapping"
+            )
+        datasets_config.append(
+            _ensure_str_mapping(dataset_entry, f"datasets[{index}]")
+        )
 
-    if global_config_dict is None:
+    global_config_section = config_data.get("global_config")
+    if global_config_section is None:
         raise DatasetConfigError(
             "Missing 'global_config' section in configuration. "
             "Please provide at least: corpus_dir, output_dir, and feature extraction settings."
         )
-        
+    global_config_dict = _ensure_str_mapping(global_config_section, "global_config")
+
+    features_section = global_config_dict.get("features")
+    if features_section is None:
+        raise DatasetConfigError("Missing 'features' configuration in global_config")
+    features_dict = _ensure_str_mapping(features_section, "global_config.features")
     try:
-        features = FeatureConfig(**global_config_dict["features"])
-    except Exception:
-        raise DatasetConfigError("Invalid feature configuration")
+        features = FeatureConfig(**features_dict)
+    except TypeError as exc:
+        raise DatasetConfigError("Invalid feature configuration") from exc
 
+    data_loading_dict = _optional_str_mapping(
+        global_config_dict.get("data_loading"),
+        "global_config.data_loading",
+    )
+    input_strategy_dict = _optional_str_mapping(
+        data_loading_dict.get("input_strategy"),
+        "global_config.data_loading.input_strategy",
+    )
+    sampler_dict = _optional_str_mapping(
+        data_loading_dict.get("sampler"),
+        "global_config.data_loading.sampler",
+    )
+    dataloader_dict = _optional_str_mapping(
+        data_loading_dict.get("dataloader"),
+        "global_config.data_loading.dataloader",
+    )
 
-    dl_dict = global_config_dict.get("data_loading", {}) or {}
     input_strategy_cfg = InputStrategyConfig(
-        **{
-            k: v
-            for k, v in (dl_dict.get("input_strategy", {}) or {}).items()
-            if k in asdict(InputStrategyConfig())
-        }
+        **_filter_dataclass_kwargs(InputStrategyConfig, input_strategy_dict)
     )
     sampler_cfg = SamplerConfig(
-        **{
-            k: v
-            for k, v in (dl_dict.get("sampler", {}) or {}).items()
-            if k in asdict(SamplerConfig())
-        }
+        **_filter_dataclass_kwargs(SamplerConfig, sampler_dict)
     )
     dataloader_cfg = DataLoaderConfig(
-        **{
-            k: v
-            for k, v in (dl_dict.get("dataloader", {}) or {}).items()
-            if k in asdict(DataLoaderConfig())
-        }
+        **_filter_dataclass_kwargs(DataLoaderConfig, dataloader_dict)
     )
+
+    strategy_raw = data_loading_dict.get("strategy", "precomputed_features")
+    if not isinstance(strategy_raw, str):
+        raise DatasetConfigError(
+            "global_config.data_loading.strategy must be a string when provided"
+        )
+    allowed_strategies = {
+        "precomputed_features",
+        "on_the_fly_features",
+        "audio_samples",
+    }
+    if strategy_raw not in allowed_strategies:
+        raise DatasetConfigError(
+            "global_config.data_loading.strategy must be one of: "
+            "precomputed_features, on_the_fly_features, audio_samples"
+        )
+    strategy_value = cast(
+        Literal["precomputed_features", "on_the_fly_features", "audio_samples"],
+        strategy_raw,
+    )
+
     data_loading_cfg = DataLoadingConfig(
-        strategy=dl_dict.get("strategy", "precomputed_features"),
+        strategy=strategy_value,
         input_strategy=input_strategy_cfg,
         sampler=sampler_cfg,
         dataloader=dataloader_cfg,
     )
 
-    # Create GlobalConfig (never None)
+    corpus_dir_value = global_config_dict.get("corpus_dir", "./data")
+    if not isinstance(corpus_dir_value, str):
+        raise DatasetConfigError("global_config.corpus_dir must be a string")
+    output_dir_value = global_config_dict.get("output_dir", "./manifests")
+    if not isinstance(output_dir_value, str):
+        raise DatasetConfigError("global_config.output_dir must be a string")
+    force_download_value = global_config_dict.get("force_download", False)
+    if not isinstance(force_download_value, bool):
+        raise DatasetConfigError("global_config.force_download must be a boolean")
+    storage_path_value = global_config_dict.get("storage_path")
+    if storage_path_value is not None and not isinstance(storage_path_value, str):
+        raise DatasetConfigError(
+            "global_config.storage_path must be a string when provided"
+        )
+    random_seed_value = global_config_dict.get("random_seed", 42)
+    if not isinstance(random_seed_value, int):
+        raise DatasetConfigError("global_config.random_seed must be an integer")
+
     try:
         global_config_obj = GlobalConfig(
-            corpus_dir=global_config_dict.get("corpus_dir", "./data"),
-            output_dir=global_config_dict.get("output_dir", "./manifests"),
-            force_download=global_config_dict.get("force_download", False),
-            storage_path=global_config_dict.get("storage_path", None),
+            corpus_dir=corpus_dir_value,
+            output_dir=output_dir_value,
+            force_download=force_download_value,
+            storage_path=storage_path_value,
             features=features,
             data_loading=data_loading_cfg,
-            random_seed=global_config_dict.get("random_seed", 42),
+            random_seed=random_seed_value,
         )
-    except Exception as e:
-        raise DatasetConfigError(f"Invalid global configuration: {e}")
+    except TypeError as exc:
+        raise DatasetConfigError(f"Invalid global configuration: {exc}") from exc
 
-    validated_configs = []
-    for i, dataset_config in enumerate(datasets_config):
+    validated_configs: List[DatasetConfig] = []
+    for index, dataset_entry in enumerate(datasets_config):
         try:
             validated_config = validate_dataset_config(
-                dataset_config, global_config_dict
+                dataset_entry, global_config_dict
             )
-            # Attach the GlobalConfig object to each dataset config
-            validated_config.global_config = global_config_obj
+            validated_config.global_config = global_config_obj  # type: ignore[attr-defined]
             validated_configs.append(validated_config)
-        except DatasetConfigError as e:
-            raise DatasetConfigError(f"Error in dataset configuration {i + 1}: {e}")
+        except DatasetConfigError as exc:
+            raise DatasetConfigError(
+                f"Error in dataset configuration {index + 1}: {exc}"
+            ) from exc
 
     return validated_configs
 
 
-def datasets_manager_parser():
-    """
-    Parse command line arguments and return dataset configurations
+def datasets_manager_parser() -> Tuple[SimpleNamespace, List[DatasetConfig]]:
+    """CLI parser for dataset management commands."""
 
-    Returns:
-        Tuple of (args, dataset_configs) where:
-        - args: Parsed command line arguments
-        - dataset_configs: List of validated DatasetConfig objects
-    """
     parser = ArgumentParser(description="Datasets Manager")
     parser.add_argument(
         "--config", type=str, required=True, help="Path to YAML configuration file"
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(namespace=SimpleNamespace())  # type: ignore[call-overload]
 
     try:
         dataset_configs = parse_dataset_configs(args.config)
-        return args, dataset_configs
-    except DatasetConfigError as e:
-        parser.error(str(e))
+    except DatasetConfigError as exc:
+        parser.error(str(exc))
+        raise SystemExit(2) from exc
+
+    return args, dataset_configs
 
 
 # Example usage
 if __name__ == "__main__":
-    args, dataset_configs = datasets_manager_parser()
-    print("Parsed arguments:", args)
-    print("\nDataset configurations:")
-    for i, config in enumerate(dataset_configs):
-        print(f"\nDataset {i + 1}: {config.name}")
-        print(f"  Download params: {config.download_params}")
-        print(f"  Process params: {config.process_params}")
+    def _main() -> None:
+        parsed_args, dataset_configs = datasets_manager_parser()
+        print("Parsed arguments:", parsed_args)
+        print("\nDataset configurations:")
+        for index, config in enumerate(dataset_configs, start=1):
+            print(f"\nDataset {index}: {config.name}")
+            print(f"  Download params: {config.download_params}")
+            print(f"  Process params: {config.process_params}")
+
+    _main()
