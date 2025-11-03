@@ -266,29 +266,24 @@ class EgoCentricDiarizationDataset(Dataset):
         enroll_cuts: List[Cut] = []
         labels_list: List[torch.Tensor] = []
 
-        # Handle different input types
-        if isinstance(batch_or_indices, CutSet):
-            # Standard Lhotse pattern: receive CutSet, extract (cut, speaker) pairs
-            cuts_list = list(batch_or_indices)
-            examples_to_process = []
+        # Standard Lhotse pattern: receive CutSet, extract (cut, speaker) pairs
+        cuts_list = list(batch_or_indices)
+        examples_to_process = []
+        
+        for cut in cuts_list:
+            # Get all speakers for this cut
+            all_speakers_in_cut = sorted(
+                set(s.speaker for s in cut.supervisions if s.speaker)
+            )
             
-            for cut in cuts_list:
-                # Get all speakers for this cut
-                all_speakers_in_cut = sorted(
-                    set(s.speaker for s in cut.supervisions if s.speaker)
-                )
+            # For each speaker, create an example
+            for target_spk_id in all_speakers_in_cut:
+                target_supervisions = [
+                    s for s in cut.supervisions if s.speaker == target_spk_id
+                ]
                 
-                # For each speaker, create an example
-                for target_spk_id in all_speakers_in_cut:
-                    target_supervisions = [
-                        s for s in cut.supervisions if s.speaker == target_spk_id
-                    ]
-                    
-                    if target_supervisions and self._can_get_enrollment(cut, target_spk_id, target_supervisions):
-                        examples_to_process.append((cut, target_spk_id))
-        else:
-            # List of indices pattern: use pre-computed examples
-            examples_to_process = [self.examples[idx] for idx in batch_or_indices]
+                if target_supervisions and self._can_get_enrollment(cut, target_spk_id, target_supervisions):
+                    examples_to_process.append((cut, target_spk_id))
 
         # Process examples
         for cut, target_spk_id in examples_to_process:
