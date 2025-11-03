@@ -173,11 +173,8 @@ class ModelFactory:
             seq2seq = ModelFactory.create_encoder_decoder(enc_dec_config)
             ```
         """
-        encoder_dict = config.to_encoder_dict()
-        decoder_dict = config.to_decoder_dict()
-
         return EncoderDecoderTransformer(
-            encoder_params=encoder_dict, decoder_params=decoder_dict
+            encoder_params=config.encoder_params, decoder_params=config.decoder_params
         )
 
     @staticmethod
@@ -222,10 +219,16 @@ class ModelFactory:
 
         # Create appropriate model type
         if config.model_type == "encoder":
+            if not isinstance(config.config, EncoderConfig):
+                raise ValueError(f"Expected EncoderConfig for encoder model, got {type(config.config)}")
             return ModelFactory.create_encoder(config.config)
         elif config.model_type == "decoder":
+            if not isinstance(config.config, DecoderConfig):
+                raise ValueError(f"Expected DecoderConfig for decoder model, got {type(config.config)}")
             return ModelFactory.create_decoder(config.config)
         elif config.model_type == "encoder_decoder":
+            if not isinstance(config.config, EncoderDecoderConfig):
+                raise ValueError(f"Expected EncoderDecoderConfig for encoder_decoder model, got {type(config.config)}")
             return ModelFactory.create_encoder_decoder(config.config)
         else:
             raise ValueError(

@@ -169,9 +169,18 @@ class FeatureRedrawCallback(Callback):
 
     def _redraw_features(self, model: nn.Module):
         """Redraw projection features for Performer attention layers."""
-        for module in model.modules():
-            if hasattr(module, "redraw_projection_matrix"):
-                module.redraw_projection_matrix()
+        # Check if model has projection updater (Performer models)
+        if hasattr(model, "proj_updater"):
+            proj_updater = getattr(model, "proj_updater")
+            if hasattr(proj_updater, "redraw_projections"):
+                proj_updater.redraw_projections()
+        else:
+            # Fallback: look for individual modules with redraw capability
+            for module in model.modules():
+                if hasattr(module, "proj_updater"):
+                    proj_updater = getattr(module, "proj_updater")
+                    if hasattr(proj_updater, "redraw_projections"):
+                        proj_updater.redraw_projections()
 
 
 class LRMonitorCallback(Callback):
@@ -284,7 +293,7 @@ class CallbackHandler:
         callbacks: List of callback instances
     """
 
-    def __init__(self, callbacks: List[Callback] = None):
+    def __init__(self, callbacks: Optional[List[Callback]] = None):
         self.callbacks = callbacks or []
 
     def add_callback(self, callback: Callback):
@@ -338,7 +347,8 @@ class CallbackHandler:
     def should_stop_training(self) -> bool:
         """Check if any callback requests training to stop."""
         for callback in self.callbacks:
-            if hasattr(callback, "should_stop") and callback.should_stop:
+            # Use getattr to safely check should_stop attribute
+            if getattr(callback, "should_stop", False):
                 return True
         return False
 

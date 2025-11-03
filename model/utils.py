@@ -158,19 +158,33 @@ class ProjectionUpdater(nn.Module):
                 if (
                     hasattr(attn, "projection_matrix")
                     and attn.projection_matrix is not None
+                    and hasattr(attn, "nb_features")
+                    and hasattr(attn, "d_head")
                 ):
                     # Redraw projection matrix
                     from .linear_attention import gaussian_orthogonal_random_matrix
 
-                    new_projection = gaussian_orthogonal_random_matrix(
-                        nb_rows=attn.nb_features,
-                        nb_columns=attn.d_head,
-                        scaling=0,
-                        device=device,
-                    )
-                    attn.projection_matrix.copy_(new_projection)
+                    # Get dimensions (these should be integers from the attention module)
+                    nb_rows = attn.nb_features
+                    nb_columns = attn.d_head
 
-            self.calls_since_last_redraw.zero_()
+                    # Type guard to ensure we have integers
+                    if isinstance(nb_rows, int) and isinstance(nb_columns, int):
+                        new_projection = gaussian_orthogonal_random_matrix(
+                            nb_rows=nb_rows,
+                            nb_columns=nb_columns,
+                            scaling=0,
+                            device=device,
+                        )
+                        # Replace the projection matrix - ensure it's a tensor
+                        if isinstance(attn.projection_matrix, Tensor):
+                            with torch.no_grad():
+                                attn.projection_matrix.copy_(new_projection)
+
+            # Reset counter - ensure it's a tensor buffer
+            if isinstance(self.calls_since_last_redraw, Tensor):
+                with torch.no_grad():
+                    self.calls_since_last_redraw.zero_()
         else:
             self.calls_since_last_redraw += 1
 

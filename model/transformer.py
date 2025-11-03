@@ -88,6 +88,7 @@ class PerformerLayer(nn.Module):
         use_rezero = kwargs.get("use_rezero", False)
         use_scalenorm = kwargs.get("use_scalenorm", False)
         nb_features = kwargs.get("nb_features")
+        eps = kwargs.get("eps", 1e-5)
 
         self.use_cross_attention = use_cross_attention
 
@@ -115,11 +116,13 @@ class PerformerLayer(nn.Module):
             )
 
         # Create feed-forward layer
+        # Ensure activation is not None
+        activation_fn = activation if activation is not None else ActivationFunctions.GELU
         self.feed_forward = FeedForward(
             d_model=d_model,
             device=device,
             batch_size=batch_size,
-            activation=activation,
+            activation=activation_fn,
             d_ff=d_ff,
             dropout=dropout,
         )
@@ -134,21 +137,21 @@ class PerformerLayer(nn.Module):
         elif use_scalenorm:
             # PreScaleNorm: L2 normalization with gain
             self.norm_self_attn = PreScaleNorm(
-                dim=d_model, fn=self.self_attention, eps=1e-5
+                dim=d_model, fn=self.self_attention, eps=eps
             )
             if use_cross_attention:
                 # Store just the PreScaleNorm params for cross-attention
                 self.norm_cross_attn = PreScaleNorm(
-                    dim=d_model, fn=nn.Identity(), eps=1e-5
+                    dim=d_model, fn=nn.Identity(), eps=eps
                 )
-            self.norm_ff = PreScaleNorm(dim=d_model, fn=self.feed_forward, eps=1e-5)
+            self.norm_ff = PreScaleNorm(dim=d_model, fn=self.feed_forward, eps=eps)
         else:
             # PreLayerNorm: standard layer normalization (default)
-            self.norm_self_attn = PreLayerNorm(dim=d_model, fn=self.self_attention)
+            self.norm_self_attn = PreLayerNorm(dim=d_model, fn=self.self_attention, eps=eps)
             if use_cross_attention:
                 # Store just the LayerNorm for cross-attention
-                self.norm_cross_attn = PreLayerNorm(dim=d_model, fn=nn.Identity())
-            self.norm_ff = PreLayerNorm(dim=d_model, fn=self.feed_forward)
+                self.norm_cross_attn = PreLayerNorm(dim=d_model, fn=nn.Identity(), eps=eps)
+            self.norm_ff = PreLayerNorm(dim=d_model, fn=self.feed_forward, eps=eps)
 
     def forward(
         self,
@@ -269,6 +272,7 @@ class Performer(nn.Module):
                     use_rezero=kwargs.get("use_rezero", False),
                     use_scalenorm=kwargs.get("use_scalenorm", False),
                     nb_features=kwargs.get("nb_features"),
+                    eps=kwargs.get("eps", 1e-5),
                 )
                 for _ in range(num_layers)
             ]
@@ -372,15 +376,24 @@ class PerformerEncoder(Performer):
         else:
             self.output_proj = None
 
-    def forward(self, x: Tensor, mask: Tensor | None = None, **kwargs) -> Tensor:
+    def forward(
+        self, 
+        x: Tensor, 
+        encoder_output: Tensor | None = None, 
+        self_attn_mask: Tensor | None = None, 
+        cross_attn_mask: Tensor | None = None,
+        **kwargs
+    ) -> Tensor:
         """
         Encode input sequence.
 
         Args:
             x: Tensor of shape (batch_size, seq_len, input_dim) or (batch_size, seq_len, d_model)
                 Input features (will be projected if input_dim != d_model)
-            mask: Tensor of shape (batch_size, seq_len, seq_len) | None
+            encoder_output: Tensor | None - unused in encoder (for compatibility with parent)
+            self_attn_mask: Tensor of shape (batch_size, seq_len, seq_len) | None
                 Self-attention mask
+            cross_attn_mask: Tensor | None - unused in encoder (for compatibility with parent)
             **kwargs: Additional arguments
 
         Returns:
@@ -392,7 +405,7 @@ class PerformerEncoder(Performer):
         if self.input_proj is not None:
             x = self.input_proj(x)
 
-        x = super().forward(x, self_attn_mask=mask, **kwargs)
+        x = super().forward(x, self_attn_mask=self_attn_mask, **kwargs)
 
         # Apply final normalization if using LayerNorm
         if self.final_norm is not None:

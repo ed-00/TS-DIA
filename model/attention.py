@@ -178,6 +178,7 @@ class MultiHeadAttention(Module):
                 v = v.masked_fill(global_mask == 0, 0.0)
 
             # Transform Q and K using softmax kernel
+            assert self.projection_matrix is not None, "projection_matrix should not be None for linear attention"
             q_prime = softmax_kernel(
                 q, self.projection_matrix, is_query=True, normalize_data=True
             )
@@ -196,6 +197,7 @@ class MultiHeadAttention(Module):
                 v = v.masked_fill(global_mask == 0, 0.0)
 
             # Transform Q and K using softmax kernel
+            assert self.projection_matrix is not None, "projection_matrix should not be None for causal_linear attention"
             q_prime = softmax_kernel(
                 q, self.projection_matrix, is_query=True, normalize_data=True
             )
@@ -265,22 +267,30 @@ class CrossAttention(MultiHeadAttention):
 
         super(CrossAttention, self).__init__(**kwargs)
 
-    def forward(self, q: torch.Tensor, kv: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         """
         Applies multi-head cross-attention between the query and key/value tensors.
 
-        This method computes the attention scores between the query tensor `q` and the key/value tensor `kv`,
+        This method computes the attention scores between the query tensor `x` and the key/value tensor `mask`,
         applies softmax normalization to obtain attention weights, and then computes the weighted sum of the value vectors.
         The result is projected back to the original embedding dimension.
 
+        Note: The parameter is named 'mask' for compatibility with the parent class, but it serves as the 
+        key/value tensor for cross-attention when provided.
+
         Args:
-            q (torch.Tensor): Query tensor of shape (batch_size, N_q, D), typically from the attractor decoder.
-            kv (torch.Tensor): Key/Value tensor of shape (batch_size, N_kv, D), typically from the encoder embeddings.
+            x (torch.Tensor): Query tensor of shape (batch_size, N_q, D).
+            mask (torch.Tensor | None): Key/Value tensor of shape (batch_size, N_kv, D), typically from the encoder embeddings.
+                                       If None, performs self-attention using x for both query and key/value.
 
         Returns:
             torch.Tensor: Output tensor of shape (batch_size, N_q, D) after applying cross-attention.
         """
-        # q: (B, N_q, D) - Query from attractor decoder
+        # Use x as both query and key/value if mask is None (self-attention)
+        q = x
+        kv = mask if mask is not None else x
+        
+        # q: (B, N_q, D) - Query 
         # kv: (B, N_kv, D) - Key/Value from embedding encoder
         batch_size = q.shape[0]
 
@@ -307,11 +317,11 @@ class CrossAttention(MultiHeadAttention):
         attention_weights = F.softmax(scores, dim=-1)
         p_att = self.dropout_attn(attention_weights)
 
-        context = torch.matmul(p_att, v_h)
-        context = (
-            context.transpose(1, 2)
+        context_out = torch.matmul(p_att, v_h)
+        context_out = (
+            context_out.transpose(1, 2)
             .contiguous()
             .view(batch_size, -1, self.num_heads * self.d_head)
         )
 
-        return self.linear_out(context)
+        return self.linear_out(context_out)

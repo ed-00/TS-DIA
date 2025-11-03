@@ -16,7 +16,7 @@ Key Functions:
     LossRegistry: Registry of available loss functions
 """
 
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -103,7 +103,7 @@ class NormRegularizationLoss(nn.Module):
         self.norm_type = norm_type
 
     def forward(self, model: nn.Module) -> torch.Tensor:
-        norm = 0.0
+        norm = torch.tensor(0.0, device=next(model.parameters()).device)
         for param in model.parameters():
             if self.norm_type == "l1":
                 norm += torch.abs(param).sum()
@@ -230,7 +230,7 @@ def create_loss_function(loss_config: LossConfig) -> nn.Module:
         loss_fn = create_loss_function(loss_config)
         ```
     """
-    loss_kwargs = {"reduction": loss_config.reduction}
+    loss_kwargs: Dict[str, Any] = {"reduction": loss_config.reduction}
 
     # Add loss-specific kwargs
     if loss_config.label_smoothing is not None:

@@ -21,7 +21,7 @@ from torch import Tensor
 import torch.nn as nn
 import torch
 
-from .activations import _is_glu
+from .activations import _is_glu, ActivationFunctions
 from .types import FeedForwardParams
 
 
@@ -35,7 +35,15 @@ class FeedForward(nn.Module):
     performance.
     """
 
-    def __init__(self, **kwargs: Unpack[FeedForwardParams]):
+    def __init__(
+        self, 
+        d_model: int,
+        device: torch.device,
+        batch_size: int,
+        activation: ActivationFunctions,
+        d_ff: int,
+        dropout: float
+    ):
         """
         Position-wise feed-forward network.
 
@@ -54,26 +62,30 @@ class FeedForward(nn.Module):
         and the other serves as a gate, which are then element-wise multiplied.
 
         Args:
-            kwargs: FeedForwardParams
-                d_model: int - dimension of the model
-                device: torch.device - device to use for computation
-                batch_size: int - batch size
-                activation: ActivationFunctions - activation function to use
-                d_ff: int - expansion factor for the hidden dimension
-                dropout: float - dropout rate for regularization
+            d_model: int - dimension of the model
+            device: torch.device - device to use for computation
+            batch_size: int - batch size
+            activation: ActivationFunctions - activation function to use
+            d_ff: int - expansion factor for the hidden dimension
+            dropout: float - dropout rate for regularization
         """
         super(FeedForward, self).__init__()
-        self.kwargs = kwargs
+        self.d_model = d_model
+        self.device = device
+        self.batch_size = batch_size
+        self.activation = activation
+        self.d_ff = d_ff
+        self.dropout = dropout
 
         # For GLU variants, w_1 needs to output 2x for the gate
-        multiplier = 2 if _is_glu(kwargs["activation"]) else 1
+        multiplier = 2 if _is_glu(activation) else 1
         self.w_1 = nn.Linear(
-            kwargs["d_model"], kwargs["d_model"] * kwargs["d_ff"] * multiplier
+            d_model, d_model * d_ff * multiplier
         )
 
-        self.activation_fn = kwargs["activation"].value()
-        self.dropout = nn.Dropout(kwargs["dropout"])
-        self.w_2 = nn.Linear(kwargs["d_model"] * kwargs["d_ff"] , kwargs["d_model"])
+        self.activation_fn = activation.value()
+        self.dropout_layer = nn.Dropout(dropout)
+        self.w_2 = nn.Linear(d_model * d_ff, d_model)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -99,7 +111,7 @@ class FeedForward(nn.Module):
         x = self.activation_fn(x)
 
         # Dropout and final projection
-        x = self.dropout(x)
+        x = self.dropout_layer(x)
         x = self.w_2(x)
         return x
 

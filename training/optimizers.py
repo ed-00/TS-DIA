@@ -59,20 +59,20 @@ def create_optimizer(
         return torch.optim.Adam(
             params,
             lr=config.lr,
-            betas=config.betas,
-            eps=config.epsilon,
-            weight_decay=config.weight_decay,
-            amsgrad=config.amsgrad,
+            betas=config.betas or (0.9, 0.999),
+            eps=config.epsilon or 1e-8,
+            weight_decay=config.weight_decay or 0.0,
+            amsgrad=config.amsgrad or False,
         )
 
     elif optimizer_type == "adamw":
         return torch.optim.AdamW(
             params,
             lr=config.lr,
-            betas=config.betas,
-            eps=config.epsilon,
-            weight_decay=config.weight_decay,
-            amsgrad=config.amsgrad,
+            betas=config.betas or (0.9, 0.999),
+            eps=config.epsilon or 1e-8,
+            weight_decay=config.weight_decay or 0.01,
+            amsgrad=config.amsgrad or False,
         )
 
     elif optimizer_type == "sgd":
@@ -80,16 +80,16 @@ def create_optimizer(
             params,
             lr=config.lr,
             momentum=config.momentum or 0.0,
-            weight_decay=config.weight_decay,
-            nesterov=config.nesterov,
+            weight_decay=config.weight_decay or 0.0,
+            nesterov=config.nesterov or False,
         )
 
     elif optimizer_type == "adagrad":
         return torch.optim.Adagrad(
             params,
             lr=config.lr,
-            eps=config.epsilon,
-            weight_decay=config.weight_decay,
+            eps=config.epsilon or 1e-10,
+            weight_decay=config.weight_decay or 0.0,
         )
 
     elif optimizer_type == "rmsprop":
@@ -97,17 +97,17 @@ def create_optimizer(
             params,
             lr=config.lr,
             momentum=config.momentum or 0.0,
-            eps=config.epsilon,
-            weight_decay=config.weight_decay,
+            eps=config.epsilon or 1e-8,
+            weight_decay=config.weight_decay or 0.0,
         )
 
     elif optimizer_type == "adamax":
         return torch.optim.Adamax(
             params,
             lr=config.lr,
-            betas=config.betas,
-            eps=config.epsilon,
-            weight_decay=config.weight_decay,
+            betas=config.betas or (0.9, 0.999),
+            eps=config.epsilon or 1e-8,
+            weight_decay=config.weight_decay or 0.0,
         )
 
     else:
@@ -155,7 +155,7 @@ def get_warmup_schedule(
 def create_scheduler(
     optimizer: Optimizer,
     config: SchedulerConfig,
-    num_training_steps: int = None,
+    num_training_steps: int | None = None,
 ) -> Any:
     """
     Create learning rate scheduler from configuration.
@@ -188,19 +188,19 @@ def create_scheduler(
             )
         else:
             # Simple cosine annealing
-            T_max = config.decay_steps or num_training_steps
+            T_max = config.decay_steps or num_training_steps or 1000
             return CosineAnnealingLR(
                 optimizer,
                 T_max=T_max,
-                eta_min=config.min_lr,
+                eta_min=config.min_lr or 0.0,
             )
 
     elif scheduler_type == "cosine_restarts":
         return CosineAnnealingWarmRestarts(
             optimizer,
             T_0=config.decay_steps or 1000,
-            T_mult=config.num_cycles,
-            eta_min=config.min_lr,
+            T_mult=config.num_cycles or 1,
+            eta_min=config.min_lr or 0.0,
         )
 
     elif scheduler_type == "linear":
@@ -210,41 +210,41 @@ def create_scheduler(
                 if current_step < config.warmup_steps:
                     return float(current_step) / float(max(1, config.warmup_steps))
 
+                total_decay_steps = (config.decay_steps or num_training_steps or 1000)
                 progress = float(current_step - config.warmup_steps) / float(
-                    max(
-                        1,
-                        (config.decay_steps or num_training_steps)
-                        - config.warmup_steps,
-                    )
+                    max(1, total_decay_steps - config.warmup_steps)
                 )
                 return max(0.0, 1.0 - progress)
 
             return LambdaLR(optimizer, lr_lambda)
         else:
+            min_lr_factor = (config.min_lr or 0.0) / optimizer.param_groups[0]["lr"]
             return LinearLR(
                 optimizer,
                 start_factor=1.0,
-                end_factor=config.min_lr / optimizer.param_groups[0]["lr"],
-                total_iters=config.decay_steps or num_training_steps,
+                end_factor=min_lr_factor,
+                total_iters=config.decay_steps or num_training_steps or 1000,
             )
 
     elif scheduler_type == "exponential":
-        return ExponentialLR(optimizer, gamma=config.gamma)
+        return ExponentialLR(optimizer, gamma=config.gamma or 0.95)
 
     elif scheduler_type == "step":
         return StepLR(
             optimizer,
             step_size=config.step_size or 1000,
-            gamma=config.gamma,
+            gamma=config.gamma or 0.1,
         )
 
     elif scheduler_type == "plateau":
+        # Ensure mode is valid
+        mode = "min" if config.mode == "min" else "max"
         return ReduceLROnPlateau(
             optimizer,
-            mode=config.mode,
-            factor=config.gamma,
+            mode=mode,
+            factor=config.gamma or 0.1,
             patience=config.patience or 10,
-            min_lr=config.min_lr,
+            min_lr=config.min_lr or 0.0,
         )
 
     elif scheduler_type == "constant":

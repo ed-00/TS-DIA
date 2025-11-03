@@ -11,7 +11,9 @@ for model initialization.
 """
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Callable, Any, Optional
+from click import Option
+from typing_extensions import TypedDict
 
 from torch import device
 
@@ -49,14 +51,17 @@ class TransformerSharedParams:
     batch_size: int
 
 
-@dataclass
-class MultiHeadAttentionParams(TransformerSharedParams):
+class MultiHeadAttentionParams(TypedDict):
     """
     Parameters for multi-head attention modules.
 
-    Inherits: d_model, device, batch_size from TransformerSharedParams
-
     Attributes:
+        d_model: int
+            The dimension of the model's embeddings and hidden states.
+        device: device
+            The device (CPU/GPU) on which the model will be executed.
+        batch_size: int
+            The batch size for processing sequences.
         num_heads: int
             Number of attention heads. The model dimension (d_model) must be
             divisible by num_heads. Each head operates on d_model/num_heads dimensions.
@@ -73,10 +78,13 @@ class MultiHeadAttentionParams(TransformerSharedParams):
             If None, defaults to d_head * log(d_head). Only used when attention_type is "linear" or "causal_linear".
     """
 
+    d_model: int
+    device: device
+    batch_size: int
     num_heads: int
     dropout: float
-    attention_type: AttentionType = "softmax"
-    nb_features: int | None = None
+    attention_type: AttentionType
+    nb_features: int | None
 
 
 @dataclass
@@ -104,14 +112,17 @@ class FeedForwardParams(TransformerSharedParams):
     dropout: float
 
 
-@dataclass
-class PositionalEncodingParams(TransformerSharedParams):
+class PositionalEncodingParams(TypedDict):
     """
     Parameters for positional encoding modules.
 
-    Inherits: d_model, device, batch_size from TransformerSharedParams
-
     Attributes:
+        d_model: int
+            The dimension of the model's embeddings and hidden states.
+        device: device
+            The device (CPU/GPU) on which the model will be executed.
+        batch_size: int
+            The batch size for processing sequences.
         encoding_type: PositionalEncodingType
             Type of positional encoding to use:
             - "rope": Rotary Position Embedding (RoPE) - relative position encoding
@@ -127,13 +138,15 @@ class PositionalEncodingParams(TransformerSharedParams):
             Default is 10000.0 (from original Transformer paper).
     """
 
+    d_model: int
+    device: device
+    batch_size: int
     encoding_type: PositionalEncodingType
     max_seq_len: int
-    theta: float = 10000.0
+    theta: float
 
 
-@dataclass
-class NormalizationParams:
+class NormalizationParams(TypedDict):
     """
     Parameters for normalization wrapper modules.
 
@@ -154,12 +167,11 @@ class NormalizationParams:
     """
 
     dim: int
-    fn: callable
-    eps: float = 1e-5
+    fn: Callable[..., Any]
+    eps: float
 
 
-@dataclass
-class PerformerLayerParams(TransformerSharedParams):
+class PerformerLayerParams(TypedDict):
     """
     Parameters for a single Performer transformer layer.
 
@@ -167,9 +179,13 @@ class PerformerLayerParams(TransformerSharedParams):
     - Encoder layer (self-attention only)
     - Decoder layer (causal self-attention + cross-attention)
 
-    Inherits: d_model, device, batch_size from TransformerSharedParams
-
     Attributes:
+        d_model: int
+            The dimension of the model's embeddings and hidden states.
+        device: device
+            The device (CPU/GPU) on which the model will be executed.
+        batch_size: int
+            The batch size for processing sequences.
         num_heads: int
             Number of attention heads
         d_ff: int
@@ -178,7 +194,7 @@ class PerformerLayerParams(TransformerSharedParams):
             Dropout rate for attention and feed-forward
         attention_type: AttentionType
             Type of attention: "softmax", "linear", or "causal_linear"
-        activation: ActivationFunctions
+        activation: ActivationFunctions | None
             Activation function for feed-forward network
         use_cross_attention: bool
             If True, add cross-attention sublayer (for decoder). Default False.
@@ -188,30 +204,40 @@ class PerformerLayerParams(TransformerSharedParams):
             If True, use PreScaleNorm instead of LayerNorm. Default False.
         nb_features: int | None
             Number of random features for linear attention. Default None (auto).
+        eps: float
+            Epsilon value for normalization layers. Used in LayerNorm and PreScaleNorm.
+            Default 1e-5.
     """
 
+    d_model: int
+    device: device
+    batch_size: int
     num_heads: int
     d_ff: int
     dropout: float
-    attention_type: AttentionType = "softmax"
-    activation: ActivationFunctions = None
-    use_cross_attention: bool = False
-    use_rezero: bool = False
-    use_scalenorm: bool = False
-    nb_features: int | None = None
+    attention_type: AttentionType
+    activation: ActivationFunctions | None
+    use_cross_attention: bool
+    use_rezero: bool
+    use_scalenorm: bool
+    nb_features: int | None
+    eps: float
 
 
-@dataclass
-class PerformerParams(TransformerSharedParams):
+class PerformerParams(TypedDict):
     """
     Parameters for complete Performer model (encoder, decoder, or encoder-decoder).
 
     Stacks multiple Performer layers into a complete transformer.
     Can be used for encoder-only, decoder-only, or encoder-decoder architectures.
 
-    Inherits: d_model, device, batch_size from TransformerSharedParams
-
     Attributes:
+        d_model: int
+            The dimension of the model's embeddings and hidden states.
+        device: device
+            The device (CPU/GPU) on which the model will be executed.
+        batch_size: int
+            The batch size for processing sequences.
         num_layers: int
             Number of transformer layers to stack
         num_heads: int
@@ -222,7 +248,7 @@ class PerformerParams(TransformerSharedParams):
             Dropout rate for attention and feed-forward
         attention_type: AttentionType
             Type of attention mechanism
-        activation: ActivationFunctions
+        activation: ActivationFunctions | None
             Activation function for feed-forward
         use_cross_attention: bool
             Add cross-attention sublayers (for decoder). Default False.
@@ -246,19 +272,26 @@ class PerformerParams(TransformerSharedParams):
             adds a linear projection layer: d_model -> num_classes.
             Used for sequence/token classification (e.g., diarization, NER).
             Default None (no output projection).
+        eps: float
+            Epsilon value for normalization layers. Used in LayerNorm and PreScaleNorm.
+            Default 1e-5.
     """
 
+    d_model: int
+    device: device
+    batch_size: int
     num_layers: int
     num_heads: int
     d_ff: int
     dropout: float
-    attention_type: AttentionType = "softmax"
-    activation: ActivationFunctions = None
-    use_cross_attention: bool = False
-    use_rezero: bool = False
-    use_scalenorm: bool = False
-    nb_features: int | None = None
-    feature_redraw_interval: int | None = 1000
-    auto_check_redraw: bool = True
-    input_dim: int | None = None
-    num_classes: int | None = None
+    attention_type: AttentionType
+    activation: ActivationFunctions | None
+    use_cross_attention: bool
+    use_rezero: bool
+    use_scalenorm: bool
+    nb_features: int | None
+    feature_redraw_interval: int | None
+    auto_check_redraw: bool
+    input_dim: int | None
+    num_classes: int | None
+    eps: float

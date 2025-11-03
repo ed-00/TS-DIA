@@ -54,7 +54,7 @@ Usage:
 """
 
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any, Dict, Optional, Union
 
 import torch
 import yaml
@@ -99,7 +99,7 @@ def _parse_activation(activation_str: str) -> ActivationFunctions:
         )
 
 
-def _parse_device(device_str: str = None) -> torch.device:
+def _parse_device(device_str: Optional[str] = None) -> torch.device:
     """
     Parse device string to torch.device.
 
@@ -115,7 +115,7 @@ def _parse_device(device_str: str = None) -> torch.device:
 
 
 def _create_performer_params(
-    params_dict: Dict[str, Any], global_config: Dict[str, Any] = None
+    params_dict: Dict[str, Any], global_config: Optional[Dict[str, Any]] = None
 ) -> PerformerParams:
     """
     Create PerformerParams from dictionary with validation.
@@ -168,7 +168,7 @@ def _create_performer_params(
 
 
 def validate_model_config(
-    model_dict: Dict[str, Any], global_config: Dict[str, Any] = None
+    model_dict: Dict[str, Any], global_config: Optional[Dict[str, Any]] = None
 ) -> ModelConfig:
     """
     Validate and convert model configuration dictionary to ModelConfig.
@@ -237,6 +237,9 @@ def validate_model_config(
         config = EncoderDecoderConfig(
             encoder_params=encoder_params, decoder_params=decoder_params
         )
+    else:
+        # This should never happen due to validation above, but ensures config is always defined
+        raise ModelConfigError(f"Unsupported model_type: {model_type}")
 
     return ModelConfig(model_type=model_type, config=config, name=model_name)
 

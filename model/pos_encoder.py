@@ -82,7 +82,12 @@ class RotaryPositionEmbedding(nn.Module):
     ) -> None:
         """Precompute and cache cos/sin values for all positions."""
         # Position indices: [0, 1, 2, ..., seq_len-1]
-        t = torch.arange(seq_len, device=device, dtype=self.inv_freq.dtype)
+        # Ensure inv_freq is a tensor for dtype access
+        inv_freq_tensor = self.inv_freq
+        if isinstance(inv_freq_tensor, Tensor):
+            t = torch.arange(seq_len, device=device, dtype=inv_freq_tensor.dtype)
+        else:
+            t = torch.arange(seq_len, device=device, dtype=torch.float32)
 
         # Compute all frequencies: outer product [seq_len, dim/2]
         freqs = torch.einsum("i,j->ij", t, self.inv_freq)
@@ -119,9 +124,16 @@ class RotaryPositionEmbedding(nn.Module):
         if seq_len > self.cached_seq_len:
             self._compute_cos_sin_cache(seq_len, device=q.device)
 
-        # Get cos and sin for current sequence length
-        cos = self.cos_cached[:seq_len, ...]
-        sin = self.sin_cached[:seq_len, ...]
+        # Get cos and sin for current sequence length - cast to ensure tensor access
+        cos_cached = getattr(self, 'cos_cached', None)
+        sin_cached = getattr(self, 'sin_cached', None)
+        
+        if cos_cached is not None and sin_cached is not None:
+            cos = cos_cached[:seq_len, ...]
+            sin = sin_cached[:seq_len, ...]
+        else:
+            # Should not happen if properly initialized, but handle gracefully
+            raise RuntimeError("RoPE cos/sin cache not initialized")
 
         # Apply rotation: x * cos + rotate_half(x) * sin
         q_embed = (q * cos) + (self._rotate_half(q) * sin)
@@ -189,7 +201,12 @@ class SinusoidalPositionalEncoding(nn.Module):
         )
 
         # Add positional encoding (broadcasting over batch dimension)
-        return x + self.pe[:seq_len, :].unsqueeze(0)
+        # Cast pe buffer to ensure tensor access
+        pe_tensor = getattr(self, 'pe', None)
+        if pe_tensor is not None:
+            return x + pe_tensor[:seq_len, :].unsqueeze(0)
+        else:
+            raise RuntimeError("Sinusoidal PE tensor not initialized")
 
 
 class LearnablePositionalEncoding(nn.Module):
