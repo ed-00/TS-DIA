@@ -298,7 +298,6 @@ global_config:
       fault_tolerant: false
       return_audio: false
 
-    sampler:
       type: simple               # bucketing | dynamic_bucketing | simple
       max_duration: 5         # Maximum TOTAL duration in seconds per batch (reduced from 60s)
       max_cuts: 4                # Maximum number of cuts per batch (reduced from 8)

@@ -103,10 +103,6 @@ verify_checkpoint_structure() {
                 fi
             done
             
-            # Check for sampler state in extra_state.pt
-            if [ -f "$ckpt_dir/extra_state.pt" ]; then
-                echo -e "    ${GREEN}✓${NC} extra_state.pt exists (contains sampler state)"
-            fi
         fi
     done
     

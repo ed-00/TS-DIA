@@ -60,7 +60,6 @@ from data_manager.dataset_types import (
     DataLoaderConfig,
     DataLoadingConfig,
     InputStrategyConfig,
-    SamplerConfig,
 )
 
 from data_manager.dataset_types import (
@@ -530,10 +529,6 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
         data_loading_dict.get("input_strategy"),
         "global_config.data_loading.input_strategy",
     )
-    sampler_dict = _optional_str_mapping(
-        data_loading_dict.get("sampler"),
-        "global_config.data_loading.sampler",
-    )
     dataloader_dict = _optional_str_mapping(
         data_loading_dict.get("dataloader"),
         "global_config.data_loading.dataloader",
@@ -541,9 +536,6 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
 
     input_strategy_cfg = InputStrategyConfig(
         **_filter_dataclass_kwargs(InputStrategyConfig, input_strategy_dict)
-    )
-    sampler_cfg = SamplerConfig(
-        **_filter_dataclass_kwargs(SamplerConfig, sampler_dict)
     )
     dataloader_cfg = DataLoaderConfig(
         **_filter_dataclass_kwargs(DataLoaderConfig, dataloader_dict)
@@ -620,7 +612,6 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
         min_enroll_len=min_enroll_len_value,
         max_enroll_len=max_enroll_len_value,
         input_strategy=input_strategy_cfg,
-        sampler=sampler_cfg,
         dataloader=dataloader_cfg,
     )
 

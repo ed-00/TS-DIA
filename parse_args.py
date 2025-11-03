@@ -81,9 +81,9 @@ import yaml
 from yamlargparse import ArgumentParser
 
 from data_manager.dataset_types import DatasetConfig
-from data_manager.parse_args import DatasetConfigError, parse_dataset_configs
-from model.model_types import ModelConfig
 from model.parse_model_args import ModelConfigError, parse_model_config
+from data_manager.parse_args import DatasetConfigError, parse_dataset_configs
+from model.model_types import EncoderConfig, DecoderConfig, EncoderDecoderConfig, ModelConfig
 
 
 class ConfigError(Exception):
@@ -164,7 +164,7 @@ def parse_config(
 
             # Validate that all configs have global_config attached
             for i, config in enumerate(dataset_configs):
-                if not hasattr(config, "global_config") or config.global_config is None:
+                if not hasattr(config, "global_config") or getattr(config, "global_config", None) is None:
                     raise DatasetConfigError(
                         f"Dataset config {i + 1} ({config.name}) missing global_config. "
                         "Ensure global_config section is present in YAML."
@@ -295,19 +295,12 @@ def unified_parser():
             optimizer_config = _validate_optimizer_config(
                 training_dict.pop("optimizer")
             )
-            if optimizer_config is None:
-                raise TrainingConfigError(
-                    "Optimizer configuration parsing returned None"
-                )
+        
 
             scheduler_config = _validate_scheduler_config(
                 training_dict.pop("scheduler")
             )
-            if scheduler_config is None:
-                raise TrainingConfigError(
-                    "Scheduler configuration parsing returned None"
-                )
-
+     
             # Parse optional nested configurations
             early_stopping_config = None
             if "early_stopping" in training_dict:
@@ -393,7 +386,7 @@ def combined_parser():
 
     Use unified_parser() for new code.
     """
-    args, model_config, dataset_configs, _, config_path = unified_parser()
+    args, model_config, dataset_configs, _, _ = unified_parser()
     return args, model_config, dataset_configs
 
 
@@ -467,14 +460,15 @@ if __name__ == "__main__":
         print(f"  Type: {model_config.model_type}")
         print(f"  Name: {model_config.name}")
 
-        if model_config.model_type == "encoder":
+        
+        if model_config.model_type == "encoder" and isinstance(model_config.config, EncoderConfig):
             print(f"  Encoder layers: {model_config.config.params.num_layers}")
             print(f"  Model dim: {model_config.config.params.d_model}")
-        elif model_config.model_type == "decoder":
+        elif model_config.model_type == "decoder" and isinstance(model_config.config, DecoderConfig):
             print(f"  Decoder layers: {model_config.config.params.num_layers}")
             print(f"  Model dim: {model_config.config.params.d_model}")
             print(f"  Cross-attention: {model_config.config.use_cross_attention}")
-        elif model_config.model_type == "encoder_decoder":
+        elif model_config.model_type == "encoder_decoder" and isinstance(model_config.config, EncoderDecoderConfig):
             print(f"  Encoder layers: {model_config.config.encoder_params.num_layers}")
             print(f"  Decoder layers: {model_config.config.decoder_params.num_layers}")
             print(f"  Model dim: {model_config.config.encoder_params.d_model}")

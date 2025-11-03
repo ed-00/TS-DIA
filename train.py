@@ -27,13 +27,16 @@ from data_manager.data_manager import DatasetManager
 from model.model_factory import create_model
 from parse_args import unified_parser
 from training import Trainer
-
+from data_manager.dataset_types import DatasetConfig
 
 def main():
     """Main training function."""
     # Parse unified configuration with CLI overrides
     args, model_config, dataset_configs, training_config, config_path = unified_parser()
-
+    
+    if dataset_configs is None or len(dataset_configs) == 0 or not hasattr(dataset_configs[0],"global_config"):
+         raise ValueError("No data config parsed")
+     
     # Load datasets and create diarization dataloaders (parser ensures valid configs)
     cut_sets = DatasetManager.load_datasets(datasets=dataset_configs)
 
@@ -44,13 +47,19 @@ def main():
         return
 
     # Get dataset name and configuration
-    dataset_name = dataset_configs[0].name
-    global_config = dataset_configs[0].global_config
+    dataset_name: str = dataset_configs[0].name
+    global_config = getattr(dataset_configs[0], 'global_config', None)
+    
+    if global_config is None:
+        raise ValueError("No global configuration found in dataset config")
 
     # Get unified train/val splits (DatasetManager handles split mapping)
     dataset_cuts = cut_sets[dataset_name]
     train_cuts = dataset_cuts.get("train")
     val_cuts = dataset_cuts.get("val")
+
+    if train_cuts is None:
+        raise ValueError(f"No training data found for dataset {dataset_name}")
 
     # Get label type from training config
     label_type = training_config.eval_knobs.get("label_type", "binary")
@@ -63,12 +72,15 @@ def main():
         train_cuts=train_cuts,
         val_cuts=val_cuts,
         data_loading=global_config.data_loading,
+        batch_size=training_config.batch_size,
         label_type=label_type,
         random_seed=random_seed,
     )
     print(f"\n✓ Diarization dataloaders created with label_type='{label_type}'")
 
     # Create model (parser ensures configs are never None)
+    if model_config is None:
+        raise ValueError("No model configuration found")
     model = create_model(model_config)
     print(f"Model created: {model_config.name}")
     # Create trainer
@@ -77,7 +89,7 @@ def main():
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
         config=training_config,
-        config_path=config_path,
+        config_path=str(config_path),
     )
 
     # Start training

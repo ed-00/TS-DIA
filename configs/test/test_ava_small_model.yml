@@ -1,5 +1,5 @@
 # Test 7: Small Model with Dynamic Bucketing and MFCC
-# Test smaller model dimensions, dynamic bucketing sampler, and MFCC features
+# Test smaller model dimensions and MFCC features
 
 model:
   model_type: encoder_decoder
@@ -56,11 +56,6 @@ global_config:
       use_batch_extract: false
       fault_tolerant: false
       return_audio: false
-    sampler:
-      type: dynamic_bucketing       # Test dynamic bucketing sampler
-      num_buckets: 5
-      shuffle: true
-      drop_last: true
     dataloader:
       num_workers: 2                # Test with multiple workers
       pin_memory: true

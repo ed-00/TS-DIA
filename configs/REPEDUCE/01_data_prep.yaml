@@ -37,7 +37,6 @@ global_config:
       use_batch_extract: true
       fault_tolerant: false
       return_audio: false
-    sampler:
       type: simple               # bucketing | dynamic_bucketing | simple
       num_buckets: 10
       shuffle: true

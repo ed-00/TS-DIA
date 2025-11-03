@@ -133,7 +133,7 @@ class Trainer:
         self.total_steps = self._calculate_total_steps()
         
         # Estimate steps per epoch using dataloader length and gradient accumulation
-        estimated_batches_per_epoch = self._estimate_dataloader_length(train_dataloader)
+        estimated_batches_per_epoch = len(train_dataloader)
         if estimated_batches_per_epoch is not None and not self.total_steps:
             # Calculate steps per epoch considering gradient accumulation
             steps_per_epoch = estimated_batches_per_epoch // config.gradient_accumulation_steps
@@ -241,53 +241,9 @@ class Trainer:
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-    def _estimate_dataloader_length(self, dataloader):
-        """
-        Estimate the number of batches in a dataloader.
-        
-        Args:
-            dataloader: PyTorch DataLoader to estimate length for
-            
-        Returns:
-            int or None: Estimated number of batches, or None if cannot be determined
-        """
-        try:
-            return len(dataloader)
-        except TypeError:
-            # SimpleCutSampler doesn't support __len__, estimate from cuts and batch config
-            sampler = getattr(dataloader, "sampler", None)
-            if sampler and hasattr(sampler, "cuts"):
-                total_cuts = len(sampler.cuts)
-                max_duration = getattr(sampler, "max_duration", None)
-                
-                if max_duration is not None:
-                    # Get chunk_size from cuts (all cuts should have same duration after chunking)
-                    sample_cut = next(iter(sampler.cuts))
-                    chunk_size = sample_cut.duration if sample_cut.duration else 1.0
-                    cuts_per_batch = max(1, int(max_duration / chunk_size))
-                    return max(1, total_cuts // cuts_per_batch)
-            
-            return None
+    
 
-    def _load_sampler_state(self, dataloader, sampler_state):
-        """
-        Load sampler state from checkpoint if the sampler supports it.
-        
-        Args:
-            dataloader: PyTorch DataLoader containing the sampler
-            sampler_state: Saved sampler state dictionary
-        """
-        if sampler_state is None:
-            return
-            
-        sampler = getattr(dataloader, "sampler", None)
-        if sampler and hasattr(sampler, "load_state_dict"):
-            try:
-                sampler.load_state_dict(sampler_state)
-            except Exception as e:
-                self.accelerator.print(
-                    f"Warning: failed to load sampler state: {e}"
-                )
+
 
     def _validate_checkpoint_directory(self, checkpoint_config):
         """
@@ -340,10 +296,6 @@ class Trainer:
         """Return max_steps if provided; otherwise None (lengthless iteration)."""
         return self.config.max_steps or None
 
-    def _set_sampler_epoch_if_applicable(self, loader: DataLoader, epoch: int) -> None:
-        sampler = getattr(loader, "sampler", None)
-        if sampler is not None and hasattr(sampler, "set_epoch"):
-            sampler.set_epoch(epoch)
 
     def _resume_from_checkpoint(self, checkpoint_path: str):
         """Resume training from checkpoint."""
@@ -362,10 +314,7 @@ class Trainer:
         self.global_step = extra_state.get("global_step", 0)
         self.best_metric = extra_state.get("best_metric", float("inf"))
 
-        # Restore sampler state if available
-        sampler_state = extra_state.get("sampler_state")
-        if hasattr(self.train_dataloader, "sampler"):
-            self._load_sampler_state(self.train_dataloader, sampler_state)
+
 
         self.accelerator.print(
             f"Resumed from epoch {self.current_epoch}, step {self.global_step}"
@@ -379,11 +328,6 @@ class Trainer:
             self.current_epoch = epoch
             self.callback_handler.on_epoch_begin(self, epoch)
 
-            # Ensure Lhotse/Distributed samplers advance epoch appropriately
-            if self.train_dataloader is not None:
-                self._set_sampler_epoch_if_applicable(self.train_dataloader, epoch)
-            if self.val_dataloader is not None:
-                self._set_sampler_epoch_if_applicable(self.val_dataloader, epoch)
 
             # Train for one epoch
             train_metrics = self._train_epoch()
@@ -426,20 +370,10 @@ class Trainer:
         total_loss = 0.0
         num_batches = 0
 
-        # Estimate total batches for tqdm (Lhotse samplers don't have fixed length)
-        total_batches = self._estimate_dataloader_length(self.train_dataloader)
-        
-        if total_batches is not None:
-            sampler = getattr(self.train_dataloader, "sampler", None)
-            if sampler and hasattr(sampler, "cuts"):
-                total_cuts = len(sampler.cuts)
-                sample_cut = next(iter(sampler.cuts))
-                chunk_size = sample_cut.duration if sample_cut.duration else 1.0
-                cuts_per_batch = max(1, int(getattr(sampler, "max_duration", 1.0) / chunk_size))
-                self.accelerator.print(f"Estimated total batches: {total_batches} (from {total_cuts} cuts of {chunk_size}s, ~{cuts_per_batch} cuts/batch)")
-        else:
-            self.accelerator.print("Cannot estimate batch count - using indeterminate progress")
-        
+        # Estimate total batches for tqdm progress bar
+        total_batches = len(self.train_dataloader)
+        self.accelerator.print(f"Training for {total_batches} batches per epoch")
+
 
         progress_bar = tqdm(
             self.train_dataloader,
@@ -565,8 +499,8 @@ class Trainer:
             else None
         )
 
-        # Estimate total batches for tqdm (Lhotse samplers don't have fixed length)
-        total_batches = self._estimate_dataloader_length(self.val_dataloader)
+        # Estimate total batches for tqdm progress bar
+        total_batches = len(self.val_dataloader) if self.val_dataloader else 0
 
         for batch_idx, batch in enumerate(
             tqdm(
@@ -580,11 +514,7 @@ class Trainer:
             if max_val_steps is not None and batch_idx >= max_val_steps:
                 break
 
-            # Move batch tensors to device (Accelerate doesn't auto-move dict values)
-            batch = {
-                k: v.to(self.accelerator.device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch.items()
-            }
+        
 
             outputs = self.model(x=batch["features"])
 
@@ -624,7 +554,7 @@ class Trainer:
         # Aggregate batch metrics
         if all_metrics:
             for key in all_metrics[0].keys():
-                val_metrics[f"val_{key}"] = np.mean([m[key] for m in all_metrics])
+                val_metrics[f"val_{key}"] = float(np.mean([m[key] for m in all_metrics]))
 
         # All-reduce for distributed
         val_metrics = all_reduce_metrics(self.accelerator, val_metrics)
@@ -660,16 +590,6 @@ class Trainer:
             "best_metric": self.best_metric,
         }
 
-        # Save sampler state for exact resumption of data iteration
-        if hasattr(self.train_dataloader, "sampler"):
-            sampler = getattr(self.train_dataloader, "sampler", None)
-            if sampler is not None and hasattr(sampler, "state_dict"):
-                try:
-                    extra_state["sampler_state"] = sampler.state_dict()
-                except Exception as e:
-                    self.accelerator.print(
-                        f"Warning: failed to save sampler state: {e}"
-                    )
 
         save_checkpoint_with_accelerate(
             self.accelerator,
@@ -697,8 +617,8 @@ class Trainer:
         total_samples = 0
         all_metrics = []
 
-        # Estimate total batches for tqdm (Lhotse samplers don't have fixed length)
-        total_batches = self._estimate_dataloader_length(self.test_dataloader)
+        # Estimate total batches for tqdm
+        total_batches = len(self.test_dataloader)
 
         for batch in tqdm(
             self.test_dataloader,
@@ -706,11 +626,7 @@ class Trainer:
             disable=not self.accelerator.is_local_main_process,
             total=total_batches,
         ):
-            # Move batch tensors to device (Accelerate doesn't auto-move dict values)
-            batch = {
-                k: v.to(self.accelerator.device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch.items()
-            }
+     
 
             outputs = self.model(x=batch["features"])
 

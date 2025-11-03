@@ -1,5 +1,5 @@
-# Test 6: Precomputed Features with MFCC and Bucketing Sampler
-# Test precomputed features strategy, MFCC features, and bucketing sampler
+# Test 6: Precomputed Features with MFCC
+# Test precomputed features strategy and MFCC features
 
 model:
   model_type: encoder_decoder
@@ -56,11 +56,6 @@ global_config:
       use_batch_extract: false
       fault_tolerant: false
       return_audio: false
-    sampler:
-      type: bucketing               # Test bucketing sampler
-      num_buckets: 5
-      shuffle: true
-      drop_last: true
     dataloader:
       num_workers: 2                # Test with multiple workers
       pin_memory: true

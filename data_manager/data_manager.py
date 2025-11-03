@@ -69,9 +69,6 @@ from lhotse.features.io import (
 )
 from lhotse.dataset import (
     DiarizationDataset,
-    BucketingSampler,
-    DynamicBucketingSampler,
-    SimpleCutSampler,
     make_worker_init_fn,
 )
 from torch.utils.data import DataLoader
@@ -485,7 +482,7 @@ class DatasetManager:
             if not (recordings_path or cuts_path):
                 continue
 
-            # Use eager loading (not lazy) for BucketingSampler compatibility
+            # Use eager loading for consistent behavior
             if recordings_path:
                 split_manifests["recordings"] = RecordingSet.from_file(
                     recordings_path)
@@ -530,7 +527,7 @@ class DatasetManager:
         if cache_path.exists():
             print(
                 f"  ✓ {split_name}: Loaded from cache (skip feature extraction)")
-            # Use CutSet.from_file (eager) instead of load_manifest_lazy for BucketingSampler compatibility
+            # Use CutSet.from_file (eager) for consistent behavior
             return CutSet.from_file(cache_path)
         print(
             f"  → {split_name}: No cache found (will extract features on first use)")
@@ -677,7 +674,7 @@ class DatasetManager:
             progress_bar=True,
         )
 
-        # Ensure eager CutSet for bucketing sampler compatibility
+        # Ensure eager CutSet for consistent behavior
         if hasattr(cuts_with_feats, "to_eager"):
             cuts_with_feats = cuts_with_feats.to_eager()
 
@@ -784,63 +781,7 @@ class DatasetManager:
 
         return normalized
 
-    @staticmethod
-    def _create_sampler(
-        cuts: CutSet,
-        data_loading: DataLoadingConfig,
-    ) -> Union[BucketingSampler, DynamicBucketingSampler, SimpleCutSampler]:
-        """
-        Create a Lhotse sampler based on the data loading configuration.
 
-        Args:
-            cuts: The CutSet to sample from
-            data_loading: Configuration object containing sampler settings
-
-        Returns:
-            An initialized Lhotse sampler instance
-
-        Raises:
-            ValueError: If an unsupported sampler type is specified
-        """
-        sampler_config = data_loading.sampler
-        sampler_type = sampler_config.type
-
-        if sampler_type == "bucketing":
-            return BucketingSampler(
-                cuts,
-                max_duration=sampler_config.max_duration,
-                shuffle=sampler_config.shuffle,
-                drop_last=sampler_config.drop_last,
-                num_buckets=sampler_config.num_buckets,
-            )
-        elif sampler_type == "dynamic_bucketing":
-            return DynamicBucketingSampler(
-                cuts,
-                max_duration=sampler_config.max_duration,
-                shuffle=sampler_config.shuffle,
-                drop_last=sampler_config.drop_last,
-                num_buckets=sampler_config.num_buckets,
-            )
-        elif sampler_type == "simple":
-            # SimpleCutSampler requires max_duration to be a float, not None
-            max_dur = None
-            if isinstance(sampler_config.max_duration, (float, int)) and sampler_config.max_duration > 0:
-                max_dur = float(sampler_config.max_duration)
-            if max_dur is not None:
-                return SimpleCutSampler(
-                    cuts,
-                    max_duration=max_dur,
-                    shuffle=sampler_config.shuffle,
-                    drop_last=sampler_config.drop_last,
-                )
-            else:
-                return SimpleCutSampler(
-                    cuts,
-                    shuffle=sampler_config.shuffle,
-                    drop_last=sampler_config.drop_last,
-                )
-        else:
-            raise ValueError(f"Unsupported sampler type: {sampler_type}")
 
     @staticmethod
     def _create_dataset(
@@ -892,22 +833,26 @@ class DatasetManager:
     def create_dataloader(
         cuts: CutSet,
         data_loading: DataLoadingConfig,
+        batch_size: int,
         label_type: LabelType = "binary",
         random_seed: int = 42,
+        shuffle: bool = True,
     ) -> DataLoader[Any]:
         """
         Create a PyTorch DataLoader from Lhotse CutSet for diarization.
 
-        This method creates a complete dataloader pipeline with:
-        - Sampler (bucketing/dynamic_bucketing/simple)
-        - Dataset (binary or ego-centric diarization)
-        - DataLoader with worker initialization
+        This method creates a standard PyTorch DataLoader compatible with Accelerate:
+        - Chunks cuts into fixed-size segments for consistent batching
+        - Uses standard PyTorch DataLoader with explicit batch_size
+        - Fully compatible with Accelerate's prepare() method
 
         Args:
             cuts: Lhotse CutSet containing audio cuts with supervisions and precomputed features
-            data_loading: Configuration for data loading (sampler, dataloader settings)
+            data_loading: Configuration for data loading (dataloader settings)
+            batch_size: Explicit batch size for DataLoader (required for Accelerate compatibility)
             label_type: Type of labels ("ego" or "binary")
             random_seed: Random seed for reproducibility
+            shuffle: Whether to shuffle the dataset
 
         Returns:
             PyTorch DataLoader configured for diarization
@@ -924,14 +869,21 @@ class DatasetManager:
             dataloader = DatasetManager.create_dataloader(
                 cuts=cuts,
                 data_loading=data_loading_config,
+                batch_size=32,
                 label_type="binary",
                 random_seed=42,
             )
             ```
         """
-        # Create sampler
-        sampler = DatasetManager._create_sampler(
-            cuts=cuts, data_loading=data_loading)
+        # Apply chunking if specified in config for consistent segment lengths
+        if data_loading.chunk_size is not None and data_loading.chunk_size > 0:
+            cuts = cuts.cut_into_windows(duration=data_loading.chunk_size)
+            # Pad cuts to ensure all have the same duration
+            cuts = cuts.pad(duration=data_loading.chunk_size)
+            print(f"Applied chunking with window size {data_loading.chunk_size}s and padding")
+        elif label_type == "ego":
+            # For ego-centric dataset, chunking is mandatory
+            raise ValueError("chunk_size is required for ego-centric datasets. Please specify chunk_size in data_loading config.")
 
         # Create dataset
         dataset = DatasetManager._create_dataset(
@@ -940,15 +892,22 @@ class DatasetManager:
         # Create worker init function for reproducibility
         worker_init_fn = make_worker_init_fn(seed=random_seed)
 
-        # Create DataLoader
+        # Set up collate function for ego-centric dataset
+        collate_fn = None
+        if label_type == "ego":
+            collate_fn = EgoCentricDiarizationDataset.collate_fn
+
+        # Create standard PyTorch DataLoader with explicit batch_size
         dataloader_cfg = data_loading.dataloader
         dataloader: DataLoader[Any] = DataLoader(
             dataset,
-            batch_size=None,  # Lhotse samplers handle batching
-            sampler=sampler,
+            batch_size=batch_size,
+            shuffle=shuffle,
             num_workers=dataloader_cfg.num_workers,
             pin_memory=dataloader_cfg.pin_memory,
             worker_init_fn=worker_init_fn,
+            collate_fn=collate_fn,
+            drop_last=True,  # Ensure consistent batch sizes
             persistent_workers=dataloader_cfg.persistent_workers if dataloader_cfg.num_workers > 0 else False,
             prefetch_factor=dataloader_cfg.prefetch_factor if dataloader_cfg.num_workers > 0 else None,
         )
@@ -960,6 +919,7 @@ class DatasetManager:
         train_cuts: CutSet,
         val_cuts: Optional[CutSet],
         data_loading: DataLoadingConfig,
+        batch_size: int,
         label_type: LabelType = "binary",
         random_seed: int = 42,
     ) -> Tuple[DataLoader[Any], Optional[DataLoader[Any]]]:
@@ -970,6 +930,7 @@ class DatasetManager:
             train_cuts: Training CutSet with precomputed features
             val_cuts: Validation CutSet with precomputed features (optional)
             data_loading: Configuration for data loading
+            batch_size: Explicit batch size for DataLoaders (required for Accelerate compatibility)
             label_type: Type of labels ("ego" or "binary")
             random_seed: Random seed for reproducibility
 
@@ -990,6 +951,7 @@ class DatasetManager:
                 train_cuts=train_cuts,
                 val_cuts=val_cuts,
                 data_loading=data_loading_config,
+                batch_size=32,
                 label_type="binary",
                 random_seed=42,
             )
@@ -1002,8 +964,10 @@ class DatasetManager:
         train_dataloader = DatasetManager.create_dataloader(
             cuts=train_cuts,
             data_loading=data_loading,
+            batch_size=batch_size,
             label_type=label_type,
             random_seed=random_seed,
+            shuffle=True,
         )
 
         val_dataloader = None
@@ -1012,26 +976,13 @@ class DatasetManager:
             print("Creating validation dataloader")
             print("=" * 60)
 
-            # Use same config but disable shuffle for validation
-            val_data_loading = DataLoadingConfig(
-                strategy=data_loading.strategy,
-                frame_stack=data_loading.frame_stack,
-                subsampling=data_loading.subsampling,
-                chunk_size=data_loading.chunk_size,
-                context_size=data_loading.context_size,
-                min_enroll_len=data_loading.min_enroll_len,
-                max_enroll_len=data_loading.max_enroll_len,
-                input_strategy=data_loading.input_strategy,
-                sampler=data_loading.sampler,
-                dataloader=data_loading.dataloader,
-            )
-            val_data_loading.sampler.shuffle = False
-
             val_dataloader = DatasetManager.create_dataloader(
                 cuts=val_cuts,
-                data_loading=val_data_loading,
+                data_loading=data_loading,
+                batch_size=batch_size,
                 label_type=label_type,
                 random_seed=random_seed,
+                shuffle=False,  # No shuffling for validation
             )
 
         return train_dataloader, val_dataloader

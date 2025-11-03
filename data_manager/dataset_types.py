@@ -211,15 +211,7 @@ class InputStrategyConfig:
     return_audio: bool = False
 
 
-@dataclass
-class SamplerConfig:
-    """Configuration for sampler selection and batching policy."""
 
-    type: Literal["dynamic_bucketing", "bucketing", "simple"] = "bucketing"
-    num_buckets: int = 10
-    max_duration: Optional[float] = None
-    shuffle: bool = True
-    drop_last: bool = True
 
 
 @dataclass
@@ -236,8 +228,8 @@ class DataLoaderConfig:
 class DataLoadingConfig:
     """Top-level data loading configuration driven from YAML.
 
-    Controls input strategy (precomputed vs on-the-fly), sampler selection,
-    and DataLoader worker settings.
+    Controls input strategy (precomputed vs on-the-fly) and DataLoader worker settings.
+    Uses standard PyTorch DataLoader with explicit batch sizes for Accelerate compatibility.
     """
 
     strategy: Literal[
@@ -248,12 +240,11 @@ class DataLoadingConfig:
     frame_stack: int = 1  # Number of frames to stack for temporal context
     subsampling: int = 1  # Subsampling factor (e.g., 10 = keep every 10th frame)
     chunk_size: Optional[float] = None  # Duration in seconds to chunk audio into fixed-size segments
-    context_size: int = 7  # Number of frames to concatenate on each side for feature splicing
+    context_size: int = 7  # Number of frames to concatenate on each side for feature splicing (deprecated - chunking used instead)
     min_enroll_len: float = 1.0  # Minimum enrollment segment length in seconds
     max_enroll_len: float = 5.0  # Maximum enrollment segment length in seconds
     input_strategy: InputStrategyConfig = field(
         default_factory=InputStrategyConfig)
-    sampler: SamplerConfig = field(default_factory=SamplerConfig)
     dataloader: DataLoaderConfig = field(default_factory=DataLoaderConfig)
 
 
