@@ -198,8 +198,6 @@ class LRMonitorCallback(Callback):
             current_lr = trainer.optimizer.param_groups[0]["lr"]
 
             if self.last_lr is None or abs(current_lr - self.last_lr) > 1e-10:
-                if self.accelerator:
-                    self.accelerator.print(f"Learning rate: {current_lr:.2e}")
                 self.last_lr = current_lr
 
 

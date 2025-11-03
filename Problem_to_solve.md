@@ -33,20 +33,20 @@ What is currently happening (issues):
 1. The ego-centric lables are are computed in the ´Dataset´ class and should be precomputed. and stored as a seprate supervision set 
     requirements:
     [ ] librosa, melFbanks for consistance with other libraries (https://lhotse.readthedocs.io/en/latest/_modules/lhotse/features/librosa_fbank.html)
-    [ ] The dataset should be cut into the proper size. and a corresponding supervision set created. 
-    [ ] Base on the supervison cutset, each cut should be repeated for n + 1 number of speakers
-        [ ] The repition should have a new ´id´ for the segment based on who is the target speaker  
-        [ ] The speaker identification should reflect both the speaker and the lableling scheme, to map from class to token 
-        [ ] The zero vector enrollement embedding should produce on (other_sgl, non_speech) 
-        [ ] The enrollment should be equal between diffrent segment_len
+    [x] The dataset should be cut into the proper size. and a corresponding supervision set created. 
+    [x] Base on the supervison cutset, each cut should be repeated for n + 1 number of speakers
+        [x] The repition should have a new ´id´ for the segment based on who is the target speaker  
+        [x] The speaker identification should reflect both the speaker and the lableling scheme, to map from class to token 
+        [x] The zero vector enrollement embedding should produce on (other_sgl, non_speech) 
+        [x] The enrollment should be equal between diffrent segment_len
         [ ] The enrollment must have qual amounts of start, ends, (center with buffer)
-    [ ] the subsampling should be included in the segments (majority vote who gets the class)
-    [ ] the dataloader must have batch size, thus the dataset must have len
-        [ ] eager, and precomputed features are the solution maybe? 
+    [x] the subsampling should be included in the segments 
+    [x] the dataloader must have batch size, thus the dataset must have len
+        [x] eager, and precomputed features are the solution maybe? 
 
 # Knowladge gaps
 this is a list of possible knowladge gaps that must be coverd:
-[ ] subsamplings, effect, and process, influance by the random seed: 
+[x] subsamplings, effect, and process, influance by the random seed: 
 
 "hitachi-speech/EEND/" 
 ```python
@@ -76,6 +76,9 @@ this is a list of possible knowladge gaps that must be coverd:
          
 
 [ ] Effect and signifiance of "logmel23" and "logmel23_mn" on the input vectors. 
+    [ ] test empericlly 
+    [ ] or read, why logmel23_mn is used 
+    [ ] how it differs from Fbank from lhotse
 [ ] not using the Sampler object, effect, benifet
 
 

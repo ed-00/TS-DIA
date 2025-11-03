@@ -104,6 +104,8 @@ class FeedForward(nn.Module):
             Tensor of shape (batch_size, seq_len, d_model)
                 Output tensor after feed-forward transformation
         """
+
+        
         # w_1 projection (outputs 2x features for GLU variants)
         x = self.w_1(x)
 

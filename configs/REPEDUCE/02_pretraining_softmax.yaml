@@ -41,9 +41,10 @@ model:
   # ---------------------------------------------------------------------------
   # Decoder Configuration (for decoder and encoder_decoder models)
   # ---------------------------------------------------------------------------
+  
   decoder:
     # Core architecture parameters
-    input_dim: null            # Input feature dimension (null = use encoder output, or specify for decoder-only)
+    input_dim: 345            # Input feature dimension (null = use encoder output, or specify for decoder-only)
     d_model: 128              # Model dimension (should match encoder for encoder_decoder)
     num_layers: 2             # Number of decoder layers
     num_heads: 4              # Number of attention heads (matching EEND: 4 heads)
@@ -140,8 +141,7 @@ training:
     # Auxiliary losses (optional)
     auxiliary:
       norm_reg: 0.1                 # L2 norm regularization weight
-      contrastive: 0.2              # Contrastive loss weight
-    
+
     # Focal loss parameters (for imbalanced datasets)
     focal_alpha: null               # Alpha parameter for focal loss
     focal_gamma: null               # Gamma parameter for focal loss

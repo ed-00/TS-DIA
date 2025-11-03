@@ -198,7 +198,7 @@ def save_checkpoint_with_accelerate(
     latest_checkpoint = max(checkpoint_dirs, key=lambda x: int(x.name.split("_")[1]))
 
     # Create named directory and copy files from Accelerate's checkpoint
-    named_path = Path(save_dir) / f"checkpoint-epoch{epoch}-step{step}"
+    named_path = Path(save_dir) / "checkpoints" / f"checkpoint-epoch{epoch}-step{step}"
     if named_path.exists() or named_path.is_symlink():
         named_path.unlink()
     named_path.mkdir(parents=True, exist_ok=True)

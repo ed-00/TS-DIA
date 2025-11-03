@@ -404,6 +404,7 @@ class PerformerEncoder(Performer):
         # Apply input projection if exists
         if self.input_proj is not None:
             x = self.input_proj(x)
+    
 
         x = super().forward(x, self_attn_mask=self_attn_mask, **kwargs)
 

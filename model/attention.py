@@ -137,6 +137,7 @@ class MultiHeadAttention(Module):
         """
         batch_size = x.shape[0]
 
+
         # Project to Q, K, V
         q = self.w_q(x)
         k = self.w_k(x)

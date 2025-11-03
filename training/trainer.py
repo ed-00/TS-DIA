@@ -131,7 +131,7 @@ class Trainer:
 
         # Calculate total training steps
         self.total_steps = self._calculate_total_steps()
-        
+
         # Estimate steps per epoch using dataloader length and gradient accumulation
         estimated_batches_per_epoch = len(train_dataloader)
         if estimated_batches_per_epoch is not None and not self.total_steps:
@@ -147,12 +147,12 @@ class Trainer:
 
         # Use estimated steps, explicit total_steps, or fallback to decay_steps
         safe_total_steps = (
-            self.total_steps or 
-            estimated_total_steps or 
+            self.total_steps or
+            estimated_total_steps or
             config.scheduler.decay_steps or
             1000  # Final fallback
         )
-        
+
         self.lr_scheduler = create_scheduler(
             self.optimizer,
             config.scheduler,
@@ -177,7 +177,8 @@ class Trainer:
 
         # Setup loss functions
         self.loss_fn = (
-            create_loss_function(config.loss) if config.loss else nn.CrossEntropyLoss()
+            create_loss_function(
+                config.loss) if config.loss else nn.CrossEntropyLoss()
         )
         self.auxiliary_losses = (
             create_auxiliary_losses(config.loss) if config.loss else {}
@@ -241,10 +242,6 @@ class Trainer:
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-    
-
-
-
     def _validate_checkpoint_directory(self, checkpoint_config):
         """
         Validate checkpoint directory doesn't exist unless resuming.
@@ -296,10 +293,10 @@ class Trainer:
         """Return max_steps if provided; otherwise None (lengthless iteration)."""
         return self.config.max_steps or None
 
-
     def _resume_from_checkpoint(self, checkpoint_path: str):
         """Resume training from checkpoint."""
-        self.accelerator.print(f"📂 Resuming from checkpoint: {checkpoint_path}")
+        self.accelerator.print(
+            f"📂 Resuming from checkpoint: {checkpoint_path}")
 
         extra_state = load_checkpoint_with_accelerate(
             self.accelerator,
@@ -314,8 +311,6 @@ class Trainer:
         self.global_step = extra_state.get("global_step", 0)
         self.best_metric = extra_state.get("best_metric", float("inf"))
 
-
-
         self.accelerator.print(
             f"Resumed from epoch {self.current_epoch}, step {self.global_step}"
         )
@@ -327,7 +322,6 @@ class Trainer:
         for epoch in range(self.current_epoch, self.config.epochs):
             self.current_epoch = epoch
             self.callback_handler.on_epoch_begin(self, epoch)
-
 
             # Train for one epoch
             train_metrics = self._train_epoch()
@@ -372,8 +366,8 @@ class Trainer:
 
         # Estimate total batches for tqdm progress bar
         total_batches = len(self.train_dataloader)
-        self.accelerator.print(f"Training for {total_batches} batches per epoch")
-
+        self.accelerator.print(
+            f"Training for {total_batches} batches per epoch")
 
         progress_bar = tqdm(
             self.train_dataloader,
@@ -388,17 +382,15 @@ class Trainer:
             with self.accelerator.accumulate(self.model):
                 # Ego-centric diarization: labels are [batch, num_frames] with class indices
                 targets = batch["labels"]
-                
-                self.accelerator.print(f"[DEBUG]: features shape {batch['features'].shape}")
-                self.accelerator.print(f"[DEBUG]: Targets shape {targets.shape}")
-                
+
                 # Forward pass - extract features from diarization batch
                 outputs = self.model(x=batch["features"])
 
                 # Compute loss
                 loss_dict = compute_loss(
                     self.loss_fn,
-                    outputs if isinstance(outputs, torch.Tensor) else outputs.logits,
+                    outputs if isinstance(
+                        outputs, torch.Tensor) else outputs.logits,
                     targets,
                     auxiliary_losses=self.auxiliary_losses,
                     auxiliary_weights=self.auxiliary_weights,
@@ -463,7 +455,8 @@ class Trainer:
                 self.accelerator.log(metrics, step=self.global_step)
 
                 # Update progress bar
-                progress_bar.set_postfix(loss=metrics["loss"], lr=metrics["lr"])
+                progress_bar.set_postfix(
+                    loss=metrics["loss"], lr=metrics["lr"])
 
             self.callback_handler.on_batch_end(self, batch, batch_idx, outputs)
             self.global_step += 1
@@ -478,7 +471,7 @@ class Trainer:
             # Check if we've reached max steps
             if self.config.max_steps and self.global_step >= self.config.max_steps:
                 break
-  
+
         avg_loss = total_loss / num_batches
         return {"train_loss": avg_loss}
 
@@ -514,8 +507,6 @@ class Trainer:
             if max_val_steps is not None and batch_idx >= max_val_steps:
                 break
 
-        
-
             outputs = self.model(x=batch["features"])
 
             # Handle different label formats (ego-centric vs binary diarization)
@@ -526,12 +517,14 @@ class Trainer:
                 # Binary diarization: transpose from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]
                 targets = batch["speaker_activity"].transpose(1, 2).float()
             else:
-                raise ValueError("Batch must contain either 'labels' or 'speaker_activity'")
+                raise ValueError(
+                    "Batch must contain either 'labels' or 'speaker_activity'")
 
             # Compute loss
             loss_dict = compute_loss(
                 self.loss_fn,
-                outputs if isinstance(outputs, torch.Tensor) else outputs.logits,
+                outputs if isinstance(
+                    outputs, torch.Tensor) else outputs.logits,
                 targets,
             )
 
@@ -540,7 +533,8 @@ class Trainer:
 
             # Compute metrics
             batch_metrics = compute_metrics(
-                outputs if isinstance(outputs, torch.Tensor) else outputs.logits,
+                outputs if isinstance(
+                    outputs, torch.Tensor) else outputs.logits,
                 targets,
                 task_type="diarization",
             )
@@ -554,7 +548,8 @@ class Trainer:
         # Aggregate batch metrics
         if all_metrics:
             for key in all_metrics[0].keys():
-                val_metrics[f"val_{key}"] = float(np.mean([m[key] for m in all_metrics]))
+                val_metrics[f"val_{key}"] = float(
+                    np.mean([m[key] for m in all_metrics]))
 
         # All-reduce for distributed
         val_metrics = all_reduce_metrics(self.accelerator, val_metrics)
@@ -573,7 +568,8 @@ class Trainer:
         self.accelerator.print(
             f"Validation | Loss: {val_metrics['val_loss']:.4f} | "
             + " | ".join(
-                [f"{k}: {v:.4f}" for k, v in val_metrics.items() if k != "val_loss"]
+                [f"{k}: {v:.4f}" for k, v in val_metrics.items() if k !=
+                 "val_loss"]
             )
         )
 
@@ -589,7 +585,6 @@ class Trainer:
             "global_step": self.global_step,
             "best_metric": self.best_metric,
         }
-
 
         save_checkpoint_with_accelerate(
             self.accelerator,
@@ -626,7 +621,6 @@ class Trainer:
             disable=not self.accelerator.is_local_main_process,
             total=total_batches,
         ):
-     
 
             outputs = self.model(x=batch["features"])
 
@@ -638,12 +632,14 @@ class Trainer:
                 # Binary diarization: transpose from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]
                 targets = batch["speaker_activity"].transpose(1, 2).float()
             else:
-                raise ValueError("Batch must contain either 'labels' or 'speaker_activity'")
+                raise ValueError(
+                    "Batch must contain either 'labels' or 'speaker_activity'")
 
             # Compute loss
             loss_dict = compute_loss(
                 self.loss_fn,
-                outputs if isinstance(outputs, torch.Tensor) else outputs.logits,
+                outputs if isinstance(
+                    outputs, torch.Tensor) else outputs.logits,
                 targets,
             )
 
@@ -652,7 +648,8 @@ class Trainer:
 
             # Compute metrics
             batch_metrics = compute_metrics(
-                outputs if isinstance(outputs, torch.Tensor) else outputs.logits,
+                outputs if isinstance(
+                    outputs, torch.Tensor) else outputs.logits,
                 targets,
                 task_type="diarization",
             )
@@ -665,7 +662,8 @@ class Trainer:
 
         if all_metrics:
             for key in all_metrics[0].keys():
-                test_metrics[f"test_{key}"] = np.mean([m[key] for m in all_metrics])
+                test_metrics[f"test_{key}"] = np.mean(
+                    [m[key] for m in all_metrics])
 
         # All-reduce for distributed
         test_metrics = all_reduce_metrics(self.accelerator, test_metrics)
@@ -676,7 +674,8 @@ class Trainer:
         self.accelerator.print(
             f"\nTest Results | Loss: {test_metrics['test_loss']:.4f} | "
             + " | ".join(
-                [f"{k}: {v:.4f}" for k, v in test_metrics.items() if k != "test_loss"]
+                [f"{k}: {v:.4f}" for k, v in test_metrics.items() if k !=
+                 "test_loss"]
             )
         )
 
