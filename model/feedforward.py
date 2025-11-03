@@ -17,7 +17,9 @@ This module implements:
 
 from typing_extensions import Unpack
 
-from torch import Tensor, nn, tensor
+from torch import Tensor
+import torch.nn as nn
+import torch
 
 from .activations import _is_glu
 from .types import FeedForwardParams
@@ -71,7 +73,7 @@ class FeedForward(nn.Module):
 
         self.activation_fn = kwargs["activation"].value()
         self.dropout = nn.Dropout(kwargs["dropout"])
-        self.w_2 = nn.Linear(kwargs["d_model"] * kwargs["d_ff"], kwargs["d_model"])
+        self.w_2 = nn.Linear(kwargs["d_model"] * kwargs["d_ff"] , kwargs["d_model"])
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -135,7 +137,7 @@ class ReZero(nn.Module):
                 This is typically an attention or feed-forward layer.
         """
         super(ReZero, self).__init__()
-        self.g = nn.Parameter(tensor(1e-3))
+        self.g = nn.Parameter(torch.tensor(1e-3))
         self.fn = fn
 
     def forward(self, x, **kwargs) -> Tensor:

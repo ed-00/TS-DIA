@@ -568,7 +568,7 @@ class DatasetManager:
             extractor = Fbank(
                 FbankConfig(
                     sampling_rate=feature_cfg.sampling_rate,
-                    num_mel_bins=feature_cfg.num_mel_bins or 80,
+                    num_mel_bins=feature_cfg.num_mel_bins,
                     frame_length=feature_cfg.frame_length,
                     frame_shift=feature_cfg.frame_shift,
                     dither=feature_cfg.dither,

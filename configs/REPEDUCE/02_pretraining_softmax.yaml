@@ -19,8 +19,8 @@ model:
     input_dim: 23             # Input feature dimension (23-dim MFCC, NO frame stacking)
                               # Base features are 23-dim MFCC (matching EEND reference)
                               # Context is handled by the transformer, not by stacking
-    d_model: 512              # Model dimension / embedding size
-    num_layers: 4             # Number of encoder layers
+    d_model: 128              # Model dimension / embedding size
+    num_layers: 2             # Number of encoder layers
     num_heads: 4              # Number of attention heads (matching EEND: 4 heads)
     
     # Attention configuration
@@ -44,8 +44,8 @@ model:
   decoder:
     # Core architecture parameters
     input_dim: null            # Input feature dimension (null = use encoder output, or specify for decoder-only)
-    d_model: 2048              # Model dimension (should match encoder for encoder_decoder)
-    num_layers: 4             # Number of decoder layers
+    d_model: 128              # Model dimension (should match encoder for encoder_decoder)
+    num_layers: 2             # Number of decoder layers
     num_heads: 4              # Number of attention heads (matching EEND: 4 heads)
     
     # Attention configuration

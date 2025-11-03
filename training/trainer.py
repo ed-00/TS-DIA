@@ -388,7 +388,7 @@ class Trainer:
                 k: v.to(self.accelerator.device) if isinstance(v, torch.Tensor) else v
                 for k, v in batch.items()
             }
-
+            self.accelerator.print(batch["features"].shape)
             with self.accelerator.accumulate(self.model):
                 # Forward pass - extract features from diarization batch
                 outputs = self.model(x=batch["features"])

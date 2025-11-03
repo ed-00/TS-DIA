@@ -91,13 +91,11 @@ Week 43, the transformer model is implementd, the data need to be preped to star
                 [ ] Top-level
                     [x] model_type: encoder_decoder  # Options: encoder, decoder, encoder_decoder
                     [x] name: comprehensive_example_model
-
                 [ ] Global Configuration (shared)
-                    [ ] global_config.dropout: 0.1
+                    [x] global_config.dropout: 0.1
                     [ ] global_config.batch_size: 128
                     [ ] global_config.d_ff: 4
                     [ ] global_config.device: cuda
-
                 [ ] Encoder Configuration
                     [ ] encoder.d_model: 2048
                     [ ] encoder.num_layers: 4
