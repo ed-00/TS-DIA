@@ -16,9 +16,9 @@ model:
   # ---------------------------------------------------------------------------
   encoder:
     # Core architecture parameters
-    input_dim: 23             # Input feature dimension (23-dim MFCC, NO frame stacking)
-                              # Base features are 23-dim MFCC (matching EEND reference)
-                              # Context is handled by the transformer, not by stacking
+    input_dim: 345            # Input feature dimension (23 MFCC × 15 context frames from splicing)
+                              # Features are spliced: 23-dim MFCC with ±7 context frames = 345-dim
+                              # Splicing: 7 before + 1 current + 7 after = 15 total × 23 = 345
     d_model: 128              # Model dimension / embedding size
     num_layers: 2             # Number of encoder layers
     num_heads: 4              # Number of attention heads (matching EEND: 4 heads)
@@ -299,10 +299,10 @@ global_config:
 
     sampler:
       type: simple               # bucketing | dynamic_bucketing | simple
-      max_duration: 30.0         # Maximum TOTAL duration in seconds per batch (reduced from 60s)
+      max_duration: 5         # Maximum TOTAL duration in seconds per batch (reduced from 60s)
       max_cuts: 4                # Maximum number of cuts per batch (reduced from 8)
                                  # With 10ms frame shift + 10x subsampling: 
-                                 # 30s audio: 3000 frames → 300 frames after subsampling
+                               
       num_buckets: 10
       shuffle: true
       drop_last: true

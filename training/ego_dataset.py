@@ -4,7 +4,7 @@ import torch
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 
 from lhotse import validate, CutSet, SupervisionSet, RecordingSet
 from lhotse.cut import Cut
@@ -59,16 +59,72 @@ def _gen_frame_indices(
             yield (i + 1) * step, data_length
 
 
-def subsample(Y: np.ndarray, T: np.ndarray, subsample: int = 10) -> tuple[np.ndarray, np.ndarray]:
+def splice(Y: torch.Tensor, context_size: int = 7) -> torch.Tensor:
+    """Feature splicing (concatenate adjacent frames).
+    
+    Takes context_size frames before + current frame + context_size frames after
+    Total frames = 2 * context_size + 1
+    Output dimension = input_dim * (2 * context_size + 1)
+
+    Args:
+        Y (torch.Tensor): Input features of shape (T, F) 
+        context_size (int): Number of frames to concatenate on each side (default: 7)
+
+    Returns:
+        torch.Tensor: Spliced features of shape (T, F * (2 * context_size + 1))
+    """
+    T, F = Y.shape
+    
+    total_context_frames = 2 * context_size + 1
+    spliced_dim = F * total_context_frames
+    spliced_Y = torch.zeros(T, spliced_dim, dtype=Y.dtype, device=Y.device)
+    
+    for t in range(T):
+        # Collect context frames
+        context_frames = []
+        for offset in range(-context_size, context_size + 1):
+            idx = t + offset
+            if idx < 0:
+                # Pad with first frame for frames before the beginning
+                context_frames.append(Y[0])
+            elif idx >= T:
+                # Pad with last frame for frames after the end
+                context_frames.append(Y[-1])
+            else:
+                context_frames.append(Y[idx])
+        
+        # Concatenate all context frames
+        spliced_Y[t] = torch.cat(context_frames, dim=0)
+    
+    return spliced_Y
+
+
+def subsample_torch(Y: torch.Tensor, T: torch.Tensor, subsample: int = 10) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Subsampling utility function for PyTorch tensors.
+
+    Args:
+        Y (torch.Tensor): Input features of shape (T, F)
+        T (torch.Tensor): Target labels of shape (T,)
+        subsample (int): The subsampling factor. Defaults to 10.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: A tuple of subsampled values.
+    """
+    Y_ss = Y[::subsample]
+    T_ss = T[::subsample]
+    return Y_ss, T_ss
+
+
+def subsample(Y: np.ndarray, T: np.ndarray, subsample: int = 10) -> Tuple[np.ndarray, np.ndarray]:
     """Simple subsampling utility function
 
     Args:
         Y (np.ndarray): Input features
-        T (np.ndarray): Targer speakers (lables)
+        T (np.ndarray): Target speakers (labels)
         subsample (int, optional): the subsampling factor. Defaults to 10.
 
     Returns:
-        tuple[np.ndarray, np.ndarray]: a tuple of subsampled values. 
+        Tuple[np.ndarray, np.ndarray]: a tuple of subsampled values. 
     """
     Y_ss = Y[::subsample]
     T_ss = T[::subsample]
@@ -80,21 +136,32 @@ class EgoCentricDiarizationDataset(Dataset):
     A PyTorch Dataset for ego-centric diarization (TS-DIA) that
     extracts target speaker enrollment chunks *from the cut itself*.
 
+    Feature Processing Pipeline (following EEND):
+    1. Input: F-dimensional acoustic features (e.g., MFCC, filterbank)
+    2. Mean normalization per utterance
+    3. Splicing: ±context_size frames → F * (2*context_size + 1) dimensional features
+    4. Subsampling: Factor of subsampling → reduced sequence length
+    
     For each cut, it generates N new training examples (one per speaker).
     Each example contains:
-    1. The features for the *full mixture* (X)
-    2. The features for *only the target speaker's speech* (the enrollment data)
-    3. The 1D categorical labels (Y) from that speaker's perspective
+    1. The features for the *full mixture* (X) - spliced and subsampled
+    2. The features for *only the target speaker's speech* (the enrollment data) - spliced and subsampled
+    3. The 1D categorical labels (Y) from that speaker's perspective - subsampled
 
     Output batch dictionary:
     .. code-block::
         {
-            'features': (B x T x F) tensor (the full mixture)
+            'features': (B x T_sub x F_spliced) tensor (the full mixture, spliced)
             'features_lens': (B,) tensor
-            'enroll_features': (B x T_enroll x F) tensor (target speaker's speech)
+            'enroll_features': (B x T_enroll_sub x F_spliced) tensor (target speaker's speech, spliced)
             'enroll_features_lens': (B,) tensor
-            'labels': (B x T) tensor (the 5-class ego-centric labels)
+            'labels': (B x T_sub) tensor (the 5-class ego-centric labels)
         }
+        
+    Where:
+        B = batch size
+        T_sub = subsampled sequence length (original_length // subsampling)
+        F_spliced = input_feature_dim * (2 * context_size + 1)
     """
 
     # Define the label-to-integer mapping
@@ -110,123 +177,200 @@ class EgoCentricDiarizationDataset(Dataset):
     def __init__(
         self,
         cuts: CutSet,
-        chunk_duration: Seconds = 0.0625,
         min_enroll_len: float = 1.0,
         max_enroll_len: float = 5.0,
-        frame_stack: int = 1,
-        subsampling: int = 1,
+        context_size: int = 7,
+        subsampling: int = 10,
     ) -> None:
         super().__init__()
         validate(cuts)
         self.min_enroll_len = min_enroll_len
         self.max_enroll_len = max_enroll_len
-        self.frame_stack = frame_stack
+        self.context_size = context_size
         self.subsampling = subsampling
         self.cuts = cuts
 
-        self.cuts = self.__cut_into_windows(
-            cuts=self.cuts, chunk_duration=chunk_duration)
+        # Pre-compute all (cut, target_speaker) pairs for proper __len__
+        self.examples: List[Tuple[Cut, str]] = []
+        self._build_examples()
+        
+        print(f"Dataset initialized with {len(self.examples)} examples")
         self.cuts.describe()
 
-    def __getitem__(self, batch_cuts: CutSet) -> Dict[str, torch.Tensor]:
+    def _build_examples(self) -> None:
+        """Pre-compute all valid (cut, target_speaker) combinations."""
+        cuts_list = list(self.cuts)  # Convert CutSet to list for iteration
+        for cut in cuts_list:
+            # Get unique speakers from supervisions
+            all_speakers_in_cut = sorted(
+                set(s.speaker for s in cut.supervisions if s.speaker)
+            )
+            
+            for target_spk_id in all_speakers_in_cut:
+                # Filter supervisions for target speaker only
+                target_supervisions = [
+                    s for s in cut.supervisions if s.speaker == target_spk_id
+                ]
+                
+                if target_supervisions:
+                    # Check if we can get a valid enrollment segment
+                    if self._can_get_enrollment(cut, target_spk_id, target_supervisions):
+                        self.examples.append((cut, target_spk_id))
+
+    def _can_get_enrollment(
+        self,
+        cut: Cut,
+        target_speaker_id: str,
+        target_supervisions: List[SupervisionSegment]
+    ) -> bool:
+        """Check if we can extract a valid enrollment segment."""
+        # Get all other speakers' supervisions to detect overlap
+        other_supervisions = [
+            s for s in cut.supervisions
+            if s.speaker and s.speaker != target_speaker_id
+        ]
+
+        # Find continuous segments (no overlap with other speakers)
+        continuous_segments = []
+        for sup in target_supervisions:
+            # Check if this supervision overlaps with any other speaker
+            has_overlap = False
+            for other_sup in other_supervisions:
+                # Check for temporal overlap
+                if (sup.start < other_sup.end and sup.end > other_sup.start):
+                    has_overlap = True
+                    break
+
+            if not has_overlap and sup.duration > 0:
+                continuous_segments.append(sup)
+
+        if not continuous_segments:
+            return False
+
+        # Check if any segment is long enough for minimum enrollment
+        max_available_len = max(seg.duration for seg in continuous_segments)
+        return max_available_len >= self.min_enroll_len
+
+    def __len__(self) -> int:
+        """Return the total number of (cut, target_speaker) examples."""
+        return len(self.examples)
+
+    def __getitem__(self, batch_or_indices) -> Dict[str, torch.Tensor]:
         """
-        Takes a CutSet (a mini-batch of cuts) and returns a collated batch
-        of (cut, target_speaker) examples.
+        Takes either a CutSet (from Lhotse samplers) or list of indices and returns a collated batch.
+        
+        Args:
+            batch_or_indices: Either a CutSet from Lhotse samplers or List[int] of indices
         """
         mixture_cuts: List[Cut] = []
         enroll_cuts: List[Cut] = []
         labels_list: List[torch.Tensor] = []
 
-        # 1. Expand the batch
-        for cut in batch_cuts:
-            # Get unique speakers from supervisions
-            all_speakers_in_cut: List[str] = sorted(
-                set(s.speaker for s in cut.supervisions if s.speaker)
+        # Handle different input types
+        if isinstance(batch_or_indices, CutSet):
+            # Standard Lhotse pattern: receive CutSet, extract (cut, speaker) pairs
+            cuts_list = list(batch_or_indices)
+            examples_to_process = []
+            
+            for cut in cuts_list:
+                # Get all speakers for this cut
+                all_speakers_in_cut = sorted(
+                    set(s.speaker for s in cut.supervisions if s.speaker)
+                )
+                
+                # For each speaker, create an example
+                for target_spk_id in all_speakers_in_cut:
+                    target_supervisions = [
+                        s for s in cut.supervisions if s.speaker == target_spk_id
+                    ]
+                    
+                    if target_supervisions and self._can_get_enrollment(cut, target_spk_id, target_supervisions):
+                        examples_to_process.append((cut, target_spk_id))
+        else:
+            # List of indices pattern: use pre-computed examples
+            examples_to_process = [self.examples[idx] for idx in batch_or_indices]
+
+        # Process examples
+        for cut, target_spk_id in examples_to_process:
+            # Get target speaker supervisions
+            target_supervisions = [
+                s for s in cut.supervisions if s.speaker == target_spk_id
+            ]
+
+            # Get enrollment segment
+            enroll_cut = self._get_random_enrollment(
+                cut, target_spk_id, target_supervisions
             )
-            if not all_speakers_in_cut:
+
+            if enroll_cut is None:
                 continue
 
-            for target_spk_id in all_speakers_in_cut:
-                # Filter supervisions for target speaker only (no overlap)
-                target_supervisions: List[SupervisionSegment] = [
-                    s for s in cut.supervisions if s.speaker == target_spk_id
-                ]
-
-                if not target_supervisions:
-                    continue
-
-                # Get enrollment segment by randomly sampling from continuous speech
-                enroll_cut = self._get_random_enrollment(
-                    cut, target_spk_id, target_supervisions
-                )
-
-                if enroll_cut is None:
-                    continue
-
-                # Add the full mixture cut
-                mixture_cuts.append(cut)
-
-                # Add the corresponding enrollment cut
-                enroll_cuts.append(enroll_cut)
-
-                # Generate and add the categorical labels
-                labels_list.append(
-                    self._generate_ego_centric_labels(cut, target_spk_id)
-                )
+            # Add cuts and labels
+            mixture_cuts.append(cut)
+            enroll_cuts.append(enroll_cut)
+            labels_list.append(
+                self._generate_ego_centric_labels(cut, target_spk_id)
+            )
 
         if not mixture_cuts:
-            # Batch was empty or no valid speakers were found
+            # Batch was empty
             return {
                 "features": torch.empty(0, 0, 0),
-                "features_lens": torch.empty(0),
+                "features_lens": torch.empty(0, dtype=torch.long),
                 "enroll_features": torch.empty(0, 0, 0),
-                "enroll_features_lens": torch.empty(0),
-                "labels": torch.empty(0, 0),
+                "enroll_features_lens": torch.empty(0, dtype=torch.long),
+                "labels": torch.empty(0, 0, dtype=torch.long),
             }
-
-        # 2. Collate the expanded batch
 
         # Collate mixture features: (B x T x F)
         features, features_lens = collate_features(
             CutSet.from_cuts(mixture_cuts)
         )
 
-        # Apply mean normalization per utterance (matching EEND: logmelmeannorm)
-        # Subtract mean feature vector from each utterance
-        for i in range(features.size(0)):
-            valid_len = features_lens[i]
-            mean = features[i, :valid_len, :].mean(dim=0, keepdim=True)
-            features[i, :valid_len, :] = features[i, :valid_len, :] - mean
-
         # Collate enrollment features: (B x T_enroll x F)
         enroll_features, enroll_features_lens = collate_features(
             CutSet.from_cuts(enroll_cuts)
         )
 
-        # Apply mean normalization to enrollment features too
-        for i in range(enroll_features.size(0)):
-            valid_len = enroll_features_lens[i]
-            mean = enroll_features[i, :valid_len, :].mean(dim=0, keepdim=True)
-            enroll_features[i, :valid_len,
-                            :] = enroll_features[i, :valid_len, :] - mean
+        # Process features with splicing and subsampling
+        processed_features = []
+        processed_enroll_features = []
+        processed_labels = []
 
-        # Apply subsampling if configured (like Kaldi: keep every Nth frame)
-        if self.subsampling > 1:
-            features = features[:, ::self.subsampling, :]
-            enroll_features = enroll_features[:, ::self.subsampling, :]
-            features_lens = (features_lens + self.subsampling -
-                             1) // self.subsampling  # Ceiling division
-            enroll_features_lens = (
-                enroll_features_lens + self.subsampling - 1) // self.subsampling
-            # Subsample labels too
-            labels_list = [label[::self.subsampling] for label in labels_list]
+        for i in range(len(mixture_cuts)):
+            # Get valid feature sequences
+            mix_feat = features[i, :features_lens[i], :]  # (T, F)
+            enr_feat = enroll_features[i, :enroll_features_lens[i], :]  # (T_enroll, F)
+            labels = labels_list[i]  # (T,)
 
-        # Collate labels: (B x T)
-        labels = pad_sequence(
-            labels_list,
-            batch_first=True,
-            padding_value=self.IGNORE_INDEX
-        )
+            # Apply mean normalization (matching EEND: logmelmeannorm)
+            mix_feat = mix_feat - mix_feat.mean(dim=0, keepdim=True)
+            enr_feat = enr_feat - enr_feat.mean(dim=0, keepdim=True)
+
+            # Apply splicing (context concatenation)
+            if self.context_size > 0:
+                mix_feat = splice(mix_feat, self.context_size)  # (T, F * (2*context+1))
+                enr_feat = splice(enr_feat, self.context_size)  # (T_enroll, F * (2*context+1))
+
+            # Apply subsampling
+            if self.subsampling > 1:
+                mix_feat, labels = subsample_torch(mix_feat, labels, self.subsampling)
+                enr_feat, _ = subsample_torch(enr_feat, 
+                                           torch.arange(enr_feat.size(0)), 
+                                           self.subsampling)
+
+            processed_features.append(mix_feat)
+            processed_enroll_features.append(enr_feat)
+            processed_labels.append(labels)
+
+        # Pad sequences to same length
+        features = pad_sequence(processed_features, batch_first=True)  # (B, T_max, F_spliced)
+        enroll_features = pad_sequence(processed_enroll_features, batch_first=True)  # (B, T_enroll_max, F_spliced)
+        labels = pad_sequence(processed_labels, batch_first=True, padding_value=self.IGNORE_INDEX)  # (B, T_max)
+
+        # Compute actual lengths after processing
+        features_lens = torch.tensor([feat.size(0) for feat in processed_features], dtype=torch.long)
+        enroll_features_lens = torch.tensor([feat.size(0) for feat in processed_enroll_features], dtype=torch.long)
 
         return {
             "features": features,
@@ -236,11 +380,6 @@ class EgoCentricDiarizationDataset(Dataset):
             "labels": labels,
         }
 
-    def __cut_into_windows(self, cuts: CutSet, chunk_duration: Seconds, keep_excessive_supervisions: bool = False) -> CutSet:
-        print("cutting the cuts into window sized pieces...")
-        new_cuts: CutSet = cuts.cut_into_windows(
-            duration=chunk_duration, keep_excessive_supervisions=keep_excessive_supervisions)
-        return new_cuts
 
     def _get_random_enrollment(
         self,
@@ -331,13 +470,16 @@ class EgoCentricDiarizationDataset(Dataset):
         from the perspective of target_speaker_id.
         """
         num_frames = cut.num_frames
-        if num_frames == 0:
+        if num_frames is None or num_frames == 0:
             return torch.empty(0, dtype=torch.long)
 
         frame_shift = cut.frame_shift
+        if frame_shift is None:
+            # Default frame shift if not available (common values: 0.01 for 10ms, 0.02 for 20ms)
+            frame_shift = 0.01
 
         target_mask = torch.zeros(num_frames, dtype=torch.bool)
-        other_speaker_count = torch.zeros(num_frames, dtype=torch.int)
+        other_speaker_count = torch.zeros(num_frames, dtype=torch.int32)
 
         # Get other speaker IDs from supervisions
         all_speakers: set[str] = {
@@ -380,7 +522,7 @@ class EgoCentricDiarizationDataset(Dataset):
 
         return labels
 
-    def _supervision_to_frames(self, sup: SupervisionSet, num_frames: int, frame_shift: float):
+    def _supervision_to_frames(self, sup: SupervisionSegment, num_frames: int, frame_shift: float) -> Tuple[int, int]:
         """Helper to convert supervision start/end times to frame indices."""
         start_frame = round(sup.start / frame_shift)
         end_frame = start_frame + round(sup.duration / frame_shift)

@@ -822,13 +822,23 @@ class DatasetManager:
                 num_buckets=sampler_config.num_buckets,
             )
         elif sampler_type == "simple":
-            return SimpleCutSampler(
-                cuts,
-                max_duration=sampler_config.max_duration if isinstance(
-                    sampler_config.max_duration, (float, int)) and sampler_config.max_duration > 0 else None,
-                shuffle=sampler_config.shuffle,
-                drop_last=sampler_config.drop_last,
-            )
+            # SimpleCutSampler requires max_duration to be a float, not None
+            max_dur = None
+            if isinstance(sampler_config.max_duration, (float, int)) and sampler_config.max_duration > 0:
+                max_dur = float(sampler_config.max_duration)
+            if max_dur is not None:
+                return SimpleCutSampler(
+                    cuts,
+                    max_duration=max_dur,
+                    shuffle=sampler_config.shuffle,
+                    drop_last=sampler_config.drop_last,
+                )
+            else:
+                return SimpleCutSampler(
+                    cuts,
+                    shuffle=sampler_config.shuffle,
+                    drop_last=sampler_config.drop_last,
+                )
         else:
             raise ValueError(f"Unsupported sampler type: {sampler_type}")
 
@@ -854,10 +864,19 @@ class DatasetManager:
         """
         if label_type == "ego":
             # Import here to avoid circular dependency
-            # Get frame_stack and subsampling from data_loading config if available
-            frame_stack = getattr(data_loading, 'frame_stack', 1) if data_loading else 1
-            subsampling = getattr(data_loading, 'subsampling', 1) if data_loading else 1
-            return EgoCentricDiarizationDataset(cuts=cuts, frame_stack=frame_stack, subsampling=subsampling)
+            # Get parameters from data_loading config if available
+            subsampling = getattr(data_loading, 'subsampling', 10) if data_loading else 10
+            context_size = getattr(data_loading, 'context_size', 7) if data_loading else 7
+            min_enroll_len = getattr(data_loading, 'min_enroll_len', 1.0) if data_loading else 1.0
+            max_enroll_len = getattr(data_loading, 'max_enroll_len', 5.0) if data_loading else 5.0
+            
+            return EgoCentricDiarizationDataset(
+                cuts=cuts, 
+                min_enroll_len=min_enroll_len,
+                max_enroll_len=max_enroll_len,
+                context_size=context_size,
+                subsampling=subsampling,
+            )
         elif label_type == "binary":
             return DiarizationDataset(cuts)
         else:
@@ -905,10 +924,12 @@ class DatasetManager:
             ```
         """
         # Create sampler
-        sampler = DatasetManager._create_sampler(cuts=cuts, data_loading=data_loading)
+        sampler = DatasetManager._create_sampler(
+            cuts=cuts, data_loading=data_loading)
 
         # Create dataset
-        dataset = DatasetManager._create_dataset(cuts=cuts, label_type=label_type, data_loading=data_loading)
+        dataset = DatasetManager._create_dataset(
+            cuts=cuts, label_type=label_type, data_loading=data_loading)
 
         # Create worker init function for reproducibility
         worker_init_fn = make_worker_init_fn(seed=random_seed)
@@ -1164,7 +1185,7 @@ class DatasetManager:
         """
         # Get global_config
         global_config = getattr(dataset, "global_config", None)
-        
+
         # Get data loading strategy
         data_loading = global_config.data_loading if global_config else None
         dl_strategy = (
@@ -1253,7 +1274,8 @@ class DatasetManager:
         print(f"{'=' * 60}")
 
         # Step 1: Download dataset
-        corpus_path = DatasetManager._download_dataset(dataset, download_function)
+        corpus_path = DatasetManager._download_dataset(
+            dataset, download_function)
 
         # Step 2: Prepare manifests
         if process_function is None:
@@ -1392,7 +1414,8 @@ class DatasetManager:
             if all(isinstance(v, dict) for v in manifest_dict.values()):
                 # Nested dict format - has splits with manifests
                 result: Dict[str, CutSet] = {}
-                manifests_typed = cast(Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]], manifests)
+                manifests_typed = cast(
+                    Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]], manifests)
                 for split_name, split_manifests in manifests_typed.items():
                     # Convert split manifests to CutSet
                     cut_sets_list = DatasetManager._manifests_to_cutsets(
@@ -1477,7 +1500,8 @@ class DatasetManager:
             # Check if it's a nested dict (split-based): Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]]
             if all(isinstance(v, dict) for v in manifest_dict.values()):
                 # Nested dict format - iterate through splits
-                nested_manifests = cast(Dict[str, Dict[str, Any]], manifest_dict)
+                nested_manifests = cast(
+                    Dict[str, Dict[str, Any]], manifest_dict)
                 for split_name, split_manifests in nested_manifests.items():
                     split_cut_sets = DatasetManager._manifests_to_cutsets(
                         split_manifests, f"{dataset_name}_{split_name}"
@@ -1492,7 +1516,8 @@ class DatasetManager:
                 recording_candidate = manifest_dict.get("recordings")
                 if recording_candidate is None:
                     recording_candidate = manifest_dict.get("recording")
-                recording_set = cast(Optional[RecordingSet], recording_candidate)
+                recording_set = cast(
+                    Optional[RecordingSet], recording_candidate)
 
                 supervision_candidate = manifest_dict.get("supervisions")
                 if supervision_candidate is None:

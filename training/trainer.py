@@ -388,20 +388,12 @@ class Trainer:
                 k: v.to(self.accelerator.device) if isinstance(v, torch.Tensor) else v
                 for k, v in batch.items()
             }
-            self.accelerator.print(batch["features"].shape)
             with self.accelerator.accumulate(self.model):
                 # Forward pass - extract features from diarization batch
                 outputs = self.model(x=batch["features"])
 
-                # Handle different label formats (ego-centric vs binary diarization)
-                if "labels" in batch:
-                    # Ego-centric diarization: labels are [batch, num_frames] with class indices
-                    targets = batch["labels"]
-                elif "speaker_activity" in batch:
-                    # Binary diarization: transpose from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]
-                    targets = batch["speaker_activity"].transpose(1, 2).float()
-                else:
-                    raise ValueError("Batch must contain either 'labels' or 'speaker_activity'")
+                # Ego-centric diarization: labels are [batch, num_frames] with class indices
+                targets = batch["labels"]
 
                 # Compute loss
                 loss_dict = compute_loss(
