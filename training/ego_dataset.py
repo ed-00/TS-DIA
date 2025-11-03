@@ -149,11 +149,24 @@ class EgoCentricDiarizationDataset(Dataset):
         features, features_lens = collate_features(
             CutSet.from_cuts(mixture_cuts)
         )
+        
+        # Apply mean normalization per utterance (matching EEND: logmelmeannorm)
+        # Subtract mean feature vector from each utterance
+        for i in range(features.size(0)):
+            valid_len = features_lens[i]
+            mean = features[i, :valid_len, :].mean(dim=0, keepdim=True)
+            features[i, :valid_len, :] = features[i, :valid_len, :] - mean
 
         # Collate enrollment features: (B x T_enroll x F)
         enroll_features, enroll_features_lens = collate_features(
             CutSet.from_cuts(enroll_cuts)
         )
+        
+        # Apply mean normalization to enrollment features too
+        for i in range(enroll_features.size(0)):
+            valid_len = enroll_features_lens[i]
+            mean = enroll_features[i, :valid_len, :].mean(dim=0, keepdim=True)
+            enroll_features[i, :valid_len, :] = enroll_features[i, :valid_len, :] - mean
 
         # Apply frame stacking if configured
         if self.frame_stack > 1:

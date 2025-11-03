@@ -19,7 +19,7 @@ model:
     input_dim: 23             # Input feature dimension (23-dim MFCC, NO frame stacking)
                               # Base features are 23-dim MFCC (matching EEND reference)
                               # Context is handled by the transformer, not by stacking
-    d_model: 2048              # Model dimension / embedding size
+    d_model: 512              # Model dimension / embedding size
     num_layers: 4             # Number of encoder layers
     num_heads: 4              # Number of attention heads (matching EEND: 4 heads)
     
@@ -206,7 +206,7 @@ training:
   # Performance Optimization Configuration
   # ---------------------------------------------------------------------------
   performance:
-    num_workers: 32                  # Number of DataLoader worker processes
+    num_workers: 4                  # Number of DataLoader worker processes (matching EEND)
     pin_memory: true                # Pin memory for faster GPU transfer
     batch_shim: false               # Use batch shim for irregular batch sizes
     prefetch_factor: 2              # Number of batches to prefetch per worker
@@ -259,37 +259,39 @@ global_config:
   sampling_rate: 8000
 
   features:
-    feature_type: "mfcc"
-    sampling_rate: 8000         # --sample-frequency=8000 from mfcc.conf
-    frame_length: 0.025         # --frame-length=25 ms from mfcc.conf
-    frame_shift: 0.01           # 80 samples @ 8kHz -> 0.01 s
-    num_ceps: 23                # --num-ceps=23 from mfcc.conf (higher than default 12)
-    use_energy: false
-    low_freq: 20.0              # --low-freq=20 from mfcc.conf
-    high_freq: 3700.0           # --high-freq=3700 from mfcc.conf (Nyquist for 8kHz)
-    snip_edges: false           # --snip-edges=false from mfcc.conf
-    preemph_coeff: 0.97
-    window_type: "povey"
-    dither: 0.0
+    feature_type: "fbank"       # Log Mel filterbank (matching EEND exactly)
+    sampling_rate: 8000         # 8kHz sampling rate
+    frame_length: 0.025         # 25 ms (200 samples @ 8kHz)
+    frame_shift: 0.01           # 10 ms (80 samples @ 8kHz)
+    num_mel_bins: 23            # 23-dimensional log Mel features (matching EEND)
+    use_energy: false           # No energy feature
+    low_freq: 0.0               # fmin=0 (EEND uses 0, not 20)
+    high_freq: 4000.0           # fmax=4000 (Nyquist for 8kHz)
+    snip_edges: false           # Keep all frames
+    preemph_coeff: 0.97         # Preemphasis coefficient (matching EEND)
+    window_type: "hanning"      # Hann window (Lhotse uses "hanning" not "hann")
+    dither: 0.0                 # No dithering
     round_to_power_of_two: true
-    torchaudio_compatible_mel_scale: true
-    norm_filters: false
-    cepstral_lifter: 22
-    num_jobs: 4
+    remove_dc_offset: true      # Standard preprocessing
+    raw_energy: true            # Use raw energy if needed
+    use_fft_mag: false          # Use power spectrum
+    energy_floor: 1e-10         # Small epsilon for log
+    num_jobs: 1                 # CRITICAL: Use 1 job to avoid race conditions in lilcom writes
     storage_type: "lilcom_chunky"
     mix_eagerly: true
   
-  # Data loading configuration
+  # Data loading configuration (matching EEND exactly)
   data_loading:
     strategy: precomputed_features   # precomputed_features | on_the_fly_features
     frame_stack: 1                   # NO frame stacking (EEND doesn't use it)
-                                     # Features are 23-dim MFCC directly
-    subsampling: 10                  # Subsample by 10x (like Kaldi) to reduce sequence length
+                                     # Features are 23-dim log Mel filterbank directly
+                                     # Mean normalization applied per utterance in dataset
+    subsampling: 10                  # Subsample by 10x (matching EEND subsampling factor)
                                      # 30s @ 10ms shift = 3000 frames → 300 frames after subsampling
-                                     # This dramatically reduces memory for attention (3000² → 300²)
+                                     # EEND uses 500 frames (5s segments), we use variable length
 
     input_strategy:
-      num_workers: 32
+      num_workers: 0                # Set to 0 during feature extraction to avoid conflicts
       executor_type: thread
       use_batch_extract: true
       fault_tolerant: false
@@ -301,21 +303,19 @@ global_config:
       max_cuts: 4                # Maximum number of cuts per batch (reduced from 8)
                                  # With 10ms frame shift + 10x subsampling: 
                                  # 30s audio: 3000 frames → 300 frames after subsampling
-                                 # With ego-centric expansion (2-4 speakers per cut): 4 cuts × 3 speakers = 12 examples
-                                 # Attention matrix: (12, 8 heads, 300, 300) = ~2.6 GB (manageable)
       num_buckets: 10
       shuffle: true
       drop_last: true
 
     dataloader:
-      num_workers: 32             # if input_strategy.num_workers > 0, this is forced to 0
+      num_workers: 4              # Use 4 workers for dataloading (after features are cached)
       pin_memory: true
       persistent_workers: false
       prefetch_factor: 2
   
   # Storage and computation
   storage_type: lilcom_chunky
-  num_jobs: 32  # Use single process for reliable caching
+  num_jobs: 1  # CRITICAL: Single process for reliable caching (avoid race conditions)
   device: cuda
   progress_bar: true
   cut_window_seconds: 50  # Window long recordings before extraction
