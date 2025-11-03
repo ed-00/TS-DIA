@@ -247,6 +247,10 @@ class DataLoadingConfig:
     ] = "precomputed_features"
     frame_stack: int = 1  # Number of frames to stack for temporal context
     subsampling: int = 1  # Subsampling factor (e.g., 10 = keep every 10th frame)
+    chunk_size: Optional[float] = None  # Duration in seconds to chunk audio into fixed-size segments
+    context_size: int = 7  # Number of frames to concatenate on each side for feature splicing
+    min_enroll_len: float = 1.0  # Minimum enrollment segment length in seconds
+    max_enroll_len: float = 5.0  # Maximum enrollment segment length in seconds
     input_strategy: InputStrategyConfig = field(
         default_factory=InputStrategyConfig)
     sampler: SamplerConfig = field(default_factory=SamplerConfig)

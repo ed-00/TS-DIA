@@ -177,6 +177,7 @@ class EgoCentricDiarizationDataset(Dataset):
     def __init__(
         self,
         cuts: CutSet,
+        chunk_size: float,
         min_enroll_len: float = 1.0,
         max_enroll_len: float = 5.0,
         context_size: int = 7,
@@ -188,6 +189,14 @@ class EgoCentricDiarizationDataset(Dataset):
         self.max_enroll_len = max_enroll_len
         self.context_size = context_size
         self.subsampling = subsampling
+        self.chunk_size = chunk_size
+        
+        # Apply mandatory chunking
+        cuts = cuts.cut_into_windows(duration=chunk_size)
+        # Pad cuts to ensure all have the same duration (last window might be shorter)
+        cuts = cuts.pad(duration=chunk_size)
+        print(f"Applied chunking with window size {chunk_size}s and padding")
+        
         self.cuts = cuts
 
         # Pre-compute all (cut, target_speaker) pairs for proper __len__

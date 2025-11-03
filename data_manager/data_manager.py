@@ -869,9 +869,15 @@ class DatasetManager:
             context_size = getattr(data_loading, 'context_size', 7) if data_loading else 7
             min_enroll_len = getattr(data_loading, 'min_enroll_len', 1.0) if data_loading else 1.0
             max_enroll_len = getattr(data_loading, 'max_enroll_len', 5.0) if data_loading else 5.0
+            chunk_size = getattr(data_loading, 'chunk_size', None) if data_loading else None
+            
+            # chunk_size is now mandatory for ego-centric datasets
+            if chunk_size is None:
+                raise ValueError("chunk_size is required for ego-centric diarization datasets. Please specify chunk_size in data_loading config.")
             
             return EgoCentricDiarizationDataset(
-                cuts=cuts, 
+                cuts=cuts,
+                chunk_size=chunk_size,
                 min_enroll_len=min_enroll_len,
                 max_enroll_len=max_enroll_len,
                 context_size=context_size,
@@ -1009,6 +1015,12 @@ class DatasetManager:
             # Use same config but disable shuffle for validation
             val_data_loading = DataLoadingConfig(
                 strategy=data_loading.strategy,
+                frame_stack=data_loading.frame_stack,
+                subsampling=data_loading.subsampling,
+                chunk_size=data_loading.chunk_size,
+                context_size=data_loading.context_size,
+                min_enroll_len=data_loading.min_enroll_len,
+                max_enroll_len=data_loading.max_enroll_len,
                 input_strategy=data_loading.input_strategy,
                 sampler=data_loading.sampler,
                 dataloader=data_loading.dataloader,

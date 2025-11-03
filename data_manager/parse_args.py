@@ -583,10 +583,42 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
             "global_config.data_loading.subsampling must be an integer when provided"
         )
 
+    # Extract chunk_size from data_loading config
+    chunk_size_value = data_loading_dict.get("chunk_size")
+    if chunk_size_value is not None and not isinstance(chunk_size_value, (int, float)):
+        raise DatasetConfigError(
+            "global_config.data_loading.chunk_size must be a number when provided"
+        )
+
+    # Extract context_size from data_loading config
+    context_size_value = data_loading_dict.get("context_size", 7)
+    if not isinstance(context_size_value, int):
+        raise DatasetConfigError(
+            "global_config.data_loading.context_size must be an integer when provided"
+        )
+
+    # Extract min_enroll_len from data_loading config
+    min_enroll_len_value = data_loading_dict.get("min_enroll_len", 1.0)
+    if not isinstance(min_enroll_len_value, (int, float)):
+        raise DatasetConfigError(
+            "global_config.data_loading.min_enroll_len must be a number when provided"
+        )
+
+    # Extract max_enroll_len from data_loading config
+    max_enroll_len_value = data_loading_dict.get("max_enroll_len", 5.0)
+    if not isinstance(max_enroll_len_value, (int, float)):
+        raise DatasetConfigError(
+            "global_config.data_loading.max_enroll_len must be a number when provided"
+        )
+
     data_loading_cfg = DataLoadingConfig(
         strategy=strategy_value,
         frame_stack=frame_stack_value,
         subsampling=subsampling_value,
+        chunk_size=chunk_size_value,
+        context_size=context_size_value,
+        min_enroll_len=min_enroll_len_value,
+        max_enroll_len=max_enroll_len_value,
         input_strategy=input_strategy_cfg,
         sampler=sampler_cfg,
         dataloader=dataloader_cfg,

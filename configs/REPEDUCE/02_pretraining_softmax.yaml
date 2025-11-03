@@ -283,12 +283,13 @@ global_config:
   # Data loading configuration (matching EEND exactly)
   data_loading:
     strategy: precomputed_features   # precomputed_features | on_the_fly_features
-    frame_stack: 1                   # NO frame stacking (EEND doesn't use it)
                                      # Features are 23-dim log Mel filterbank directly
                                      # Mean normalization applied per utterance in dataset
     subsampling: 10                  # Subsample by 10x (matching EEND subsampling factor)
                                      # 30s @ 10ms shift = 3000 frames → 300 frames after subsampling
                                      # EEND uses 500 frames (5s segments), we use variable length
+    chunk_size: 5.0                  # Cut audio into 5-second chunks for uniform training segments
+                                     # This ensures consistent sequence lengths and memory usage
 
     input_strategy:
       num_workers: 0                # Set to 0 during feature extraction to avoid conflicts

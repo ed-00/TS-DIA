@@ -16,7 +16,7 @@ Key Functions:
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union, cast
 
 import torch
 from accelerate import Accelerator
@@ -60,15 +60,16 @@ def setup_accelerator(
     if project_dir or (
         training_config.checkpoint and training_config.checkpoint.save_dir
     ):
-        save_dir = project_dir or training_config.checkpoint.save_dir
-        project_config = ProjectConfiguration(
-            project_dir=save_dir,
-            logging_dir=logging_dir or os.path.join(save_dir, "logs"),
-            automatic_checkpoint_naming=True,
-            total_limit=training_config.checkpoint.save_total_limit
-            if training_config.checkpoint
-            else None,
-        )
+        save_dir = project_dir or (training_config.checkpoint and training_config.checkpoint.save_dir)
+        if save_dir is not None:
+            project_config = ProjectConfiguration(
+                project_dir=save_dir,
+                logging_dir=logging_dir or os.path.join(save_dir, "logs"),
+                automatic_checkpoint_naming=True,
+                total_limit=training_config.checkpoint.save_total_limit
+                if training_config.checkpoint and training_config.checkpoint.save_total_limit is not None
+                else 5,
+            )
 
     # Create accelerator
     accelerator = Accelerator(
@@ -98,7 +99,7 @@ def _get_log_trackers(training_config: TrainingConfig) -> list:
             trackers.append("tensorboard")
         if training_config.logging.wandb:
             trackers.append("wandb")
-    return trackers if trackers else None
+    return trackers
 
 
 def prepare_for_training(
@@ -132,11 +133,11 @@ def prepare_for_training(
     """
     # Prepare model/optimizer/scheduler only; keep Lhotse DataLoaders unwrapped so custom sampler is preserved.
     if lr_scheduler is not None:
-        model, optimizer, lr_scheduler = accelerator.prepare(
-            model, optimizer, lr_scheduler
+        model, optimizer, lr_scheduler, train_dataloader, val_dataloader = accelerator.prepare(
+            model, optimizer, lr_scheduler, train_dataloader, val_dataloader
         )
     else:
-        model, optimizer = accelerator.prepare(model, optimizer)
+        model, optimizer, train_dataloader, val_dataloader = accelerator.prepare(model, optimizer, train_dataloader, val_dataloader)
         lr_scheduler = None
 
     return model, optimizer, train_dataloader, val_dataloader, lr_scheduler
@@ -262,9 +263,9 @@ def load_checkpoint_with_accelerate(
         start_epoch = extra_state.get('epoch', 0)
         ```
     """
-    checkpoint_path = Path(checkpoint_path)
 
-    if not checkpoint_path.exists():
+
+    if not Path(checkpoint_path).exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
     # Load using Accelerate's load_state
@@ -272,7 +273,7 @@ def load_checkpoint_with_accelerate(
 
     # Load extra state if exists
     extra_state = {}
-    extra_state_path = checkpoint_path / "extra_state.pt"
+    extra_state_path = Path(f"checkpoint_path/extra_state.pt")
     if extra_state_path.exists():
         extra_state = torch.load(extra_state_path, map_location=accelerator.device)
 
@@ -320,11 +321,27 @@ def all_reduce_metrics(
     if accelerator.num_processes == 1:
         return metrics
 
-    reduced_metrics = {}
+    reduced_metrics: Dict[str, float] = {}
     for key, value in metrics.items():
         tensor = torch.tensor(value, device=accelerator.device)
-        reduced_tensor = accelerator.reduce(tensor, reduction="mean")
-        reduced_metrics[key] = reduced_tensor.item()
+        reduced_result = accelerator.reduce(tensor, reduction="mean")
+        
+        # Handle different return types explicitly with type guards
+        if isinstance(reduced_result, torch.Tensor):
+            reduced_metrics[key] = reduced_result.item()
+        elif isinstance(reduced_result, (int, float)):
+            reduced_metrics[key] = cast(float, reduced_result)
+        elif isinstance(reduced_result, (list, tuple)) and len(reduced_result) == 1:
+            # Handle case where result might be a single-element container
+            single_value = reduced_result[0]
+            if isinstance(single_value, torch.Tensor):
+                reduced_metrics[key] = single_value.item()
+            else:
+                reduced_metrics[key] = cast(float, single_value)
+        else:
+            # Convert unknown type to tensor first, then extract scalar
+            tensor_result = torch.as_tensor(reduced_result, device=accelerator.device)
+            reduced_metrics[key] = tensor_result.item()
 
     return reduced_metrics
 
