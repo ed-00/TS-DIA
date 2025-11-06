@@ -34,12 +34,6 @@ global_config:
       persistent_workers: false
       prefetch_factor: 2
   
-  # Storage and computation
-  storage_type: lilcom_chunky
-  num_jobs: 1  # Use single process for reliable caching
-  device: cpu
-  progress_bar: true
- 
 
 datasets:
   - name: ava_avd

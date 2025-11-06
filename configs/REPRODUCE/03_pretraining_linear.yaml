@@ -28,11 +28,6 @@ global_config:
     storage_type: "lilcom_chunky"
     mix_eagerly: true
 
-  # Storage and computation
-  storage_type: lilcom_chunky
-  num_jobs: 1  # Use single process for reliable caching
-  device: cpu
-  progress_bar: true
 
 
 datasets:

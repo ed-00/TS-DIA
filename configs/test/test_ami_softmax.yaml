@@ -1,0 +1,351 @@
+model:
+  model_type: encoder_decoder # Options: encoder, decoder, encoder_decoder
+  name: comprehensive_example_model
+
+  # ---------------------------------------------------------------------------
+  # Global Configuration (shared across encoder and decoder)
+  # ---------------------------------------------------------------------------
+  global_config:
+    dropout: 0.1 # Dropout probability (0.0 - 1.0)
+    batch_size: 32 # Batch size for training (matching EEND reference)
+    d_ff: 4 # Feed-forward expansion factor (hidden_dim = d_model * d_ff)
+    device: cuda # Device: cpu, cuda, cuda:0, cuda:1, etc.
+
+  # ---------------------------------------------------------------------------
+  # Encoder Configuration (for encoder and encoder_decoder models)
+  # ---------------------------------------------------------------------------
+  encoder:
+    # Core architecture parameters
+    input_dim:
+      345 # Input feature dimension (23 MFCC × 15 context frames from splicing)
+      # Features are spliced: 23-dim MFCC with ±7 context frames = 345-dim
+      # Splicing: 7 before + 1 current + 7 after = 15 total × 23 = 345
+    d_model: 128 # Model dimension / embedding size
+    num_layers: 2 # Number of encoder layers
+    num_heads: 4 # Number of attention heads (matching EEND: 4 heads)
+
+    # Attention configuration
+    attention_type: softmax # Options: softmax, linear, causal_linear
+    nb_features: null # Number of random features for linear attention (None = auto)
+
+    # Activation function
+    activation: REGLU # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
+
+    # Normalization options
+    use_rezero: true # Use ReZero instead of LayerNorm
+    use_scalenorm: true # Use PreScaleNorm instead of LayerNorm
+
+    # Linear attention feature management
+    # feature_redraw_interval: 1000  # Redraw random features every N steps (None = never)
+    # auto_check_redraw: true        # Automatically check when to redraw
+
+  # ---------------------------------------------------------------------------
+  # Decoder Configuration (for decoder and encoder_decoder models)
+  # ---------------------------------------------------------------------------
+
+  decoder:
+    # Core architecture parameters
+    input_dim: 345 # Input feature dimension (null = use encoder output, or specify for decoder-only)
+    d_model: 128 # Model dimension (should match encoder for encoder_decoder)
+    num_layers: 2 # Number of decoder layers
+    num_heads: 4 # Number of attention heads (matching EEND: 4 heads)
+
+    # Attention configuration
+    attention_type: softmax # Options: softmax, linear, causal_linear
+    # nb_features: 256          # Number of random features for linear attention
+
+    # Activation function
+    activation: REGLU # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
+
+    # Cross-attention (for encoder-decoder)
+    use_cross_attention: true # true for encoder_decoder, false for decoder-only LM
+
+    # Normalization options
+    use_rezero: true # Use ReZero instead of LayerNorm
+    use_scalenorm: true # Use PreScaleNorm instead of LayerNorm
+
+    # Linear attention feature management
+    # feature_redraw_interval: 1000  # Redraw random features every N steps
+    # auto_check_redraw: true        # Automatically check when to redraw
+
+    # Classification head (output projection)
+    num_classes:
+      5 # Number of output classes for ego-centric diarization:
+      # 0: ts (target speaker only)
+      # 1: ts_ovl (target speaker overlapping)
+      # 2: others_sgl (one non-target speaker)
+      # 3: others_ovl (multiple non-target speakers)
+      # 4: ns (non-speech)
+
+training:
+  # ---------------------------------------------------------------------------
+  # Basic Training Settings
+  # ---------------------------------------------------------------------------
+  epochs: 100 # Number of training epochs
+  batch_size: 32 # Training batch size (matching EEND reference)
+  random_seed: 42 # Random seed for reproducibility
+  max_steps: null # Maximum training steps (null = use epochs)
+
+  # ---------------------------------------------------------------------------
+  # Optimizer Configuration
+  # ---------------------------------------------------------------------------
+  optimizer:
+    type: adamw # Options: adam, adamw, sgd, adagrad, rmsprop, adadelta
+    lr: 0.0001 # Learning rate
+    weight_decay: 0.01 # Weight decay / L2 regularization
+    betas: [0.9, 0.999] # Beta parameters for Adam-style optimizers
+    epsilon: 0.00000001 # Epsilon for numerical stability (1e-8)
+    amsgrad: false # Use AMSGrad variant for Adam
+    momentum: null # Momentum for SGD (0.0 - 1.0)
+    nesterov: false # Use Nesterov momentum for SGD
+
+  # ---------------------------------------------------------------------------
+  # Learning Rate Scheduler Configuration
+  # ---------------------------------------------------------------------------
+  scheduler:
+    type: cosine # Options: cosine, linear, exponential, step, plateau, constant
+    min_lr: 0.000001 # Minimum learning rate
+    max_lr: null # Maximum learning rate (for cyclic schedulers)
+    warmup_steps: 1000 # Number of warmup steps
+    decay_steps: 10000 # Number of decay steps
+    num_cycles: 1 # Number of cycles (for cosine with restarts)
+    step_size: null # Step size for StepLR scheduler
+    gamma: 0.1 # Multiplicative factor for decay
+    patience: null # Patience for ReduceLROnPlateau
+    mode: min # Mode for ReduceLROnPlateau: min or max
+
+  # ---------------------------------------------------------------------------
+  # Gradient Management
+  # ---------------------------------------------------------------------------
+  gradient_clipping: 5.0 # Max gradient norm (matching EEND: 5.0)
+  gradient_accumulation_steps: 4 # Number of gradient accumulation steps
+
+  # ---------------------------------------------------------------------------
+  # Mixed Precision Training
+  # ---------------------------------------------------------------------------
+  mixed_precision: true # Enable mixed precision training (FP16/BF16)
+  amp_loss_scale: null # Loss scaling for AMP (null = dynamic scaling)
+
+  # ---------------------------------------------------------------------------
+  # Performer-Specific Settings
+  # ---------------------------------------------------------------------------
+  # feature_redraw_interval: 100      # Redraw projection matrices every N steps
+  # fixed_projection: false           # Use fixed projection for Performer
+
+  # ---------------------------------------------------------------------------
+  # Loss Configuration
+  # ---------------------------------------------------------------------------
+  loss:
+    main: cross_entropy # Options: cross_entropy, mse, mae, bce, bce_with_logits
+    label_smoothing: 0.1 # Label smoothing factor (0.0 = no smoothing)
+    reduction: mean # Options: mean, sum, none
+
+    # Auxiliary losses (optional)
+    auxiliary:
+      norm_reg: 0.1 # L2 norm regularization weight
+
+    # Focal loss parameters (for imbalanced datasets)
+    focal_alpha: null # Alpha parameter for focal loss
+    focal_gamma: null # Gamma parameter for focal loss
+
+  # ---------------------------------------------------------------------------
+  # Validation Configuration
+  # ---------------------------------------------------------------------------
+  validation:
+    interval: 500 # Validate every N steps
+    batch_size: 32 # Validation batch size (matching training)
+    metric_for_best_model: val_loss # Metric to track for best model
+    greater_is_better: false # Whether higher metric is better
+    splits: []
+
+  # ---------------------------------------------------------------------------
+  # Early Stopping Configuration
+  # ---------------------------------------------------------------------------
+  early_stopping:
+    patience: 5 # Number of epochs to wait for improvement
+    metric: val_loss # Metric to monitor
+    min_delta: 0.001 # Minimum change to qualify as improvement
+    mode: min # Direction: min or max
+    restore_best_weights: true # Restore model to best checkpoint on early stop
+
+  # ---------------------------------------------------------------------------
+  # Checkpoint Configuration
+  # ---------------------------------------------------------------------------
+  checkpoint:
+    save_dir: ./outputs/checkpoints/softmax_pretraining # Directory to save checkpoints
+    interval: 1000 # Save checkpoint every N steps
+    save_total_limit: 5 # Maximum number of checkpoints to keep
+    resume: null # Path to checkpoint to resume from
+    snapshot_optimizer: true # Save optimizer state
+    snapshot_scheduler: true # Save scheduler state
+    snapshot_features: true # Save Performer feature matrices
+    save_best_only: false # Only save best checkpoint
+    monitor_metric: val_loss # Metric to monitor for best checkpoint
+
+  # ---------------------------------------------------------------------------
+  # Distributed Training Configuration
+  # ---------------------------------------------------------------------------
+  distributed:
+    backend: nccl # Options: nccl, gloo, mpi
+    world_size: 1 # Total number of processes
+    local_rank: 0 # Local rank of current process
+    sync_gradient_barrier: true # Synchronize gradients across processes
+    find_unused_parameters: false # Find unused parameters in DDP
+    gradient_as_bucket_view: false # Optimize DDP memory usage
+    static_graph: false # Use static graph optimization in DDP
+
+  # ---------------------------------------------------------------------------
+  # Logging Configuration
+  # ---------------------------------------------------------------------------
+  logging:
+    interval: 50 # Log every N steps
+    tensorboard: false # Enable TensorBoard logging
+    wandb: true # Enable Weights & Biases logging
+    wandb_project: TS-DIA # WandB project name
+    wandb_entity: digital-future # WandB entity/team name
+    log_model: true # Log model architecture
+
+  # ---------------------------------------------------------------------------
+  # Performance Optimization Configuration
+  # ---------------------------------------------------------------------------
+  performance:
+    num_workers: 4 # Number of DataLoader worker processes (matching EEND)
+    pin_memory: true # Pin memory for faster GPU transfer
+    batch_shim: false # Use batch shim for irregular batch sizes
+    prefetch_factor: 2 # Number of batches to prefetch per worker
+    persistent_workers: true # Keep workers alive between epochs
+    compile_model: false # Use torch.compile (PyTorch 2.0+) not implemented yet
+
+  # ---------------------------------------------------------------------------
+  # Callbacks (Advanced)
+  # ---------------------------------------------------------------------------
+  callbacks:
+    - gradient_clipping # Gradient clipping callback
+    # - pruning                     # Model pruning callback
+    # - freeze_layers               # Layer freezing callback
+    # - dynamic_lr                  # Dynamic learning rate adjustment
+
+  # ---------------------------------------------------------------------------
+  # Profiling (for performance analysis)
+  # ---------------------------------------------------------------------------
+  profiling: false # Enable PyTorch profiler
+
+  # ---------------------------------------------------------------------------
+  # Evaluation Knobs (for inference and diarization)
+  # ---------------------------------------------------------------------------
+  eval_knobs:
+    batch_size: 32 # Batch size for evaluation/inference (matching training)
+    beam_width: 5 # Beam width for beam search
+    sliding_window: 512 # Sliding window size for long sequences
+
+    # Diarization-specific settings
+    label_type: ego # Options: binary, ego (5-class ego-centric diarization)
+    max_duration: null # Maximum duration per batch (null = no limit)
+
+  # ---------------------------------------------------------------------------
+  # Hyperparameter Tuning (Advanced, optional)
+  # ---------------------------------------------------------------------------
+  tuning:
+    library: null # Options: raytune, optuna, null (not implemented yet)
+    search_space:
+      # Uncomment to enable hyperparameter search
+      # lr: [0.00001, 0.0001, 0.0005]
+      # batch_size: [32, 64]
+      # dropout: [0.1, 0.2, 0.3]
+
+global_config:
+  force_download: false
+  random_seed: 42
+  corpus_dir: ./outputs/data
+  output_dir: ./outputs/manifests
+  storage_path: ./outputs/features
+  sampling_rate: 8000
+
+  features:
+    feature_type: "fbank" # Log Mel filterbank (matching EEND exactly)
+    sampling_rate: 8000 # 8kHz sampling rate
+    frame_length: 0.025 # 25 ms (200 samples @ 8kHz)
+    frame_shift: 0.01 # 10 ms (80 samples @ 8kHz)
+    num_mel_bins: 23 # 23-dimensional log Mel features (matching EEND)
+    use_energy: false # No energy feature
+    low_freq: 0.0 # fmin=0 (EEND uses 0, not 20)
+    high_freq: 4000.0 # fmax=4000 (Nyquist for 8kHz)
+    snip_edges: false # Keep all frames
+    preemph_coeff: 0.97 # Preemphasis coefficient (matching EEND)
+    window_type: "hanning" # Hann window (Lhotse uses "hanning" not "hann")
+    dither: 0.0 # No dithering
+    round_to_power_of_two: true
+    remove_dc_offset: true # Standard preprocessing
+    raw_energy: true # Use raw energy if needed
+    use_fft_mag: false # Use power spectrum
+    energy_floor: 1e-10 # Small epsilon for log
+    num_jobs: 32 # CRITICAL: Use 1 job to avoid race conditions in lilcom writes
+    storage_type: "lilcom_chunky"
+    mix_eagerly: true
+
+  # Data loading configuration (matching EEND exactly)
+  data_loading:
+    strategy:
+      precomputed_features # precomputed_features | on_the_fly_features
+      # Features are 23-dim log Mel filterbank directly
+      # Mean normalization applied per utterance in dataset
+    subsampling:
+      10 # Subsample by 10x (matching EEND subsampling factor)
+      # 30s @ 10ms shift = 3000 frames → 300 frames after subsampling
+      # EEND uses 500 frames (5s segments), we use variable length
+    chunk_size:
+      5.0 # Cut audio into 5-second chunks for uniform training segments
+      # This ensures consistent sequence lengths and memory usage
+
+    dataloader:
+      num_workers: 4 # Use 4 workers for dataloading (after features are cached)
+      pin_memory: true
+      persistent_workers: false
+      prefetch_factor: 2
+
+datasets:
+  - name: ami
+    download_params:
+      # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
+      mic: ihm-mix
+      url: http://groups.inf.ed.ac.uk/ami
+      annotations: null # Auto-downloaded
+    process_params:
+      mic: ihm-mix
+      partition: full-corpus
+      normalize_text: none
+      max_words_per_segment: null # null = no splitting
+      merge_consecutive: false # Merge same-speaker consecutive segments
+
+    # - name: simu_5spk
+    # - name: ava_avd
+    #   download_params
+    #     download_annotations: true
+    #     download_videos: true
+
+    # - name: libriheavy_mix
+    #   download_params:
+    #     # Dataset splits to download
+    #     # Options: small (~100h), medium (~900h), large (~9000h), dev, test
+    #     dataset_parts: small
+
+    #     # Number of speakers per mixture
+    #     # Options: 1, 2, 3, 4 (can be int or list)
+    #     speaker_counts: [1, 2, 3, 4]
+
+    #     # HuggingFace cache directory
+    #     cache_dir: null
+
+    #   process_params:
+    #     # Dataset splits to process
+    #     dataset_parts: small
+
+    #     # Speaker counts to process
+    #     speaker_counts: [1, 2, 3, 4]
+
+    #     # Speaker filtering
+    #     min_speakers: 1
+    #     max_speakers: 4
+
+    #     # Custom split mapping (optional)
+    #     splits: null

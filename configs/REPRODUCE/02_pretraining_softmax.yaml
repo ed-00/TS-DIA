@@ -277,7 +277,7 @@ global_config:
     raw_energy: true            # Use raw energy if needed
     use_fft_mag: false          # Use power spectrum
     energy_floor: 1e-10         # Small epsilon for log
-    num_jobs: 1                 # CRITICAL: Use 1 job to avoid race conditions in lilcom writes
+    num_jobs: 32                 # CRITICAL: Use 1 job to avoid race conditions in lilcom writes
     storage_type: "lilcom_chunky"
     mix_eagerly: true
   
@@ -298,15 +298,9 @@ global_config:
       persistent_workers: false
       prefetch_factor: 2
   
-  # Storage and computation
-  storage_type: lilcom_chunky
-  num_jobs: 1  # CRITICAL: Single process for reliable caching (avoid race conditions)
-  device: cuda
-  progress_bar: true
-
 
 datasets:
-  - name: combos1-5
+  - name: simu_5spk
 
   # - name: ava_avd
   #   download_params
