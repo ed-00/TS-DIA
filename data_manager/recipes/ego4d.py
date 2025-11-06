@@ -86,9 +86,6 @@ class Ego4DPart(Enum):
     FULL_SCALE = "full_scale"
 
 
-def _validate_access_key(access_key: str) -> bool:
-    """Simple access key validation"""
-    return access_key and len(access_key) > 10
 
 
 def _check_ego4d_cli() -> bool:

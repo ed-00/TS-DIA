@@ -81,7 +81,9 @@ this is a list of possible knowladge gaps that must be coverd:
     [ ] how it differs from Fbank from lhotse
 [ ] not using the Sampler object, effect, benifet
 
+# Possible issue, 
+[ ] simulated data feature extraction (should be exacly the same as all other dataset)
+
 
 # Ideas to investigate 
-
 * Neural sampels aggrigation (T x D_model) (1 x d_model) conformer + pooling could work here 

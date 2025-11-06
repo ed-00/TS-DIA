@@ -534,7 +534,7 @@ def load_kaldi_text_file(path: Path, allow_empty_ref: bool = True):
     Allow entry with empty ref. text (default).
     """
     if not path.is_file():
-        return defaultdict("_")
+        return defaultdict(lambda: None)
 
     mapping = dict()
     with path.open() as f:

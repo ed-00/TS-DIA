@@ -234,5 +234,24 @@ Week 43, the transformer model is implementd, the data need to be preped to star
 
     [ ] linear attention 
 
- 
 
+
+[ ] add combine datasets functionality for the datamanager 
+    [ ] include subseting ratio from each in training set.
+    [ ] include multi-devset metrics, and devset metric avrageing. 
+    [ ] expand the subset selection 
+
+
+[ ] Validate the ego-dataset
+    [ ] Validate RoPE 
+    [ ] Vaidate class callocation
+    [ ] validate enrollment sampling 
+    [ ] validate zeros enrollment
+
+[ ] Gpu setup
+    [ ] validate 2 GPU 
+    [ ] validate 8 GPU
+    [ ] validate Gradient accumulation 
+    
+    
+ 
