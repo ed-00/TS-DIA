@@ -27,26 +27,7 @@ global_config:
     num_jobs: 4
     storage_type: "lilcom_chunky"
     mix_eagerly: true
-  
-  # Data loading configuration
-  data_loading:
-    strategy: on_the_fly_features   # precomputed_features | on_the_fly_features
-    input_strategy:
-      num_workers: 0
-      executor_type: thread
-      use_batch_extract: true
-      fault_tolerant: false
-      return_audio: false
-      type: simple               # bucketing | dynamic_bucketing | simple
-      num_buckets: 10
-      shuffle: true
-      drop_last: true
-    dataloader:
-      num_workers: 0             # if input_strategy.num_workers > 0, this is forced to 0
-      pin_memory: true
-      persistent_workers: false
-      prefetch_factor: 2
-  
+
   # Storage and computation
   storage_type: lilcom_chunky
   num_jobs: 1  # Use single process for reliable caching

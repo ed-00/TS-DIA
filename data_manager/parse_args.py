@@ -53,6 +53,7 @@ from dataclasses import fields
 from typing import Any, Dict, List, Literal, Mapping, Optional, Tuple, Type, Union, cast
 from types import SimpleNamespace
 
+from dataclasses_json import global_config
 import yaml
 from yamlargparse import ArgumentParser
 
@@ -534,18 +535,12 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> Tuple[List[DatasetCo
         global_config_dict.get("data_loading"),
         "global_config.data_loading",
     )
-    input_strategy_dict = _optional_str_mapping(
-        data_loading_dict.get("input_strategy"),
-        "global_config.data_loading.input_strategy",
-    )
+
     dataloader_dict = _optional_str_mapping(
         data_loading_dict.get("dataloader"),
         "global_config.data_loading.dataloader",
     )
 
-    input_strategy_cfg = InputStrategyConfig(
-        **_filter_dataclass_kwargs(InputStrategyConfig, input_strategy_dict)
-    )
     dataloader_cfg = DataLoaderConfig(
         **_filter_dataclass_kwargs(DataLoaderConfig, dataloader_dict)
     )
@@ -621,7 +616,7 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> Tuple[List[DatasetCo
         context_size=context_size_value,
         min_enroll_len=min_enroll_len_value,
         max_enroll_len=max_enroll_len_value,
-        input_strategy=input_strategy_cfg,
+
         dataloader=dataloader_cfg,
     )
 
@@ -666,7 +661,7 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> Tuple[List[DatasetCo
                 dataset_entry, global_config_dict
             )
 
-            validated_config.global_config = global_config_obj
+            validated_config['global_config'] = global_config_obj
             validated_configs.append(validated_config)
         except DatasetConfigError as exc:
             raise DatasetConfigError(
@@ -676,7 +671,7 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> Tuple[List[DatasetCo
     return validated_configs, global_config_obj
 
 
-def datasets_manager_parser() -> Tuple[SimpleNamespace, List[DatasetConfig]]:
+def datasets_manager_parser() -> Tuple[List[DatasetConfig], GlobalConfig]:
     """CLI parser for dataset management commands."""
 
     parser = ArgumentParser(description="Datasets Manager")
@@ -688,19 +683,19 @@ def datasets_manager_parser() -> Tuple[SimpleNamespace, List[DatasetConfig]]:
     args = parser.parse_args(namespace=SimpleNamespace())
 
     try:
-        dataset_configs = parse_dataset_configs(args.config)
+        dataset_configs, global_config = parse_dataset_configs(args.config)
     except DatasetConfigError as exc:
         parser.error(str(exc))
         raise SystemExit(2) from exc
 
-    return args, dataset_configs
+    return dataset_configs,  global_config
 
 
 # Example usage
 if __name__ == "__main__":
     def _main() -> None:
-        parsed_args, dataset_configs = datasets_manager_parser()
-        print("Parsed arguments:", parsed_args)
+        dataset_configs, global_config = datasets_manager_parser()
+
         print("\nDataset configurations:")
         for index, config in enumerate(dataset_configs, start=1):
             print(f"\nDataset {index}: {config.name}")

@@ -243,8 +243,7 @@ class DataLoadingConfig:
     context_size: int = 7
     min_enroll_len: float = 1.0  # Minimum enrollment segment length in seconds
     max_enroll_len: float = 5.0  # Maximum enrollment segment length in seconds
-    input_strategy: InputStrategyConfig = field(
-        default_factory=InputStrategyConfig)
+
     dataloader: DataLoaderConfig = field(default_factory=DataLoaderConfig)
 
 
