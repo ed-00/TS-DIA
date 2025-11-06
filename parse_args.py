@@ -85,6 +85,24 @@ from model.parse_model_args import ModelConfigError, parse_model_config
 from data_manager.parse_args import DatasetConfigError, parse_dataset_configs
 from model.model_types import EncoderConfig, DecoderConfig, EncoderDecoderConfig, ModelConfig
 
+from dacite import from_dict
+
+from training.config import (
+    CheckpointConfig,
+    DistributedConfig,
+    EarlyStoppingConfig,
+    LoggingConfig,
+    LossConfig,
+    PerformanceConfig,
+    TrainingConfig,
+    ValidationConfig,
+)
+from training.parse_training_args import (
+    TrainingConfigError,
+    _validate_optimizer_config,
+    _validate_scheduler_config,
+)
+
 
 class ConfigError(Exception):
     """Custom exception for configuration errors"""
@@ -148,7 +166,8 @@ def parse_config(
         try:
             model_config = parse_model_config(config_path)
             if model_config is None:
-                raise ModelConfigError("Model configuration parsing returned None")
+                raise ModelConfigError(
+                    "Model configuration parsing returned None")
         except ModelConfigError as e:
             raise ModelConfigError(f"Model configuration error: {e}")
 
@@ -205,23 +224,6 @@ def unified_parser():
         python parse_args.py --config configs/experiment.yml --model-only
         ```
     """
-    from dacite import from_dict
-
-    from training.config import (
-        CheckpointConfig,
-        DistributedConfig,
-        EarlyStoppingConfig,
-        LoggingConfig,
-        LossConfig,
-        PerformanceConfig,
-        TrainingConfig,
-        ValidationConfig,
-    )
-    from training.parse_training_args import (
-        TrainingConfigError,
-        _validate_optimizer_config,
-        _validate_scheduler_config,
-    )
 
     parser = ArgumentParser(
         description="Unified Model, Dataset, and Training Configuration Parser"
@@ -295,12 +297,11 @@ def unified_parser():
             optimizer_config = _validate_optimizer_config(
                 training_dict.pop("optimizer")
             )
-        
 
             scheduler_config = _validate_scheduler_config(
                 training_dict.pop("scheduler")
             )
-     
+
             # Parse optional nested configurations
             early_stopping_config = None
             if "early_stopping" in training_dict:
@@ -312,13 +313,15 @@ def unified_parser():
             validation_config = None
             if "validation" in training_dict:
                 validation_config = from_dict(
-                    data_class=ValidationConfig, data=training_dict.pop("validation")
+                    data_class=ValidationConfig, data=training_dict.pop(
+                        "validation")
                 )
 
             checkpoint_config = None
             if "checkpoint" in training_dict:
                 checkpoint_config = from_dict(
-                    data_class=CheckpointConfig, data=training_dict.pop("checkpoint")
+                    data_class=CheckpointConfig, data=training_dict.pop(
+                        "checkpoint")
                 )
 
             loss_config = None
@@ -330,7 +333,8 @@ def unified_parser():
             distributed_config = None
             if "distributed" in training_dict:
                 distributed_config = from_dict(
-                    data_class=DistributedConfig, data=training_dict.pop("distributed")
+                    data_class=DistributedConfig, data=training_dict.pop(
+                        "distributed")
                 )
 
             logging_config = None
@@ -342,7 +346,8 @@ def unified_parser():
             performance_config = None
             if "performance" in training_dict:
                 performance_config = from_dict(
-                    data_class=PerformanceConfig, data=training_dict.pop("performance")
+                    data_class=PerformanceConfig, data=training_dict.pop(
+                        "performance")
                 )
 
             # Create training config
@@ -460,18 +465,23 @@ if __name__ == "__main__":
         print(f"  Type: {model_config.model_type}")
         print(f"  Name: {model_config.name}")
 
-        
         if model_config.model_type == "encoder" and isinstance(model_config.config, EncoderConfig):
-            print(f"  Encoder layers: {model_config.config.params.num_layers}")
-            print(f"  Model dim: {model_config.config.params.d_model}")
+            print(
+                f"  Encoder layers: {model_config.config.params['num_layers']}")
+            print(f"  Model dim: {model_config.config.params['d_model']}")
         elif model_config.model_type == "decoder" and isinstance(model_config.config, DecoderConfig):
-            print(f"  Decoder layers: {model_config.config.params.num_layers}")
-            print(f"  Model dim: {model_config.config.params.d_model}")
-            print(f"  Cross-attention: {model_config.config.use_cross_attention}")
+            print(
+                f"  Decoder layers: {model_config.config.params['num_layers']}")
+            print(f"  Model dim: {model_config.config.params['d_model']}")
+            print(
+                f"  Cross-attention: {model_config.config.use_cross_attention}")
         elif model_config.model_type == "encoder_decoder" and isinstance(model_config.config, EncoderDecoderConfig):
-            print(f"  Encoder layers: {model_config.config.encoder_params.num_layers}")
-            print(f"  Decoder layers: {model_config.config.decoder_params.num_layers}")
-            print(f"  Model dim: {model_config.config.encoder_params.d_model}")
+            print(
+                f"  Encoder layers: {model_config.config.encoder_params['num_layers']}")
+            print(
+                f"  Decoder layers: {model_config.config.decoder_params['num_layers']}")
+            print(
+                f"  Model dim: {model_config.config.encoder_params['d_model']}")
 
     if dataset_configs:
         print("\n📊 Dataset Configuration:")

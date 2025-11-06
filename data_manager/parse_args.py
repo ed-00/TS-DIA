@@ -375,11 +375,13 @@ def validate_dataset_config(
     Raises:
         DatasetConfigError: If validation fails
     """
-    dataset_config_dict = _ensure_str_mapping(dataset_config, "dataset configuration")
+    dataset_config_dict = _ensure_str_mapping(
+        dataset_config, "dataset configuration")
 
     dataset_name_raw = dataset_config_dict.get("name")
     if not isinstance(dataset_name_raw, str) or not dataset_name_raw.strip():
-        raise DatasetConfigError("Dataset configuration must include 'name' field")
+        raise DatasetConfigError(
+            "Dataset configuration must include 'name' field")
 
     dataset_name = dataset_name_raw.lower()
 
@@ -407,7 +409,8 @@ def validate_dataset_config(
 
     global_config_dict: Optional[Dict[str, Any]] = None
     if global_config is not None:
-        global_config_dict = _ensure_str_mapping(global_config, "global configuration")
+        global_config_dict = _ensure_str_mapping(
+            global_config, "global configuration")
 
         global_download = _optional_str_mapping(
             global_config_dict.get("download_params"),
@@ -481,13 +484,15 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
         raise DatasetConfigError(f"Invalid YAML file: {exc}") from exc
 
     if not isinstance(config_data_raw, Mapping):
-        raise DatasetConfigError("Configuration file must contain a dictionary")
+        raise DatasetConfigError(
+            "Configuration file must contain a dictionary")
 
     config_data = _ensure_str_mapping(config_data_raw, "root configuration")
 
     datasets_section = config_data.get("datasets")
     if datasets_section is None:
-        raise DatasetConfigError("Configuration file must contain 'datasets' field")
+        raise DatasetConfigError(
+            "Configuration file must contain 'datasets' field")
     if not isinstance(datasets_section, list):
         raise DatasetConfigError("'datasets' field must be a list")
     if not datasets_section:
@@ -510,12 +515,15 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
             "Missing 'global_config' section in configuration. "
             "Please provide at least: corpus_dir, output_dir, and feature extraction settings."
         )
-    global_config_dict = _ensure_str_mapping(global_config_section, "global_config")
+    global_config_dict = _ensure_str_mapping(
+        global_config_section, "global_config")
 
     features_section = global_config_dict.get("features")
     if features_section is None:
-        raise DatasetConfigError("Missing 'features' configuration in global_config")
-    features_dict = _ensure_str_mapping(features_section, "global_config.features")
+        raise DatasetConfigError(
+            "Missing 'features' configuration in global_config")
+    features_dict = _ensure_str_mapping(
+        features_section, "global_config.features")
     try:
         features = FeatureConfig(**features_dict)
     except TypeError as exc:
@@ -557,7 +565,8 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
             "precomputed_features, on_the_fly_features, audio_samples"
         )
     strategy_value = cast(
-        Literal["precomputed_features", "on_the_fly_features", "audio_samples"],
+        Literal["precomputed_features",
+                "on_the_fly_features", "audio_samples"],
         strategy_raw,
     )
 
@@ -567,7 +576,7 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
         raise DatasetConfigError(
             "global_config.data_loading.frame_stack must be an integer when provided"
         )
-    
+
     # Extract subsampling from data_loading config
     subsampling_value = data_loading_dict.get("subsampling", 1)
     if not isinstance(subsampling_value, int):
@@ -623,7 +632,8 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
         raise DatasetConfigError("global_config.output_dir must be a string")
     force_download_value = global_config_dict.get("force_download", False)
     if not isinstance(force_download_value, bool):
-        raise DatasetConfigError("global_config.force_download must be a boolean")
+        raise DatasetConfigError(
+            "global_config.force_download must be a boolean")
     storage_path_value = global_config_dict.get("storage_path")
     if storage_path_value is not None and not isinstance(storage_path_value, str):
         raise DatasetConfigError(
@@ -631,7 +641,8 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
         )
     random_seed_value = global_config_dict.get("random_seed", 42)
     if not isinstance(random_seed_value, int):
-        raise DatasetConfigError("global_config.random_seed must be an integer")
+        raise DatasetConfigError(
+            "global_config.random_seed must be an integer")
 
     try:
         global_config_obj = GlobalConfig(
@@ -644,7 +655,8 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
             random_seed=random_seed_value,
         )
     except TypeError as exc:
-        raise DatasetConfigError(f"Invalid global configuration: {exc}") from exc
+        raise DatasetConfigError(
+            f"Invalid global configuration: {exc}") from exc
 
     validated_configs: List[DatasetConfig] = []
     for index, dataset_entry in enumerate(datasets_config):
@@ -652,7 +664,8 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
             validated_config = validate_dataset_config(
                 dataset_entry, global_config_dict
             )
-            validated_config.global_config = global_config_obj  # type: ignore[attr-defined]
+            # type: ignore[attr-defined]
+            validated_config.global_config = global_config_obj
             validated_configs.append(validated_config)
         except DatasetConfigError as exc:
             raise DatasetConfigError(
@@ -670,7 +683,8 @@ def datasets_manager_parser() -> Tuple[SimpleNamespace, List[DatasetConfig]]:
         "--config", type=str, required=True, help="Path to YAML configuration file"
     )
 
-    args = parser.parse_args(namespace=SimpleNamespace())  # type: ignore[call-overload]
+    # type: ignore[call-overload]
+    args = parser.parse_args(namespace=SimpleNamespace())
 
     try:
         dataset_configs = parse_dataset_configs(args.config)

@@ -211,9 +211,6 @@ class InputStrategyConfig:
     return_audio: bool = False
 
 
-
-
-
 @dataclass
 class DataLoaderConfig:
     """Configuration for torch DataLoader settings."""
@@ -238,9 +235,12 @@ class DataLoadingConfig:
         "audio_samples",
     ] = "precomputed_features"
     frame_stack: int = 1  # Number of frames to stack for temporal context
-    subsampling: int = 1  # Subsampling factor (e.g., 10 = keep every 10th frame)
-    chunk_size: Optional[float] = None  # Duration in seconds to chunk audio into fixed-size segments
-    context_size: int = 7  # Number of frames to concatenate on each side for feature splicing (deprecated - chunking used instead)
+    # Subsampling factor (e.g., 10 = keep every 10th frame)
+    subsampling: int = 1
+    # Duration in seconds to chunk audio into fixed-size segments
+    chunk_size: Optional[float] = None
+    # Number of frames to concatenate on each side for feature splicing (deprecated - chunking used instead)
+    context_size: int = 7
     min_enroll_len: float = 1.0  # Minimum enrollment segment length in seconds
     max_enroll_len: float = 5.0  # Maximum enrollment segment length in seconds
     input_strategy: InputStrategyConfig = field(
@@ -310,6 +310,7 @@ class DatasetConfig:
     """Configuration for a specific dataset with hybrid typed + dict approach"""
 
     name: str
+
     download_params: Union[BaseDownloadParams, Dict[str, Any]] = field(
         default_factory=BaseDownloadParams
     )
