@@ -49,7 +49,7 @@ def validate_dataset(dataset_name: str, manifests_dir: Path) -> bool:
 
     try:
         cut_sets = DatasetManager._manifests_to_cutsets_dict(manifests, dataset_name)
-    except Exception as exc:  # noqa: BLE001 - surface conversion issues cleanly
+    except Exception as exc:  
         print(f"✗ {dataset_name}: failed to convert manifests to CutSets ({exc})")
         return False
 

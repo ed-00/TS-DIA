@@ -162,6 +162,7 @@ class ValidationConfig:
         max_steps: Maximum number of validation batches (None for all)
         metric_for_best_model: Metric to track for best model
         greater_is_better: Whether higher metric is better
+        splits: Optional list of validation split names to evaluate
     """
 
     interval: int
@@ -169,6 +170,7 @@ class ValidationConfig:
     max_steps: Optional[int] = None
     metric_for_best_model: str = "val_loss"
     greater_is_better: bool = False
+    splits: List[str] = field(default_factory=lambda: ["val"])
 
 
 @dataclass

@@ -24,6 +24,10 @@ Usage:
     torchrun --nproc_per_node=4 train.py --config configs/training_example.yml
 """
 import sys
+from typing import Dict, List
+
+from torch.utils.data import DataLoader
+
 from data_manager.data_manager import DatasetManager
 from model.model_factory import create_model
 from parse_args import unified_parser
@@ -57,10 +61,19 @@ def main():
     # Get unified train/val splits (DatasetManager handles split mapping)
     dataset_cuts = cut_sets[dataset_name]
     train_cuts = dataset_cuts.get("train")
-    val_cuts = dataset_cuts.get("val")
 
     if train_cuts is None:
         raise ValueError(f"No training data found for dataset {dataset_name}")
+
+    # Determine requested validation splits (defaults to ['val'] when available)
+    validation_splits: List[str] = []
+    if training_config.validation:
+        requested_splits = training_config.validation.splits or []
+        for split in requested_splits:
+            if split and split not in validation_splits:
+                validation_splits.append(split)
+    elif dataset_cuts.get("val") is not None:
+        validation_splits = ["val"]
 
     # Get label type from training config
     label_type = training_config.eval_knobs.get("label_type", "binary")
@@ -69,16 +82,47 @@ def main():
     random_seed = training_config.random_seed or global_config.random_seed
 
     # Create diarization dataloaders using DatasetManager
-    train_dataloader, val_dataloader = DatasetManager.create_train_val_dataloaders(
-        train_cuts=train_cuts,
-        val_cuts=val_cuts,
+    train_dataloader = DatasetManager.create_dataloader(
+        cuts=train_cuts,
         data_loading=global_config.data_loading,
         batch_size=training_config.batch_size,
         label_type=label_type,
         random_seed=random_seed,
+        shuffle=True,
     )
-    print(
-        f"\n✓ Diarization dataloaders created with label_type='{label_type}'")
+
+    val_dataloaders: Dict[str, DataLoader] = {}
+    missing_splits: List[str] = []
+
+    for split in validation_splits:
+        split_cuts = dataset_cuts.get(split)
+        if split_cuts is None:
+            missing_splits.append(split)
+            continue
+
+        val_dataloaders[split] = DatasetManager.create_dataloader(
+            cuts=split_cuts,
+            data_loading=global_config.data_loading,
+            batch_size=training_config.batch_size,
+            label_type=label_type,
+            random_seed=random_seed,
+            shuffle=False,
+        )
+
+    if missing_splits:
+        if validation_splits == ["val"] and missing_splits == ["val"]:
+            val_dataloaders.clear()
+            print("Warning: Requested validation split 'val' not found; skipping validation.")
+        else:
+            available = ", ".join(sorted(dataset_cuts.keys()))
+            raise ValueError(
+                f"Requested validation split(s) {missing_splits} not found for dataset {dataset_name}. "
+                f"Available splits: {available}"
+            )
+
+    print(f"\n✓ Diarization dataloaders created with label_type='{label_type}'")
+    if val_dataloaders:
+        print(f"  Validation splits: {', '.join(val_dataloaders.keys())}")
 
     # Create model (parser ensures configs are never None)
     if model_config is None:
@@ -89,7 +133,7 @@ def main():
     trainer = Trainer(
         model=model,
         train_dataloader=train_dataloader,
-        val_dataloader=val_dataloader,
+        val_dataloader=val_dataloaders if val_dataloaders else None,
         config=training_config,
         config_path=str(config_path),
     )

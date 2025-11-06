@@ -1542,25 +1542,25 @@ class DatasetManager:
         return cut_sets
 
 
-if __name__ == "__main__":
-    args, dataset_configs = datasets_manager_parser()
+# if __name__ == "__main__":
+#     args, dataset_configs = datasets_manager_parser()
 
-    # Create LoadDatasetsParams with the parsed dataset configurations
-    load_params = LoadDatasetsParams(
-        datasets=dataset_configs,
-        batch_size=32,
-        shuffle=True,
-        num_workers=4,
-        pin_memory=True,
-        validation_split=0.1,
-        test_split=0.1,
-    )
+#     # Create LoadDatasetsParams with the parsed dataset configurations
+#     load_params = LoadDatasetsParams(
+#         datasets=dataset_configs,
+#         batch_size=32,
+#         shuffle=True,
+#         num_workers=4,
+#         pin_memory=True,
+#         validation_split=0.1,
+#         test_split=0.1,
+#     )
 
-    cut_sets = DatasetManager.load_datasets(**vars(load_params))
+#     cut_sets = DatasetManager.load_datasets(**vars(load_params))
 
-    print(f"Loaded {len(cut_sets)} datasets")
-    for dataset_name, splits in cut_sets.items():
-        print(f"\nDataset: {dataset_name}")
-        for split_name, cut_set in splits.items():
-            print(f"  Split: {split_name}")
-            cut_set.describe()
+#     print(f"Loaded {len(cut_sets)} datasets")
+#     for dataset_name, splits in cut_sets.items():
+#         print(f"\nDataset: {dataset_name}")
+#         for split_name, cut_set in splits.items():
+#             print(f"  Split: {split_name}")
+#             cut_set.describe()

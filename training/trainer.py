@@ -17,10 +17,11 @@ Key Classes:
     Trainer: Main training class
 """
 
+import numbers
 import random
 import shutil
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 import numpy as np
 import torch
@@ -68,7 +69,7 @@ class Trainer:
     Args:
         model: PyTorch model to train
         train_dataloader: Training data loader
-        val_dataloader: Validation data loader (optional)
+    val_dataloader: Validation data loader or mapping of split names to dataloaders (optional)
         config: Training configuration
         test_dataloader: Test data loader (optional)
 
@@ -87,15 +88,33 @@ class Trainer:
         model: nn.Module,
         train_dataloader: DataLoader,
         config: TrainingConfig,
-        val_dataloader: Optional[DataLoader] = None,
+        val_dataloader: Optional[Union[DataLoader, Dict[str, DataLoader]]] = None,
         test_dataloader: Optional[DataLoader] = None,
         config_path: Optional[str] = None,
     ):
         self.config = config
         self.train_dataloader = train_dataloader
-        self.val_dataloader = val_dataloader
         self.test_dataloader = test_dataloader
         self.config_path = config_path
+
+        # Normalize validation dataloaders input for multi-split evaluation
+        self.val_dataloaders: Dict[str, DataLoader] = {}
+        self._primary_val_key: Optional[str] = None
+        primary_val_dl: Optional[DataLoader] = None
+
+        if isinstance(val_dataloader, dict):
+            if val_dataloader:
+                self.val_dataloaders = dict(val_dataloader)
+                if len(val_dataloader) == 1:
+                    self._primary_val_key, primary_val_dl = next(
+                        iter(val_dataloader.items())
+                    )
+        elif val_dataloader is not None:
+            self._primary_val_key = "val"
+            primary_val_dl = val_dataloader
+            self.val_dataloaders[self._primary_val_key] = val_dataloader
+        else:
+            self.val_dataloaders = {}
 
         # Set random seeds for reproducibility
         self._set_seed(config.random_seed)
@@ -164,15 +183,38 @@ class Trainer:
             self.model,
             self.optimizer,
             self.train_dataloader,
-            self.val_dataloader,
+            prepared_primary_val_dl,
             self.lr_scheduler,
         ) = prepare_for_training(
             self.accelerator,
             model,
             self.optimizer,
             train_dataloader,
-            val_dataloader,
+            primary_val_dl,
             self.lr_scheduler,
+        )
+
+        # Ensure validation dataloaders are prepared for distributed execution
+        if self.val_dataloaders:
+            if self._primary_val_key and prepared_primary_val_dl is not None:
+                self.val_dataloaders[self._primary_val_key] = prepared_primary_val_dl
+
+            if len(self.val_dataloaders) > 1 or prepared_primary_val_dl is None:
+                for split_name, dataloader in list(self.val_dataloaders.items()):
+                    if (
+                        self._primary_val_key == split_name
+                        and prepared_primary_val_dl is not None
+                    ):
+                        continue
+                    self.val_dataloaders[split_name] = self.accelerator.prepare_data_loader(
+                        dataloader
+                    )
+
+        # Maintain backward compatibility attribute
+        self.val_dataloader = (
+            self.val_dataloaders[self._primary_val_key]
+            if self._primary_val_key and self._primary_val_key in self.val_dataloaders
+            else None
         )
 
         # Setup loss functions
@@ -328,7 +370,7 @@ class Trainer:
 
             # Validation
             val_metrics = {}
-            if self.val_dataloader is not None and self.config.validation:
+            if self.val_dataloaders and self.config.validation:
                 if (epoch + 1) % self.config.validation.interval == 0 or epoch == 0:
                     val_metrics = self.validate()
 
@@ -477,103 +519,142 @@ class Trainer:
 
     @torch.no_grad()
     def validate(self) -> Dict[str, float]:
-        """Run validation."""
+        """Run validation across all configured splits."""
+        if not self.val_dataloaders:
+            return {}
+
         self.model.eval()
         self.callback_handler.on_validation_begin(self)
 
-        total_loss = 0.0
-        total_samples = 0
-        all_metrics = []
-
-        # Check if max_steps is set for validation
         max_val_steps = (
             getattr(self.config.validation, "max_steps", None)
             if self.config.validation
             else None
         )
 
-        # Estimate total batches for tqdm progress bar
-        total_batches = len(self.val_dataloader) if self.val_dataloader else 0
+        split_metrics: Dict[str, Dict[str, float]] = {}
 
-        for batch_idx, batch in enumerate(
-            tqdm(
-                self.val_dataloader,
-                desc="Validation",
-                disable=not self.accelerator.is_local_main_process,
-                total=total_batches,
-            )
-        ):
-            # Stop if max_steps reached
-            if max_val_steps is not None and batch_idx >= max_val_steps:
-                break
+        for split_name, dataloader in self.val_dataloaders.items():
+            total_loss = 0.0
+            total_samples = 0
+            all_metrics = []
 
-            outputs = self.model(x=batch["features"])
+            try:
+                total_batches = len(dataloader)
+            except TypeError:
+                total_batches = None
 
-            # Handle different label formats (ego-centric vs binary diarization)
-            if "labels" in batch:
-                # Ego-centric diarization: labels are [batch, num_frames] with class indices
-                targets = batch["labels"]
-            elif "speaker_activity" in batch:
-                # Binary diarization: transpose from [batch, num_speakers, num_frames] to [batch, num_frames, num_speakers]
-                targets = batch["speaker_activity"].transpose(1, 2).float()
+            for batch_idx, batch in enumerate(
+                tqdm(
+                    dataloader,
+                    desc=f"Validation[{split_name}]",
+                    disable=not self.accelerator.is_local_main_process,
+                    total=total_batches,
+                )
+            ):
+                if max_val_steps is not None and batch_idx >= max_val_steps:
+                    break
+
+                outputs = self.model(x=batch["features"])
+
+                if "labels" in batch:
+                    targets = batch["labels"]
+                elif "speaker_activity" in batch:
+                    targets = batch["speaker_activity"].transpose(1, 2).float()
+                else:
+                    raise ValueError(
+                        "Batch must contain either 'labels' or 'speaker_activity'"
+                    )
+
+                loss_dict = compute_loss(
+                    self.loss_fn,
+                    outputs if isinstance(outputs, torch.Tensor) else outputs.logits,
+                    targets,
+                )
+
+                total_loss += loss_dict["total"].item() * targets.size(0)
+                total_samples += targets.size(0)
+
+                batch_metrics = compute_metrics(
+                    outputs if isinstance(outputs, torch.Tensor) else outputs.logits,
+                    targets,
+                    task_type="diarization",
+                )
+                all_metrics.append(batch_metrics)
+
+            if total_samples == 0:
+                split_results = {"val_loss": float("nan")}
             else:
-                raise ValueError(
-                    "Batch must contain either 'labels' or 'speaker_activity'")
+                split_results = {"val_loss": total_loss / total_samples}
 
-            # Compute loss
-            loss_dict = compute_loss(
-                self.loss_fn,
-                outputs if isinstance(
-                    outputs, torch.Tensor) else outputs.logits,
-                targets,
+            if all_metrics:
+                for key in all_metrics[0].keys():
+                    split_results[f"val_{key}"] = float(
+                        np.mean([m[key] for m in all_metrics])
+                    )
+
+            split_results = all_reduce_metrics(self.accelerator, split_results)
+            split_metrics[split_name] = split_results
+
+            metrics_str = " | ".join(
+                f"{metric}: {value:.4f}" for metric, value in split_results.items()
             )
+            self.accelerator.print(f"Validation[{split_name}] | {metrics_str}")
 
-            total_loss += loss_dict["total"].item() * targets.size(0)
-            total_samples += targets.size(0)
+        aggregated_metrics = self._aggregate_validation_metrics(split_metrics)
 
-            # Compute metrics
-            batch_metrics = compute_metrics(
-                outputs if isinstance(
-                    outputs, torch.Tensor) else outputs.logits,
-                targets,
-                task_type="diarization",
-            )
-            all_metrics.append(batch_metrics)
-
-        # Average metrics
-        val_metrics = {
-            "val_loss": total_loss / total_samples,
-        }
-
-        # Aggregate batch metrics
-        if all_metrics:
-            for key in all_metrics[0].keys():
-                val_metrics[f"val_{key}"] = float(
-                    np.mean([m[key] for m in all_metrics]))
-
-        # All-reduce for distributed
-        val_metrics = all_reduce_metrics(self.accelerator, val_metrics)
-
-        # Log metrics via Accelerate (ensure proper logging)
         if self.config.logging and (
             self.config.logging.tensorboard or self.config.logging.wandb
         ):
-            self.accelerator.log(val_metrics, step=self.global_step)
+            log_payload = {
+                f"{split}/{metric}": value
+                for split, metrics in split_metrics.items()
+                for metric, value in metrics.items()
+            }
+            log_payload.update(aggregated_metrics)
+            self.accelerator.log(log_payload, step=self.global_step)
             self.accelerator.print(
-                f"✓ Validation metrics logged to trackers at step {self.global_step}"
+                "✓ Validation metrics logged to trackers for splits: "
+                + ", ".join(split_metrics.keys())
             )
 
-        self.callback_handler.on_validation_end(self, val_metrics)
+        self.callback_handler.on_validation_end(self, aggregated_metrics)
 
-        self.accelerator.print(
-            f"Validation | Loss: {val_metrics['val_loss']:.4f} | "
-            + " | ".join(
-                [f"{k}: {v:.4f}" for k, v in val_metrics.items() if k !=
-                 "val_loss"]
+        if aggregated_metrics:
+            metric_summary = " | ".join(
+                f"{metric}: {value:.4f}" for metric, value in aggregated_metrics.items()
             )
-        )
+            self.accelerator.print(f"Validation (avg) | {metric_summary}")
 
-        return val_metrics
+        return aggregated_metrics
+
+    def _aggregate_validation_metrics(
+        self, split_metrics: Dict[str, Dict[str, float]]
+    ) -> Dict[str, float]:
+        """Average metrics across validation splits."""
+        if not split_metrics:
+            return {}
+
+        numeric_keys: Optional[set[str]] = None
+        for metrics in split_metrics.values():
+            current_keys = {
+                key for key, value in metrics.items() if isinstance(value, numbers.Number)
+            }
+            if numeric_keys is None:
+                numeric_keys = current_keys
+            else:
+                numeric_keys &= current_keys
+
+        if not numeric_keys:
+            return {}
+
+        aggregated: Dict[str, float] = {}
+        for key in numeric_keys:
+            aggregated[key] = float(
+                np.mean([metrics[key] for metrics in split_metrics.values()])
+            )
+
+        return aggregated
 
     def save_checkpoint(self, name: str, is_best: bool = False):
         """Save training checkpoint."""
