@@ -329,7 +329,7 @@ class DatasetConfigError(Exception):
 
 
 def _ensure_str_mapping(value: Any, context: str) -> Dict[str, Any]:
-    """Return a shallow copy of *value* if it is a mapping with string keys."""
+    """Return a shallow copy of value if it is a mapping with string keys."""
 
     if not isinstance(value, Mapping):
         raise DatasetConfigError(f"{context} must be a mapping")
@@ -470,7 +470,7 @@ def validate_dataset_config(
     )
 
 
-def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
+def parse_dataset_configs(config_path: Union[str, Path]) -> Tuple[List[DatasetConfig], GlobalConfig]:
     """Parse a YAML configuration file and return validated dataset configs."""
 
     path_obj = Path(config_path)
@@ -510,6 +510,7 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
         )
 
     global_config_section = config_data.get("global_config")
+
     if global_config_section is None:
         raise DatasetConfigError(
             "Missing 'global_config' section in configuration. "
@@ -664,7 +665,7 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
             validated_config = validate_dataset_config(
                 dataset_entry, global_config_dict
             )
-            # type: ignore[attr-defined]
+
             validated_config.global_config = global_config_obj
             validated_configs.append(validated_config)
         except DatasetConfigError as exc:
@@ -672,7 +673,7 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> List[DatasetConfig]:
                 f"Error in dataset configuration {index + 1}: {exc}"
             ) from exc
 
-    return validated_configs
+    return validated_configs, global_config_obj
 
 
 def datasets_manager_parser() -> Tuple[SimpleNamespace, List[DatasetConfig]]:

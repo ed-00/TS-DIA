@@ -74,13 +74,16 @@ Command Line:
     ```
 """
 
+from os import PathLike
 from pathlib import Path
+from types import SimpleNamespace
 from typing import List, Optional, Tuple, Union
 
+from dataclasses_json import global_config
 import yaml
 from yamlargparse import ArgumentParser
 
-from data_manager.dataset_types import DatasetConfig
+from data_manager.dataset_types import DatasetConfig, GlobalConfig
 from model.parse_model_args import ModelConfigError, parse_model_config
 from data_manager.parse_args import DatasetConfigError, parse_dataset_configs
 from model.model_types import EncoderConfig, DecoderConfig, EncoderDecoderConfig, ModelConfig
@@ -112,7 +115,7 @@ class ConfigError(Exception):
 
 def parse_config(
     config_path: Union[str, Path],
-) -> Tuple[Optional[ModelConfig], Optional[List[DatasetConfig]]]:
+) -> Tuple[Optional[ModelConfig], Optional[List[DatasetConfig]], Optional[GlobalConfig]]:
     """
     Parse YAML configuration file with both model and dataset configurations.
 
@@ -173,9 +176,10 @@ def parse_config(
 
     # Parse dataset configurations if present
     dataset_configs = None
+    global_config = None
     if "datasets" in config_data:
         try:
-            dataset_configs = parse_dataset_configs(config_path)
+            dataset_configs, global_config = parse_dataset_configs(config_path)
             if dataset_configs is None or len(dataset_configs) == 0:
                 raise DatasetConfigError(
                     "Dataset configuration parsing returned empty result"
@@ -198,10 +202,10 @@ def parse_config(
             "Please add the required configuration."
         )
 
-    return model_config, dataset_configs
+    return model_config, dataset_configs, global_config
 
 
-def unified_parser():
+def unified_parser() -> Tuple[SimpleNamespace, ModelConfig | None, List[DatasetConfig] | None, GlobalConfig | None, TrainingConfig | None, Path]:
     """
     Unified argument parser for model, dataset, and training configuration.
 
@@ -272,7 +276,8 @@ def unified_parser():
 
     try:
         # Parse base configuration from YAML
-        model_config, dataset_configs = parse_config(args.config)
+        model_config, dataset_configs, global_config = parse_config(
+            args.config)
 
         # Parse training config if present
         training_config = None
@@ -375,7 +380,7 @@ def unified_parser():
             model_config = None
             dataset_configs = None
 
-        return args, model_config, dataset_configs, training_config, config_path
+        return args, model_config, dataset_configs, global_config, training_config, config_path
     except (
         ConfigError,
         ModelConfigError,
@@ -391,7 +396,7 @@ def combined_parser():
 
     Use unified_parser() for new code.
     """
-    args, model_config, dataset_configs, _, _ = unified_parser()
+    args, model_config, dataset_configs, global_config, _, _ = unified_parser()
     return args, model_config, dataset_configs
 
 

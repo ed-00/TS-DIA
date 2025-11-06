@@ -23,20 +23,22 @@ Usage:
     # Multi-GPU training with torchrun
     torchrun --nproc_per_node=4 train.py --config configs/training_example.yml
 """
+import sys
 from data_manager.data_manager import DatasetManager
 from model.model_factory import create_model
 from parse_args import unified_parser
 from training import Trainer
 from data_manager.dataset_types import DatasetConfig
 
+
 def main():
     """Main training function."""
     # Parse unified configuration with CLI overrides
-    args, model_config, dataset_configs, training_config, config_path = unified_parser()
-    
-    if dataset_configs is None or len(dataset_configs) == 0 or not hasattr(dataset_configs[0],"global_config"):
-         raise ValueError("No data config parsed")
-     
+    _, model_config, dataset_configs, global_config, training_config, config_path = unified_parser()
+
+    if dataset_configs is None or len(dataset_configs) == 0 or not global_config:
+        raise ValueError("No data config parsed")
+
     # Load datasets and create diarization dataloaders (parser ensures valid configs)
     cut_sets = DatasetManager.load_datasets(datasets=dataset_configs)
 
@@ -44,12 +46,11 @@ def main():
     if training_config is None:
         print(
             "No training configuration found — datasets downloaded and prepared. Exiting.")
-        return
+        sys.exit(0)
 
     # Get dataset name and configuration
     dataset_name: str = dataset_configs[0].name
-    global_config = getattr(dataset_configs[0], 'global_config', None)
-    
+
     if global_config is None:
         raise ValueError("No global configuration found in dataset config")
 
@@ -76,7 +77,8 @@ def main():
         label_type=label_type,
         random_seed=random_seed,
     )
-    print(f"\n✓ Diarization dataloaders created with label_type='{label_type}'")
+    print(
+        f"\n✓ Diarization dataloaders created with label_type='{label_type}'")
 
     # Create model (parser ensures configs are never None)
     if model_config is None:
