@@ -9,7 +9,7 @@ before combination and can save the combined result to disk.
 from lhotse.manipulation import combine
 from typing import List, Literal, Optional
 from lhotse.utils import Pathlike
-from lhotse import CutSet
+from lhotse import CutSet, RecordingSet, SupervisionSet
 from pathlib import Path
 import random
 import argparse
@@ -187,6 +187,75 @@ def load_cutsets_from_files(file_paths: List[Pathlike]) -> List[CutSet]:
     return cutsets
 
 
+def load_paired_cutsets_from_manifests(recording_paths: List[Pathlike], supervision_paths: List[Pathlike]) -> List[CutSet]:
+    """
+    Load CutSets from paired recording and supervision manifest files.
+    
+    This function ensures that recordings and supervisions are properly aligned
+    by loading them together using CutSet.from_manifests(), which maintains
+    the correct pairing between audio and labels.
+    
+    Args:
+        recording_paths (List[Pathlike]): List of recording manifest file paths
+        supervision_paths (List[Pathlike]): List of supervision manifest file paths
+                                          (must correspond 1:1 with recording_paths)
+    
+    Returns:
+        List[CutSet]: List of CutSets with properly paired recordings and supervisions
+        
+    Raises:
+        ValueError: If the number of recording and supervision files don't match
+        FileNotFoundError: If any of the specified files doesn't exist
+        ValueError: If files cannot be loaded as CutSets
+        
+    Example:
+        >>> rec_paths = [
+        ...     '/path/to/dataset1_recordings.jsonl.gz',
+        ...     '/path/to/dataset2_recordings.jsonl.gz'
+        ... ]
+        >>> sup_paths = [
+        ...     '/path/to/dataset1_supervisions.jsonl.gz',
+        ...     '/path/to/dataset2_supervisions.jsonl.gz'
+        ... ]
+        >>> cutsets = load_paired_cutsets_from_manifests(rec_paths, sup_paths)
+    """
+    if len(recording_paths) != len(supervision_paths):
+        raise ValueError(
+            f"Number of recording files ({len(recording_paths)}) must match "
+            f"number of supervision files ({len(supervision_paths)})"
+        )
+    
+    cutsets = []
+    for rec_path, sup_path in zip(recording_paths, supervision_paths):
+        rec_path = Path(rec_path)
+        sup_path = Path(sup_path)
+        
+        # Validate files exist
+        if not rec_path.exists():
+            raise FileNotFoundError(f"Recording file does not exist: {rec_path}")
+        if not sup_path.exists():
+            raise FileNotFoundError(f"Supervision file does not exist: {sup_path}")
+        
+        try:
+            # Load RecordingSet and SupervisionSet first
+            recordings = RecordingSet.from_file(rec_path)
+            supervisions = SupervisionSet.from_file(sup_path)
+            
+            # Create paired CutSet to maintain alignment
+            cutset = CutSet.from_manifests(
+                recordings=recordings,
+                supervisions=supervisions
+            )
+            cutsets.append(cutset)
+            print(f"Loaded {len(cutset)} paired cuts from:")
+            print(f"  - Recordings: {rec_path}")
+            print(f"  - Supervisions: {sup_path}")
+        except Exception as e:
+            raise ValueError(f"Failed to load paired CutSet from {rec_path} and {sup_path}: {e}")
+    
+    return cutsets
+
+
 def main():
     """Main function with argument parsing for command-line usage."""
     parser = argparse.ArgumentParser(
@@ -194,11 +263,28 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
-    # Required arguments
+    # Input arguments
     parser.add_argument(
         "input_files",
+        nargs="*",
+        help="List of .jsonl.gz files containing CutSet data (for single file mode)"
+    )
+    parser.add_argument(
+        "--paired-manifests",
+        action="store_true",
+        help="Use paired recording and supervision manifest mode"
+    )
+    
+    # Paired manifest arguments (only used with --paired-manifests)
+    parser.add_argument(
+        "--recording-files",
         nargs="+",
-        help="List of .jsonl.gz files containing CutSet data (supervisions or recordings)"
+        help="List of recording manifest files (required with --paired-manifests)"
+    )
+    parser.add_argument(
+        "--supervision-files",
+        nargs="+",
+        help="List of supervision manifest files (required with --paired-manifests)"
     )
     
     # Output options
@@ -252,17 +338,43 @@ def main():
     
     args = parser.parse_args()
     
-    # Validate inputs
-    for file_path in args.input_files:
-        if not Path(file_path).exists():
-            parser.error(f"Input file does not exist: {file_path}")
-        if not file_path.endswith(('.jsonl.gz', '.jsonl')):
-            parser.error(f"Input file must be .jsonl.gz or .jsonl: {file_path}")
+    # Validate input mode
+    if args.paired_manifests:
+        if not args.recording_files or not args.supervision_files:
+            parser.error("--recording-files and --supervision-files are required with --paired-manifests")
+        
+        if len(args.recording_files) != len(args.supervision_files):
+            parser.error("Number of recording files must match number of supervision files")
+        
+        # Validate paired files
+        for rec_file, sup_file in zip(args.recording_files, args.supervision_files):
+            if not Path(rec_file).exists():
+                parser.error(f"Recording file does not exist: {rec_file}")
+            if not Path(sup_file).exists():
+                parser.error(f"Supervision file does not exist: {sup_file}")
+            if not rec_file.endswith(('.jsonl.gz', '.jsonl')):
+                parser.error(f"Recording file must be .jsonl.gz or .jsonl: {rec_file}")
+            if not sup_file.endswith(('.jsonl.gz', '.jsonl')):
+                parser.error(f"Supervision file must be .jsonl.gz or .jsonl: {sup_file}")
+        
+        input_files_count = len(args.recording_files)
+    else:
+        if not args.input_files:
+            parser.error("Either input_files or --paired-manifests mode is required")
+        
+        # Validate single files
+        for file_path in args.input_files:
+            if not Path(file_path).exists():
+                parser.error(f"Input file does not exist: {file_path}")
+            if not file_path.endswith(('.jsonl.gz', '.jsonl')):
+                parser.error(f"Input file must be .jsonl.gz or .jsonl: {file_path}")
+        
+        input_files_count = len(args.input_files)
     
     if args.subset_mapping and not args.ratio_type:
         parser.error("--ratio-type must be specified when using --subset-mapping")
     
-    if args.subset_mapping and len(args.subset_mapping) != len(args.input_files):
+    if args.subset_mapping and len(args.subset_mapping) != input_files_count:
         parser.error("Number of subset mapping values must match number of input files")
     
     # Setup random seed
@@ -271,7 +383,10 @@ def main():
         random_seed = random.Random(args.random_seed)
     
     if args.verbose:
-        print(f"Loading {len(args.input_files)} CutSet files...")
+        if args.paired_manifests:
+            print(f"Loading {len(args.recording_files)} paired CutSet files...")
+        else:
+            print(f"Loading {len(args.input_files)} CutSet files...")
         print(f"Output directory: {args.output_dir}")
         print(f"Output file: {args.output_name}")
         print(f"Shuffle: {not args.no_shuffle}")
@@ -281,7 +396,10 @@ def main():
     
     try:
         # Load CutSets from files
-        cutsets = load_cutsets_from_files(args.input_files)
+        if args.paired_manifests:
+            cutsets = load_paired_cutsets_from_manifests(args.recording_files, args.supervision_files)
+        else:
+            cutsets = load_cutsets_from_files(args.input_files)
         
         if args.verbose:
             total_cuts = sum(len(cs) for cs in cutsets)
