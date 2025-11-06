@@ -628,19 +628,6 @@ class DatasetManager:
         if torch_threads is not None:
             torch.set_num_threads(torch_threads)
 
-        # Optionally window long recordings before feature extraction
-        if getattr(feature_cfg, "cut_window_seconds", None):
-            try:
-                cut_window_seconds = getattr(
-                    feature_cfg, "cut_window_seconds", None)
-                if cut_window_seconds is not None:
-                    window_sec = float(cut_window_seconds)
-                    # Use sliding windows with no overlap for simplicity; can be made configurable
-                    cuts = cuts.cut_into_windows(
-                        duration=window_sec, hop=window_sec)
-            except Exception as e:
-                print(f"Warning: failed to window cuts: {e}")
-
         # Compute and store features to per-dataset directory (multiprocessing-friendly)
         dataset_storage_path = Path(storage_root) / dataset_name
         dataset_storage_path.mkdir(parents=True, exist_ok=True)
@@ -781,8 +768,6 @@ class DatasetManager:
 
         return normalized
 
-
-
     @staticmethod
     def _create_dataset(
         cuts: CutSet,
@@ -806,16 +791,22 @@ class DatasetManager:
         if label_type == "ego":
             # Import here to avoid circular dependency
             # Get parameters from data_loading config if available
-            subsampling = getattr(data_loading, 'subsampling', 10) if data_loading else 10
-            context_size = getattr(data_loading, 'context_size', 7) if data_loading else 7
-            min_enroll_len = getattr(data_loading, 'min_enroll_len', 1.0) if data_loading else 1.0
-            max_enroll_len = getattr(data_loading, 'max_enroll_len', 5.0) if data_loading else 5.0
-            chunk_size = getattr(data_loading, 'chunk_size', None) if data_loading else None
-            
+            subsampling = getattr(
+                data_loading, 'subsampling', 10) if data_loading else 10
+            context_size = getattr(
+                data_loading, 'context_size', 7) if data_loading else 7
+            min_enroll_len = getattr(
+                data_loading, 'min_enroll_len', 1.0) if data_loading else 1.0
+            max_enroll_len = getattr(
+                data_loading, 'max_enroll_len', 5.0) if data_loading else 5.0
+            chunk_size = getattr(data_loading, 'chunk_size',
+                                 None) if data_loading else None
+
             # chunk_size is now mandatory for ego-centric datasets
             if chunk_size is None:
-                raise ValueError("chunk_size is required for ego-centric diarization datasets. Please specify chunk_size in data_loading config.")
-            
+                raise ValueError(
+                    "chunk_size is required for ego-centric diarization datasets. Please specify chunk_size in data_loading config.")
+
             return EgoCentricDiarizationDataset(
                 cuts=cuts,
                 chunk_size=chunk_size,
@@ -880,10 +871,12 @@ class DatasetManager:
             cuts = cuts.cut_into_windows(duration=data_loading.chunk_size)
             # Pad cuts to ensure all have the same duration
             cuts = cuts.pad(duration=data_loading.chunk_size)
-            print(f"Applied chunking with window size {data_loading.chunk_size}s and padding")
+            print(
+                f"Applied chunking with window size {data_loading.chunk_size}s and padding")
         elif label_type == "ego":
             # For ego-centric dataset, chunking is mandatory
-            raise ValueError("chunk_size is required for ego-centric datasets. Please specify chunk_size in data_loading config.")
+            raise ValueError(
+                "chunk_size is required for ego-centric datasets. Please specify chunk_size in data_loading config.")
 
         # Create dataset
         dataset = DatasetManager._create_dataset(

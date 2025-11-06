@@ -154,6 +154,7 @@ training:
     batch_size: 32                  # Validation batch size (matching training)
     metric_for_best_model: val_loss # Metric to track for best model
     greater_is_better: false        # Whether higher metric is better
+    splits: []
   
   # ---------------------------------------------------------------------------
   # Early Stopping Configuration
@@ -302,12 +303,13 @@ global_config:
   num_jobs: 1  # CRITICAL: Single process for reliable caching (avoid race conditions)
   device: cuda
   progress_bar: true
-  cut_window_seconds: 50  # Window long recordings before extraction
+
 
 datasets:
+  - name: combos1-5
 
   # - name: ava_avd
-  #   download_params:
+  #   download_params
   #     download_annotations: true
   #     download_videos: true
 

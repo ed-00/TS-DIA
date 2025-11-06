@@ -33,7 +33,7 @@ global_config:
   num_jobs: 1  # Use single process for reliable caching
   device: cpu
   progress_bar: true
-  cut_window_seconds: 50  # Window long recordings before extraction
+
 
 datasets:
   # - name: ava_avd

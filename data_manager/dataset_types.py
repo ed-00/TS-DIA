@@ -131,9 +131,6 @@ class FeatureConfig:
 
         # Hardware
         device: Device for computation ('cpu', 'cuda')
-
-        # Windowing of long recordings before feature extraction
-        cut_window_seconds: If set (>0), pre-window long recordings to fixed-length cuts
     """
 
     # Feature type
@@ -185,9 +182,6 @@ class FeatureConfig:
 
     # Hardware
     device: str = "cpu"
-
-    # Windowing of long recordings before feature extraction
-    cut_window_seconds: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for function calls"""
