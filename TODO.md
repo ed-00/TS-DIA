@@ -237,8 +237,8 @@ Week 43, the transformer model is implementd, the data need to be preped to star
 
 
 [ ] add combine datasets functionality for the datamanager 
-    [ ] include subseting ratio from each in training set.
-    [ ] include multi-devset metrics, and devset metric avrageing. 
+    [x] include subseting ratio from each in training set.
+    [ ] include multi-devset metrics, and devset metric avrageing. (next up)
     [ ] expand the subset selection 
 
 
