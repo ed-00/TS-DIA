@@ -103,36 +103,53 @@ if ! validate_files "${TRAIN_RECORDING_FILES[@]}"; then
 fi
 print_success "All train recording files found"
 
-# Combine train datasets using paired manifests to maintain alignment
-print_info "Combining train datasets with paired manifests..."
-print_info "This ensures recordings and supervisions stay properly aligned"
-print_info "Output file: simu_1_to_5spk_train_combined.jsonl.gz"
+# Combine train supervision files
+print_info "Combining train supervision files..."
+print_info "Output file: combos1-5_supervisions_train.jsonl.gz"
 
 python3 "$COMBINE_SCRIPT" \
-    --paired-manifests \
-    --recording-files "${TRAIN_RECORDING_FILES[@]}" \
-    --supervision-files "${TRAIN_SUPERVISION_FILES[@]}" \
+    "${TRAIN_SUPERVISION_FILES[@]}" \
     --output-dir "$OUTPUT_DIR" \
-    --output-name "simu_1_to_5spk_train_combined.jsonl.gz" \
-    --verbose \
-    --random-seed 42
+    --output-name "combos1-5_supervisions_train.jsonl.gz" \
+    --verbose
 
 if [ $? -eq 0 ]; then
-    print_success "Train datasets combined successfully with proper alignment"
+    print_success "Train supervisions combined successfully"
 else
-    print_error "Failed to combine train datasets"
+    print_error "Failed to combine train supervisions"
+    exit 1
+fi
+
+# Combine train recording files
+print_info "Combining train recording files..."
+print_info "Output file: combos1-5_recordings_train.jsonl.gz"
+
+python3 "$COMBINE_SCRIPT" \
+    "${TRAIN_RECORDING_FILES[@]}" \
+    --output-dir "$OUTPUT_DIR" \
+    --output-name "combos1-5_recordings_train.jsonl.gz" \
+    --verbose
+
+if [ $? -eq 0 ]; then
+    print_success "Train recordings combined successfully"
+else
+    print_error "Failed to combine train recordings"
     exit 1
 fi
 
 # Display summary
 print_success "Dataset combination completed!"
-print_info "Combined file created with proper recording-supervision alignment:"
-echo "  - $OUTPUT_DIR/simu_1_to_5spk_train_combined.jsonl.gz"
+print_info "Combined files created:"
+echo "  - $OUTPUT_DIR/combos1-5_supervisions_train.jsonl.gz"
+echo "  - $OUTPUT_DIR/combos1-5_recordings_train.jsonl.gz"
 
 # Display file sizes
-print_info "File size:"
-if [ -f "$OUTPUT_DIR/simu_1_to_5spk_train_combined.jsonl.gz" ]; then
-    echo "  - Combined dataset: $(du -h "$OUTPUT_DIR/simu_1_to_5spk_train_combined.jsonl.gz" | cut -f1)"
+print_info "File sizes:"
+if [ -f "$OUTPUT_DIR/combos1-5_supervisions_train.jsonl.gz" ]; then
+    echo "  - Supervisions: $(du -h "$OUTPUT_DIR/combos1-5_supervisions_train.jsonl.gz" | cut -f1)"
+fi
+if [ -f "$OUTPUT_DIR/combos1-5_recordings_train.jsonl.gz" ]; then
+    echo "  - Recordings: $(du -h "$OUTPUT_DIR/combos1-5_recordings_train.jsonl.gz" | cut -f1)"
 fi
 
 print_success "All operations completed successfully!"
