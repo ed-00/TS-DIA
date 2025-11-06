@@ -310,6 +310,9 @@ class DatasetConfig:
     process_params: Union[BaseProcessParams, Dict[str, Any]] = field(
         default_factory=BaseProcessParams
     )
+    precomputed_only: bool = False
+    precomputed_manifest_dir: Optional[str] = None
+    global_config: Optional[GlobalConfig] = None
 
     def __post_init__(self):
         """Convert dict parameters to appropriate typed classes if needed"""
@@ -331,17 +334,33 @@ class DatasetConfig:
 
     def get_download_kwargs(self) -> Dict[str, Any]:
         """Get download parameters as dictionary"""
+        if self.precomputed_only:
+            return {}
+
         kwargs = self.download_params if isinstance(
             self.download_params, dict) else self.download_params.to_dict()
 
         # Ensure target_dir is dataset-specific by appending dataset name
-        if "target_dir" in kwargs:
+        if "target_dir" in kwargs and kwargs["target_dir"]:
             kwargs["target_dir"] = str(Path(kwargs["target_dir"]) / self.name)
 
         return kwargs
 
     def get_process_kwargs(self) -> Dict[str, Any]:
         """Get process parameters as dictionary"""
+        if self.precomputed_only:
+            manifest_dir = self.precomputed_manifest_dir
+            if manifest_dir is None:
+                manifest_dir = (
+                    f"{self.global_config.output_dir}/{self.name}"
+                    if self.global_config is not None
+                    else None
+                )
+            result: Dict[str, Any] = {}
+            if manifest_dir is not None:
+                result["output_dir"] = manifest_dir
+            return result
+
         if isinstance(self.process_params, dict):
             return self.process_params
         return self.process_params.to_dict()
@@ -354,15 +373,39 @@ class DatasetConfig:
             # Convert dict to GlobalConfig for consistency
             global_config = GlobalConfig(**global_config)
 
+        self.global_config = global_config
+
         # Apply global download params
-        if isinstance(self.download_params, dict):
-            if "force_download" not in self.download_params:
-                self.download_params["force_download"] = global_config.force_download
-        else:
-            if not hasattr(self.download_params, "force_download"):
-                self.download_params.force_download = global_config.force_download
+        if not self.precomputed_only:
+            if isinstance(self.download_params, dict):
+                if "force_download" not in self.download_params:
+                    self.download_params["force_download"] = global_config.force_download
+                if "target_dir" not in self.download_params:
+                    self.download_params["target_dir"] = global_config.corpus_dir
+            else:
+                if not hasattr(self.download_params, "force_download"):
+                    self.download_params.force_download = global_config.force_download
+                if (
+                    hasattr(self.download_params, "target_dir")
+                    and getattr(self.download_params, "target_dir") in (None, "./")
+                ):
+                    self.download_params.target_dir = global_config.corpus_dir
 
         # Apply global process params
+        if self.precomputed_only:
+            if self.precomputed_manifest_dir is None:
+                self.precomputed_manifest_dir = (
+                    f"{global_config.output_dir}/{self.name}"
+                )
+
+            if isinstance(self.process_params, dict):
+                self.process_params.setdefault(
+                    "output_dir", self.precomputed_manifest_dir
+                )
+            else:
+                self.process_params.output_dir = self.precomputed_manifest_dir
+            return
+
         if isinstance(self.process_params, dict):
             if "corpus_dir" not in self.process_params:
                 self.process_params["corpus_dir"] = (

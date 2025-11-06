@@ -386,8 +386,34 @@ def validate_dataset_config(
 
     dataset_name = dataset_name_raw.lower()
 
-    # Validate dataset name exists
+    global_config_dict: Optional[Dict[str, Any]] = None
+    if global_config is not None:
+        global_config_dict = _ensure_str_mapping(
+            global_config, "global configuration")
+
+    manifest_dir_override = dataset_config_dict.get("manifest_dir")
+    manifest_dir: Optional[Path] = None
+    if isinstance(manifest_dir_override, str) and manifest_dir_override:
+        manifest_dir = Path(manifest_dir_override)
+    elif global_config_dict is not None:
+        global_output_dir = global_config_dict.get("output_dir")
+        if isinstance(global_output_dir, str) and global_output_dir:
+            manifest_dir = Path(global_output_dir) / dataset_name
+
+    # Validate dataset name exists or manifests are already prepared
     if dataset_name not in DATASET_DOWNLOAD_PARAMS_MAP:
+        if manifest_dir is not None and manifest_dir.exists():
+            precomputed_config = DatasetConfig(
+                name=dataset_name,
+                download_params=BaseDownloadParams(),
+                process_params=BaseProcessParams(output_dir=str(manifest_dir)),
+                precomputed_only=True,
+                precomputed_manifest_dir=str(manifest_dir),
+            )
+            if global_config_dict is not None:
+                precomputed_config.apply_global_config(global_config_dict)
+            return precomputed_config
+
         available_datasets = ", ".join(
             sorted(DATASET_DOWNLOAD_PARAMS_MAP.keys()))
         raise DatasetConfigError(
@@ -408,10 +434,7 @@ def validate_dataset_config(
         f"process_params for '{dataset_name}'",
     )
 
-    global_config_dict: Optional[Dict[str, Any]] = None
-    if global_config is not None:
-        global_config_dict = _ensure_str_mapping(
-            global_config, "global configuration")
+    if global_config_dict is not None:
 
         global_download = _optional_str_mapping(
             global_config_dict.get("download_params"),
@@ -464,11 +487,14 @@ def validate_dataset_config(
             f"Invalid process parameters for {dataset_name}: {e}"
         ) from e
 
-    return DatasetConfig(
+    dataset_obj = DatasetConfig(
         name=dataset_name,
         download_params=download_params,
         process_params=process_params,
     )
+    if global_config_dict is not None:
+        dataset_obj.apply_global_config(global_config_dict)
+    return dataset_obj
 
 
 def parse_dataset_configs(config_path: Union[str, Path]) -> Tuple[List[DatasetConfig], GlobalConfig]:
@@ -661,7 +687,7 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> Tuple[List[DatasetCo
                 dataset_entry, global_config_dict
             )
 
-            validated_config['global_config'] = global_config_obj
+            validated_config.global_config = global_config_obj
             validated_configs.append(validated_config)
         except DatasetConfigError as exc:
             raise DatasetConfigError(

@@ -1263,6 +1263,60 @@ class DatasetManager:
         return dataset_cut_sets
 
     @staticmethod
+    def _load_precomputed_dataset(
+        dataset: Any,
+        validation_split: float,
+    ) -> Dict[str, CutSet]:
+        """Load a dataset that already has prepared manifests on disk."""
+
+        manifest_dir: Optional[Path] = None
+        precomputed_dir = getattr(dataset, "precomputed_manifest_dir", None)
+        if precomputed_dir is not None:
+            manifest_dir = Path(precomputed_dir)
+        else:
+            process_kwargs = dataset.get_process_kwargs()
+            output_dir = process_kwargs.get("output_dir") if isinstance(process_kwargs, dict) else None
+            if output_dir is not None:
+                manifest_dir = Path(output_dir)
+
+        if manifest_dir is None:
+            raise ValueError(
+                f"Precomputed dataset {dataset.name} does not specify a manifest directory"
+            )
+
+        if not manifest_dir.exists():
+            raise FileNotFoundError(
+                f"Manifest directory {manifest_dir} for dataset {dataset.name} was not found"
+            )
+
+        print(f"\n{'=' * 60}")
+        print(f"Loading precomputed dataset: {dataset.name}")
+        print(f"{'=' * 60}")
+
+        manifests = DatasetManager._try_load_existing_manifests(
+            manifest_dir, dataset.name
+        )
+        if manifests is None:
+            raise ValueError(
+                f"Expected precomputed manifests for {dataset.name} in {manifest_dir}"
+            )
+
+        dataset_cut_sets = DatasetManager._manifests_to_cutsets_dict(
+            manifests, dataset.name
+        )
+
+        dataset_cut_sets = DatasetManager._normalize_splits(
+            dataset_cut_sets, dataset.name, validation_split
+        )
+
+        dataset_cut_sets = DatasetManager._process_features_for_dataset(
+            dataset, dataset_cut_sets
+        )
+
+        print(f"✓ {dataset.name} ready (loaded from cached manifests)!\n")
+        return dataset_cut_sets
+
+    @staticmethod
     def load_datasets(
         datasets: List[Any],
         batch_size: int = 32,
@@ -1332,19 +1386,24 @@ class DatasetManager:
         )
 
         # Import recipes for all datasets
-        recipes = [
-            (import_recipe(dataset.name), dataset) for dataset in params.datasets
-        ]
-
-        # Process each dataset
         all_cut_sets: Dict[str, Dict[str, CutSet]] = {}
-        for (process_function, download_function), dataset in recipes:
-            dataset_cut_sets = DatasetManager._process_single_dataset(
-                dataset=dataset,
-                process_function=process_function,
-                download_function=download_function,
-                validation_split=params.validation_split,
-            )
+        for dataset in params.datasets:
+            if getattr(dataset, "precomputed_only", False):
+                dataset_cut_sets = DatasetManager._load_precomputed_dataset(
+                    dataset=dataset,
+                    validation_split=params.validation_split,
+                )
+            else:
+                process_function, download_function = import_recipe(
+                    dataset.name
+                )
+                dataset_cut_sets = DatasetManager._process_single_dataset(
+                    dataset=dataset,
+                    process_function=process_function,
+                    download_function=download_function,
+                    validation_split=params.validation_split,
+                )
+
             all_cut_sets[dataset.name] = dataset_cut_sets
 
         return all_cut_sets
