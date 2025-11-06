@@ -266,6 +266,7 @@ class GlobalConfig:
     features: FeatureConfig = field(default_factory=FeatureConfig)
     data_loading: DataLoadingConfig = field(default_factory=DataLoadingConfig)
     random_seed: int = 42
+    sampling_rate: Optional[int] = 8000
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for function calls"""
