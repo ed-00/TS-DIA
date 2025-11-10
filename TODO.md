@@ -255,9 +255,9 @@ Week 43, the transformer model is implementd, the data need to be preped to star
     
     
 [ ] debug issue with feature extaction 
-	[ ] the problem is maybe: 
-		- the feature location, (all files are calle feat_0 for each processor), but are they shared or being overwritten by each split of the dataset?
-		- or  it is just the because of multiprocessing. 
+    [x] use batch extractor with kaldi features 
+        [ ] test and validate
+    [x] feature storage is over writing subsets
 	- training must start 09-nov. 
 
 

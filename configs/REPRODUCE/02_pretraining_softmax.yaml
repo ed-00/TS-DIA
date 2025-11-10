@@ -1,6 +1,6 @@
 model:
   model_type: encoder_decoder # Options: encoder, decoder, encoder_decoder
-  name: comprehensive_example_model
+  name: softmax_pretraining_model
 
   # ---------------------------------------------------------------------------
   # Global Configuration (shared across encoder and decoder)
@@ -293,6 +293,17 @@ global_config:
     num_jobs: 32 # CRITICAL: Use 1 job to avoid race conditions in lilcom writes
     storage_type: "lilcom_chunky"
     mix_eagerly: true
+    vtln_low: 100.0
+    vtln_high: -500.0
+    debug_mel: False
+    htk_mode: False
+    use_log_fbank: True
+    use_power: True
+    htk_compat: False
+    # frame option
+    blackman_coeff: 0.42
+    chunk_size: 1000 # for featture extaction with kaldi 
+    device: "cuda"
 
   # Data loading configuration (matching EEND exactly)
   data_loading:

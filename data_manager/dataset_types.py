@@ -180,6 +180,23 @@ class FeatureConfig:
     mix_eagerly: bool = True  # Whether to mix cuts eagerly during feature extraction
     progress_bar: bool = True  # Show progress bar during feature extraction
 
+    # Kaldi feature extractor option
+    vtln_low: float = 100.0
+    vtln_high: float = -500.0
+    debug_mel: bool = False
+
+    htk_mode: bool = False
+    use_log_fbank: bool = True
+
+    use_power: bool = True
+
+    htk_compat: bool = False
+
+    # frame option
+    blackman_coeff: float = 0.42
+
+    # MFCC specific kaldi
+    chunk_size: Optional[int] = 1000
     # Hardware
     device: str = "cpu"
 

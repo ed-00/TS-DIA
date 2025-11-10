@@ -59,8 +59,17 @@ from lhotse import (
     FbankConfig,
     Mfcc,
     MfccConfig,
+    KaldifeatFbankConfig,
+    KaldifeatFbank,
+    KaldifeatMfcc,
+    KaldifeatMfccConfig,
     RecordingSet,
     SupervisionSet
+)
+
+from lhotse.features.kaldifeat import (
+    KaldifeatFrameOptions,
+    KaldifeatMelOptions,
 )
 from lhotse.features.io import (
     LilcomChunkyWriter,
@@ -420,6 +429,9 @@ class DatasetManager:
         # So we use it directly, not append dataset_name again
         manifest_dir = output_dir
         if not manifest_dir.exists():
+            print("="*60)
+            print(f"Manifest dir dose not exit!")
+            print("="*60)
             return None
 
         # Look for standard manifest files
@@ -478,6 +490,8 @@ class DatasetManager:
                 cuts_patterns, f"cuts_{split_name}.jsonl.gz", manifest_dir
             )
 
+            print("="*60)
+            print("Resolved Manifests")
             # Need at least recordings or cuts
             if not (recordings_path or cuts_path):
                 continue
@@ -486,17 +500,23 @@ class DatasetManager:
             if recordings_path:
                 split_manifests["recordings"] = RecordingSet.from_file(
                     recordings_path)
+                print(f"- Loaded recordings from: {recordings_path}")
 
             if supervisions_path:
                 split_manifests["supervisions"] = SupervisionSet.from_file(
                     supervisions_path
                 )
+                print(f"- Loaded supervision from: {supervisions_path}")
 
             if cuts_path:
                 split_manifests["cuts"] = CutSet.from_file(cuts_path)
+                print(f"- Loaded cuset: {cuts_path}")
 
             if split_manifests:
                 manifests[split_name] = split_manifests
+                print(f"- Loaded cuset: {cuts_path}")
+            print("="*60)
+            print("\n")
 
         if not manifests:
             return None
@@ -562,49 +582,73 @@ class DatasetManager:
 
         # Build feature extractor from configuration
         if feature_cfg.feature_type == "fbank":
-            extractor = Fbank(
-                FbankConfig(
-                    sampling_rate=feature_cfg.sampling_rate,
-                    num_mel_bins=feature_cfg.num_mel_bins,
-                    frame_length=feature_cfg.frame_length,
-                    frame_shift=feature_cfg.frame_shift,
-                    dither=feature_cfg.dither,
-                    snip_edges=feature_cfg.snip_edges,
-                    round_to_power_of_two=feature_cfg.round_to_power_of_two,
-                    remove_dc_offset=feature_cfg.remove_dc_offset,
-                    preemph_coeff=feature_cfg.preemph_coeff,
-                    window_type=feature_cfg.window_type,
-                    energy_floor=feature_cfg.energy_floor,
+            extractor = KaldifeatFbank(
+                KaldifeatFbankConfig(
+                    frame_opts=KaldifeatFrameOptions(
+                        sampling_rate=feature_cfg.sampling_rate,
+                        frame_length=feature_cfg.frame_length,
+                        frame_shift=feature_cfg.frame_shift,
+                        dither=feature_cfg.dither,
+                        preemph_coeff=feature_cfg.preemph_coeff,
+                        remove_dc_offset=feature_cfg.remove_dc_offset,
+                        window_type=feature_cfg.window_type,
+                        round_to_power_of_two=feature_cfg.round_to_power_of_two,
+                        blackman_coeff=feature_cfg.blackman_coeff,
+                        snip_edges=feature_cfg.snip_edges
+                    ),
+                    mel_opts=KaldifeatMelOptions(
+                        num_bins=feature_cfg.num_mel_bins or 23,
+                        low_freq=feature_cfg.low_freq,
+                        high_freq=feature_cfg.high_freq,
+                        vtln_low=feature_cfg.vtln_low,
+                        vtln_high=feature_cfg.vtln_high,
+                        debug_mel=feature_cfg.debug_mel,
+                        htk_mode=feature_cfg.htk_mode,
+                    ),
+                    use_energy=feature_cfg.use_energy,
+                    energy_floor=feature_cfg.energy_floor,  # default was 0.0
                     raw_energy=feature_cfg.raw_energy,
-                    use_fft_mag=feature_cfg.use_fft_mag,
-                    low_freq=feature_cfg.low_freq,
-                    high_freq=feature_cfg.high_freq,
-                    torchaudio_compatible_mel_scale=feature_cfg.torchaudio_compatible_mel_scale,
-                    norm_filters=feature_cfg.norm_filters,
+                    htk_compat=feature_cfg.htk_compat,
+                    use_log_fbank=feature_cfg.use_log_fbank,
+                    use_power=feature_cfg.use_power,
+                    device=feature_cfg.device
                 )
             )
         elif feature_cfg.feature_type == "mfcc":
-            extractor = Mfcc(
-                MfccConfig(
-                    sampling_rate=feature_cfg.sampling_rate,
+
+            extractor = KaldifeatMfcc(
+                KaldifeatMfccConfig(
+                    frame_opts=KaldifeatFrameOptions(
+                        sampling_rate=feature_cfg.sampling_rate,
+                        frame_length=feature_cfg.frame_length,
+                        frame_shift=feature_cfg.frame_shift,
+                        dither=feature_cfg.dither,
+                        preemph_coeff=feature_cfg.preemph_coeff,
+                        remove_dc_offset=feature_cfg.remove_dc_offset,
+                        window_type=feature_cfg.window_type,
+                        round_to_power_of_two=feature_cfg.round_to_power_of_two,
+                        blackman_coeff=feature_cfg.blackman_coeff,
+                        snip_edges=feature_cfg.snip_edges
+                    ),
+                    mel_opts=KaldifeatMelOptions(
+                        num_bins=feature_cfg.num_mel_bins or 23,
+                        low_freq=feature_cfg.low_freq,
+                        high_freq=feature_cfg.high_freq,
+                        vtln_low=feature_cfg.vtln_low,
+                        vtln_high=feature_cfg.vtln_high,
+                        debug_mel=feature_cfg.debug_mel,
+                        htk_mode=feature_cfg.htk_mode
+                    ),
+
+                    # sampling_rate=feature_cfg.sampling_rate,
                     num_ceps=feature_cfg.num_ceps,
-                    frame_length=feature_cfg.frame_length,
-                    frame_shift=feature_cfg.frame_shift,
-                    dither=feature_cfg.dither,
-                    snip_edges=feature_cfg.snip_edges,
-                    round_to_power_of_two=feature_cfg.round_to_power_of_two,
-                    remove_dc_offset=feature_cfg.remove_dc_offset,
-                    preemph_coeff=feature_cfg.preemph_coeff,
-                    window_type=feature_cfg.window_type,
+                    use_energy=feature_cfg.use_energy,
                     energy_floor=feature_cfg.energy_floor,
                     raw_energy=feature_cfg.raw_energy,
-                    use_energy=feature_cfg.use_energy,
-                    use_fft_mag=feature_cfg.use_fft_mag,
-                    low_freq=feature_cfg.low_freq,
-                    high_freq=feature_cfg.high_freq,
-                    torchaudio_compatible_mel_scale=feature_cfg.torchaudio_compatible_mel_scale,
-                    norm_filters=feature_cfg.norm_filters,
                     cepstral_lifter=feature_cfg.cepstral_lifter,
+                    htk_compat=feature_cfg.htk_compat,
+                    device=feature_cfg.device,
+                    chunk_size=feature_cfg.chunk_size
                 )
             )
         else:
@@ -623,13 +667,15 @@ class DatasetManager:
         if num_jobs <= 0:
             num_jobs = cpu_cores
         torch_threads = feature_cfg.torch_threads
+
         if torch_threads is None and num_jobs and num_jobs > 1:
             torch_threads = 1
+
         if torch_threads is not None:
             torch.set_num_threads(torch_threads)
 
         # Compute and store features to per-dataset directory (multiprocessing-friendly)
-        dataset_storage_path = Path(storage_root) / dataset_name
+        dataset_storage_path = Path(storage_root) / f"{dataset_name}_{split_name}"
         dataset_storage_path.mkdir(parents=True, exist_ok=True)
 
         storage_type_map: Dict[str, Union[type[LilcomChunkyWriter], type[LilcomFilesWriter], type[NumpyFilesWriter]]] = {
@@ -1275,7 +1321,8 @@ class DatasetManager:
             manifest_dir = Path(precomputed_dir)
         else:
             process_kwargs = dataset.get_process_kwargs()
-            output_dir = process_kwargs.get("output_dir") if isinstance(process_kwargs, dict) else None
+            output_dir = process_kwargs.get("output_dir") if isinstance(
+                process_kwargs, dict) else None
             if output_dir is not None:
                 manifest_dir = Path(output_dir)
 
@@ -1296,6 +1343,7 @@ class DatasetManager:
         manifests = DatasetManager._try_load_existing_manifests(
             manifest_dir, dataset.name
         )
+
         if manifests is None:
             raise ValueError(
                 f"Expected precomputed manifests for {dataset.name} in {manifest_dir}"
