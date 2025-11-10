@@ -302,7 +302,7 @@ global_config:
     htk_compat: False
     # frame option
     blackman_coeff: 0.42
-    chunk_size: 1000 # for featture extaction with kaldi 
+    chunk_size: 1000 # for featture extaction with kaldi
     device: "cuda"
 
   # Data loading configuration (matching EEND exactly)
@@ -326,36 +326,28 @@ global_config:
       prefetch_factor: 2
 
 datasets:
-  - name: combos1-5
+  # - name: combos1-5
 
-  # - name: ava_avd
-  #   download_params
-  #     download_annotations: true
-  #     download_videos: true
+  - name: ami
+    download_params:
+      # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
+      mic: ihm-mix
+      url: http://groups.inf.ed.ac.uk/ami
+      annotations: null # Auto-downloaded
 
-  # - name: libriheavy_mix
-  #   download_params:
-  #     # Dataset splits to download
-  #     # Options: small (~100h), medium (~900h), large (~9000h), dev, test
-  #     dataset_parts: small
+    process_params:
+      # Microphone type to process (must match download)
+      mic: ihm-mix
 
-  #     # Number of speakers per mixture
-  #     # Options: 1, 2, 3, 4 (can be int or list)
-  #     speaker_counts: [1, 2, 3, 4]
+      # Partition selection
+      # Options: full-corpus, full-corpus-asr, scenario-only
+      partition: full-corpus
 
-  #     # HuggingFace cache directory
-  #     cache_dir: null
+      # Text normalization
+      # Options: none, upper, kaldi
+      normalize_text: none
 
-  #   process_params:
-  #     # Dataset splits to process
-  #     dataset_parts: small
+      # Segmentation options
+      max_words_per_segment: null # null = no splitting
+      merge_consecutive: false # Merge same-speaker consecutive segments
 
-  #     # Speaker counts to process
-  #     speaker_counts: [1, 2, 3, 4]
-
-  #     # Speaker filtering
-  #     min_speakers: 1
-  #     max_speakers: 4
-
-  #     # Custom split mapping (optional)
-  #     splits: null

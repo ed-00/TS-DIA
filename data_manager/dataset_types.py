@@ -170,8 +170,8 @@ class FeatureConfig:
     # Feature computation and storage parameters
     # Path to store features (None = in-memory)
     storage_path: Optional[str] = None
-    # Number of parallel jobs for feature extraction
-    num_jobs: Optional[int] = 1
+    # Number of workers for feature extraction
+    num_workers: Optional[int] = 1
     torch_threads: Optional[int] = (
         None  # PyTorch thread count (None = auto-set to 1 when num_jobs > 1)
     )
@@ -187,16 +187,17 @@ class FeatureConfig:
 
     htk_mode: bool = False
     use_log_fbank: bool = True
-
     use_power: bool = True
-
     htk_compat: bool = False
 
     # frame option
     blackman_coeff: float = 0.42
-
     # MFCC specific kaldi
     chunk_size: Optional[int] = 1000
+
+    overwrite: bool = False
+    batch_duration: float = 600.0
+
     # Hardware
     device: str = "cpu"
 

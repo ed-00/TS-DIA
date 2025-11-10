@@ -560,6 +560,7 @@ class DatasetManager:
         split_name: str,
         feature_cfg: FeatureConfig,
         storage_root: Path,
+
     ) -> CutSet:
         """
         Compute features for a single split and cache both features and the cuts-with-features manifest.
@@ -655,27 +656,9 @@ class DatasetManager:
             raise ValueError(
                 f"Unsupported feature type: {feature_cfg.feature_type}")
 
-        # Determine parallelism and pytorch threads
-        # If num_jobs <= 0, resolve to available CPU cores
-        try:
-            import os
-            cpu_cores = os.cpu_count() or 1
-        except Exception:
-            cpu_cores = 1
-
-        num_jobs = feature_cfg.num_jobs if feature_cfg.num_jobs is not None else 1
-        if num_jobs <= 0:
-            num_jobs = cpu_cores
-        torch_threads = feature_cfg.torch_threads
-
-        if torch_threads is None and num_jobs and num_jobs > 1:
-            torch_threads = 1
-
-        if torch_threads is not None:
-            torch.set_num_threads(torch_threads)
-
         # Compute and store features to per-dataset directory (multiprocessing-friendly)
-        dataset_storage_path = Path(storage_root) / f"{dataset_name}_{split_name}"
+        dataset_storage_path = Path(
+            storage_root) / f"{dataset_name}_{split_name}"
         dataset_storage_path.mkdir(parents=True, exist_ok=True)
 
         storage_type_map: Dict[str, Union[type[LilcomChunkyWriter], type[LilcomFilesWriter], type[NumpyFilesWriter]]] = {
@@ -691,20 +674,14 @@ class DatasetManager:
         if hasattr(cuts, "to_eager"):
             cuts = cuts.to_eager()
 
-        compute_and_store_untyped = getattr(cuts, "compute_and_store_features")
-        # Cast bound method to make the return type explicit for static checkers like Pylance.
-        compute_and_store = cast(
-            Callable[..., CutSet],
-            compute_and_store_untyped,
-        )
-
-        cuts_with_feats: CutSet = compute_and_store(
+        cuts_with_feats: CutSet = cuts.compute_and_store_features_batch(
             extractor=extractor,
             storage_path=dataset_storage_path,
             storage_type=storage_writer_cls,
-            num_jobs=num_jobs,
-            mix_eagerly=feature_cfg.mix_eagerly,
-            progress_bar=True,
+            num_workers=feature_cfg.num_workers or 4,
+            # Seconds duration for feture processing
+            batch_duration=feature_cfg.batch_duration,
+            overwrite=feature_cfg.overwrite
         )
 
         # Ensure eager CutSet for consistent behavior
@@ -1372,7 +1349,7 @@ class DatasetManager:
         num_workers: int = 4,
         pin_memory: bool = True,
         validation_split: float = 0.1,
-        test_split: float = 0.1
+        test_split: float = 0
     ) -> Dict[str, Dict[str, CutSet]]:
         """
         Load datasets and convert all manifest formats to CutSets for diarization tasks.
