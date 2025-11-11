@@ -156,18 +156,18 @@ training:
     batch_size: 32 # Validation batch size (matching training)
     metric_for_best_model: val_loss # Metric to track for best model
     greater_is_better: false # Whether higher metric is better
-    # splits:
-    #   [
-    #     "dev_simu_1spk_b2_mix500",
-    #     "dev_simu_2spk_b2_mix500",
-    #     "dev_simu_2spk_b3_mix500",
-    #     "dev_simu_2spk_b5_mix500",
-    #     "dev_simu_3spk_b11_mix500",
-    #     "dev_simu_3spk_b5_mix500",
-    #     "dev_simu_3spk_b7_mix500",
-    #     "dev_simu_4spk_b9_mix500",
-    #     "dev_simu_5spk_b13_mix500",
-    #   ]
+    splits:
+      [
+        "dev_simu_1spk_b2_mix500",
+        "dev_simu_2spk_b2_mix500",
+        "dev_simu_2spk_b3_mix500",
+        "dev_simu_2spk_b5_mix500",
+        "dev_simu_3spk_b11_mix500",
+        "dev_simu_3spk_b5_mix500",
+        "dev_simu_3spk_b7_mix500",
+        "dev_simu_4spk_b9_mix500",
+        "dev_simu_5spk_b13_mix500",
+      ]
 
   # ---------------------------------------------------------------------------
   # Early Stopping Configuration
@@ -299,7 +299,7 @@ global_config:
     use_log_fbank: True
     use_power: True
     htk_compat: False
-    num_workers: 32
+    num_workers: 4
     # frame option
     blackman_coeff: 0.42
     chunk_size: 1000 # for featture extaction with kaldi

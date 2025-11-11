@@ -88,6 +88,7 @@ from data_manager.parse_args import datasets_manager_parser
 from training.ego_dataset import EgoCentricDiarizationDataset
 import torch
 
+
 def __is_custom_recipe(dataset_name: str) -> bool:
     """
     Check if a custom recipe exists for the dataset.
@@ -471,8 +472,9 @@ class DatasetManager:
                         continue
 
                     try:
-                        cuts = CutSet.from_file(manifest_file)
-                    except Exception as exc:  # pragma: no cover - logging only
+                        # Use lazy loading to avoid loading large datasets into memory
+                        cuts = CutSet.from_jsonl_lazy(manifest_file)
+                    except Exception as exc:
                         print(
                             f"  → Failed to load cached CutSet from {manifest_file}: {exc}"
                         )
@@ -482,7 +484,7 @@ class DatasetManager:
                     cached_entry = cached_manifests.setdefault(split_name, {})
                     cached_entry["cuts"] = cuts
                     print(
-                        f"  ✓ {split_name}: Loaded cached CutSet with features from {manifest_file}"
+                        f"  ✓ {split_name}: Loaded cached CutSet with features (lazy) from {manifest_file}"
                     )
 
             if cached_manifests:
@@ -566,25 +568,24 @@ class DatasetManager:
             if not (recordings_path or cuts_path):
                 continue
 
-            # Use eager loading for consistent behavior
+            # Use lazy loading to avoid memory issues with large datasets
             if recordings_path:
-                split_manifests["recordings"] = RecordingSet.from_file(
+                split_manifests["recordings"] = RecordingSet.from_jsonl_lazy(
                     recordings_path)
-                print(f"- Loaded recordings from: {recordings_path}")
+                print(f"- Loaded recordings (lazy) from: {recordings_path}")
 
             if supervisions_path:
-                split_manifests["supervisions"] = SupervisionSet.from_file(
+                split_manifests["supervisions"] = SupervisionSet.from_jsonl_lazy(
                     supervisions_path
                 )
-                print(f"- Loaded supervision from: {supervisions_path}")
+                print(f"- Loaded supervision (lazy) from: {supervisions_path}")
 
             if cuts_path:
-                split_manifests["cuts"] = CutSet.from_file(cuts_path)
-                print(f"- Loaded cuset: {cuts_path}")
+                split_manifests["cuts"] = CutSet.from_jsonl_lazy(cuts_path)
+                print(f"- Loaded cutset (lazy): {cuts_path}")
 
             if split_manifests:
                 manifests[split_name] = split_manifests
-                print(f"- Loaded cuset: {cuts_path}")
             print("="*60)
             print("\n")
 
@@ -617,9 +618,9 @@ class DatasetManager:
 
         if cache_path.exists():
             print(
-                f"  ✓ {split_name}: Loaded from cache (skip feature extraction)")
-            # Use CutSet.from_file (eager) for consistent behavior
-            return CutSet.from_file(cache_path)
+                f"  ✓ {split_name}: Loaded from cache (lazy loading)")
+            # Use lazy loading to avoid memory issues with large datasets
+            return CutSet.from_jsonl_lazy(cache_path)
         print(
             f"  → {split_name}: No cache found (will extract features on first use)")
         return None
@@ -636,6 +637,13 @@ class DatasetManager:
         """
         Compute features for a single split and cache both features and the cuts-with-features manifest.
 
+        This method uses memory-efficient lazy loading to handle large datasets:
+        - Features are computed and written to disk incrementally in batches
+        - The returned CutSet uses lazy loading (only loads metadata, not feature arrays)
+        - Actual features are loaded on-demand during training/inference
+
+        This prevents memory exhaustion when processing large datasets.
+
         Args:
             cuts: Source CutSet (typically without features)
             dataset_name: Name of dataset (used for per-dataset storage)
@@ -644,12 +652,14 @@ class DatasetManager:
             storage_root: Root directory for features (global_config.storage_path)
 
         Returns:
-            CutSet with features (eager) pointing to cached feature storage
+            CutSet with features (lazy) pointing to cached feature storage
         """
-        # Resampling audio
-        if cuts[0].sampling_rate != feature_cfg.sampling_rate:
+        # Check and resample if needed - this must be done before feature extraction
+        # Note: resample() on lazy CutSets still iterates lazily
+        first_cut = next(iter(cuts))
+        if first_cut.sampling_rate != feature_cfg.sampling_rate:
             print(
-                f"Resampling audio {cuts[0].sampling_rate} -> {feature_cfg.sampling_rate}")
+                f"Resampling audio {first_cut.sampling_rate} -> {feature_cfg.sampling_rate}")
             cuts = cuts.resample(feature_cfg.sampling_rate)
 
         # Build feature extractor from configuration
@@ -741,20 +751,31 @@ class DatasetManager:
             feature_cfg.storage_type, LilcomChunkyWriter
         )
 
-        cuts_with_feats: CutSet = cuts.compute_and_store_features_batch(
+        # Manifest path for the cuts with features
+        manifest_path = dataset_storage_path / \
+            f"{dataset_name}_{split_name}_with_feats.jsonl.gz"
+
+        # Compute and store features - writes to disk incrementally
+        # Note: We don't store the return value to avoid loading everything into memory
+        cuts.compute_and_store_features_batch(
             extractor=extractor,
             storage_path=dataset_storage_path / split_name,
             storage_type=storage_writer_cls,
             num_workers=feature_cfg.num_workers or 4,
-            manifest_path=dataset_storage_path /
-            f"{dataset_name}_{split_name}_with_feats.jsonl.gz",
+            manifest_path=manifest_path,
             batch_duration=feature_cfg.batch_duration,
             overwrite=feature_cfg.overwrite,
-            
         )
 
-        # Describe the dataset
-        cuts_with_feats.describe()
+        # Load the manifest lazily to avoid memory issues with large datasets
+        # This only loads metadata, not the actual feature arrays
+        print(f"  → Loading manifest lazily from {manifest_path}")
+        cuts_with_feats = CutSet.from_jsonl_lazy(manifest_path)
+
+        # Don't call describe() as it iterates through the entire dataset
+        # and loads everything into memory. Users can call it manually if needed.
+        print(f"  ✓ Features computed and cached successfully")
+
         return cuts_with_feats
 
     @staticmethod
@@ -1553,6 +1574,7 @@ class DatasetManager:
                         CutSet.from_manifests(
                             recordings=recording_set,
                             supervisions=supervision_set,
+                            lazy=True,  # Use lazy loading to avoid memory issues
                         )
                     )
 
@@ -1564,6 +1586,7 @@ class DatasetManager:
                     CutSet.from_manifests(
                         recordings=manifests,
                         supervisions=None,
+                        lazy=True,  # Use lazy loading to avoid memory issues
                     )
                 )
             else:
@@ -1613,6 +1636,7 @@ class DatasetManager:
                         CutSet.from_manifests(
                             recordings=recording_set,
                             supervisions=supervision_set,
+                            lazy=True,  # Use lazy loading to avoid memory issues
                         )
                     )
                 elif recording_set is not None:
@@ -1621,6 +1645,7 @@ class DatasetManager:
                         CutSet.from_manifests(
                             recordings=recording_set,
                             supervisions=None,
+                            lazy=True,  # Use lazy loading to avoid memory issues
                         )
                     )
                 else:
