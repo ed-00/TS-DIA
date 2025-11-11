@@ -782,20 +782,20 @@ class DatasetManager:
     def _normalize_splits(
         dataset_cut_sets: Dict[str, CutSet],
         dataset_name: str,
-        val_split_ratio: float = 0.1,
     ) -> Dict[str, CutSet]:
         """
         Normalize dataset splits to unified format: train, val, test.
 
         Handles various split naming conventions:
         - dev → val
-        - Splits train if only train exists
         - Maps test appropriately
+
+        Note: Only uses externally defined splits. Does NOT auto-split to avoid
+        materializing large CutSets in memory.
 
         Args:
             dataset_cut_sets: Dictionary of CutSets by split name
             dataset_name: Name of the dataset
-            val_split_ratio: Ratio to use for validation split if auto-splitting (default: 0.1)
 
         Returns:
             Dictionary with normalized split names (train, val, test)
@@ -812,31 +812,10 @@ class DatasetManager:
             "eval": "test",
         }
 
-        # First pass: rename splits according to mapping
+        # Rename splits according to mapping
         for split_name, cuts in dataset_cut_sets.items():
             normalized_name = split_mapping.get(split_name.lower(), split_name)
             normalized[normalized_name] = cuts
-
-        # If we only have train, split it into train/val
-        if "train" in normalized and "val" not in normalized:
-
-            train_cuts = normalized["train"]
-
-            # Calculate split point
-            total_cuts = len(list(train_cuts))
-            val_size = int(total_cuts * val_split_ratio)
-
-            if val_size > 0:
-                print(
-                    f"Auto-splitting {dataset_name} train set: {total_cuts - val_size} train, {val_size} val"
-                )
-                # Split the cuts
-                all_cuts_list = list(train_cuts)
-                val_cuts_list = all_cuts_list[:val_size]
-                train_cuts_list = all_cuts_list[val_size:]
-
-                normalized["train"] = CutSet.from_cuts(train_cuts_list)
-                normalized["val"] = CutSet.from_cuts(val_cuts_list)
 
         return normalized
 
@@ -1326,9 +1305,9 @@ class DatasetManager:
             manifests, dataset.name
         )
 
-        # Step 4: Normalize split names (dev → val, auto-split if needed)
+        # Step 4: Normalize split names (dev → val)
         dataset_cut_sets = DatasetManager._normalize_splits(
-            dataset_cut_sets, dataset.name, validation_split
+            dataset_cut_sets, dataset.name
         )
 
         # Step 5: Load or compute features
@@ -1390,7 +1369,7 @@ class DatasetManager:
         )
 
         dataset_cut_sets = DatasetManager._normalize_splits(
-            dataset_cut_sets, dataset.name, validation_split
+            dataset_cut_sets, dataset.name
         )
 
         dataset_cut_sets = DatasetManager._process_features_for_dataset(
@@ -1574,7 +1553,6 @@ class DatasetManager:
                         CutSet.from_manifests(
                             recordings=recording_set,
                             supervisions=supervision_set,
-                            lazy=True,  # Use lazy loading to avoid memory issues
                         )
                     )
 
@@ -1586,7 +1564,6 @@ class DatasetManager:
                     CutSet.from_manifests(
                         recordings=manifests,
                         supervisions=None,
-                        lazy=True,  # Use lazy loading to avoid memory issues
                     )
                 )
             else:
@@ -1636,7 +1613,6 @@ class DatasetManager:
                         CutSet.from_manifests(
                             recordings=recording_set,
                             supervisions=supervision_set,
-                            lazy=True,  # Use lazy loading to avoid memory issues
                         )
                     )
                 elif recording_set is not None:
@@ -1645,7 +1621,6 @@ class DatasetManager:
                         CutSet.from_manifests(
                             recordings=recording_set,
                             supervisions=None,
-                            lazy=True,  # Use lazy loading to avoid memory issues
                         )
                     )
                 else:
