@@ -1259,7 +1259,6 @@ class DatasetManager:
         dataset: Any,
         process_function: Optional[Callable[..., Any]],
         download_function: Optional[Callable[..., Union[Path, None, Any]]],
-        validation_split: float,
     ) -> Dict[str, CutSet]:
         """
         Process a single dataset: download, prepare manifests, extract features.
@@ -1268,7 +1267,6 @@ class DatasetManager:
             dataset: Dataset configuration
             process_function: Function to process the dataset
             download_function: Function to download the dataset
-            validation_split: Ratio for validation split if auto-splitting
 
         Returns:
             Dictionary of CutSets by split name
@@ -1321,7 +1319,6 @@ class DatasetManager:
     @staticmethod
     def _load_precomputed_dataset(
         dataset: Any,
-        validation_split: float,
     ) -> Dict[str, CutSet]:
         """Load a dataset that already has prepared manifests on disk."""
 
@@ -1454,7 +1451,6 @@ class DatasetManager:
             if getattr(dataset, "precomputed_only", False):
                 dataset_cut_sets = DatasetManager._load_precomputed_dataset(
                     dataset=dataset,
-                    validation_split=params.validation_split,
                 )
             else:
                 process_function, download_function = import_recipe(
@@ -1464,7 +1460,6 @@ class DatasetManager:
                     dataset=dataset,
                     process_function=process_function,
                     download_function=download_function,
-                    validation_split=params.validation_split,
                 )
 
             all_cut_sets[dataset.name] = dataset_cut_sets
