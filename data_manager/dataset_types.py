@@ -113,9 +113,7 @@ class FeatureConfig:
         low_freq: Lower frequency bound in Hz
         high_freq: Upper frequency bound in Hz (-400 means nyquist - 400)
         num_filters: Number of triangular mel filters (for spectrogram)
-        torchaudio_compatible_mel_scale: Use torchaudio-compatible mel scale
         num_mel_bins: Number of mel-frequency bins (for fbank/mfcc)
-        norm_filters: Normalize mel filter weights
 
         # MFCC-specific parameters
         num_ceps: Number of cepstral coefficients (MFCC only)
@@ -124,10 +122,7 @@ class FeatureConfig:
         # Feature computation and storage parameters
         storage_path: Path to store features (None for in-memory)
         num_jobs: Number of parallel jobs for feature extraction
-        torch_threads: PyTorch thread count (None = auto-set to 1 when num_jobs > 1)
         storage_type: Storage format ('lilcom_chunky', 'lilcom_files', 'numpy', 'hdf5')
-        mix_eagerly: Whether to mix cuts eagerly during extraction
-        progress_bar: Show progress bar during feature extraction
 
         # Hardware
         device: Device for computation ('cpu', 'cuda')
@@ -159,9 +154,7 @@ class FeatureConfig:
     low_freq: float = 20.0
     high_freq: float = -400.0  # -400 means nyquist - 400
     num_filters: int = 23
-    torchaudio_compatible_mel_scale: bool = True
     num_mel_bins: Optional[int] = 80
-    norm_filters: bool = False
 
     # MFCC-specific parameters
     num_ceps: int = 13
@@ -172,13 +165,9 @@ class FeatureConfig:
     storage_path: Optional[str] = None
     # Number of workers for feature extraction
     num_workers: Optional[int] = 1
-    torch_threads: Optional[int] = (
-        None  # PyTorch thread count (None = auto-set to 1 when num_jobs > 1)
-    )
+  
     # Storage type: 'lilcom_chunky', 'lilcom_files', 'numpy', 'hdf5'
     storage_type: str = "lilcom_chunky"
-    mix_eagerly: bool = True  # Whether to mix cuts eagerly during feature extraction
-    progress_bar: bool = True  # Show progress bar during feature extraction
 
     # Kaldi feature extractor option
     vtln_low: float = 100.0

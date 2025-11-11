@@ -555,7 +555,24 @@ def parse_dataset_configs(config_path: Union[str, Path]) -> Tuple[List[DatasetCo
     try:
         features = FeatureConfig(**features_dict)
     except TypeError as exc:
-        raise DatasetConfigError("Invalid feature configuration") from exc
+        # Get the field names expected by FeatureConfig for better error reporting
+        expected_fields = [field.name for field in fields(FeatureConfig)]
+        provided_fields = list(features_dict.keys())
+        
+        # Identify missing required fields and unknown fields
+        missing_fields = [f for f in expected_fields if f not in provided_fields 
+                         and getattr(fields(FeatureConfig), 'default', None) is None]
+        unknown_fields = [f for f in provided_fields if f not in expected_fields]
+        
+        error_parts = [f"Invalid feature configuration: {exc}"]
+        if missing_fields:
+            error_parts.append(f"Missing required fields: {', '.join(missing_fields)}")
+        if unknown_fields:
+            error_parts.append(f"Unknown fields: {', '.join(unknown_fields)}")
+        error_parts.append(f"Expected fields: {', '.join(expected_fields)}")
+        error_parts.append(f"Provided fields: {', '.join(provided_fields)}")
+        
+        raise DatasetConfigError("\n".join(error_parts)) from exc
 
     data_loading_dict = _optional_str_mapping(
         global_config_dict.get("data_loading"),

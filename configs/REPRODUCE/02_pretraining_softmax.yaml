@@ -290,9 +290,8 @@ global_config:
     raw_energy: true # Use raw energy if needed
     use_fft_mag: false # Use power spectrum
     energy_floor: 1e-10 # Small epsilon for log
-    num_jobs: 32 # CRITICAL: Use 1 job to avoid race conditions in lilcom writes
     storage_type: "lilcom_chunky"
-    mix_eagerly: true
+
     vtln_low: 100.0
     vtln_high: -500.0
     debug_mel: False
@@ -300,10 +299,13 @@ global_config:
     use_log_fbank: True
     use_power: True
     htk_compat: False
+    num_workers: 4
     # frame option
     blackman_coeff: 0.42
     chunk_size: 1000 # for featture extaction with kaldi
     device: "cuda"
+    overwrite: false
+    batch_duration: 600.0
 
   # Data loading configuration (matching EEND exactly)
   data_loading:
@@ -326,28 +328,28 @@ global_config:
       prefetch_factor: 2
 
 datasets:
-  # - name: combos1-5
+  - name: combos1-5
 
-  - name: ami
-    download_params:
-      # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
-      mic: ihm-mix
-      url: http://groups.inf.ed.ac.uk/ami
-      annotations: null # Auto-downloaded
+  # - name: ami
+  #   download_params:
+  #     # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
+  #     mic: ihm-mix
+  #     url: http://groups.inf.ed.ac.uk/ami
+  #     annotations: null # Auto-downloaded
 
-    process_params:
-      # Microphone type to process (must match download)
-      mic: ihm-mix
+  #   process_params:
+  #     # Microphone type to process (must match download)
+  #     mic: ihm-mix
 
-      # Partition selection
-      # Options: full-corpus, full-corpus-asr, scenario-only
-      partition: full-corpus
+  #     # Partition selection
+  #     # Options: full-corpus, full-corpus-asr, scenario-only
+  #     partition: full-corpus
 
-      # Text normalization
-      # Options: none, upper, kaldi
-      normalize_text: none
+  #     # Text normalization
+  #     # Options: none, upper, kaldi
+  #     normalize_text: none
 
-      # Segmentation options
-      max_words_per_segment: null # null = no splitting
-      merge_consecutive: false # Merge same-speaker consecutive segments
+  #     # Segmentation options
+  #     max_words_per_segment: null # null = no splitting
+  #     merge_consecutive: false # Merge same-speaker consecutive segments
 

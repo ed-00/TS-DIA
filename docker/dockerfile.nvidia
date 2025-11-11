@@ -1,5 +1,5 @@
-# Use NVIDIA PyTorch base image with CUDA support
-FROM nvcr.io/nvidia/pytorch:24.10-py3
+# Use NVIDIA PyTorch base image with CUDA 12.6 support
+FROM nvcr.io/nvidia/pytorch:24.07-py3
 
 # Set working directory
 WORKDIR /workspace
@@ -11,7 +11,7 @@ ENV PYTHONUNBUFFERED=1 \
     FORCE_CUDA="1" \
     PATH=/opt/conda/bin:$PATH
 
-# Install system dependencies
+# Install system dependencies including build tools for kaldifeat
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     wget \
@@ -23,18 +23,39 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsndfile1-dev \
     ffmpeg \
     sox \
+    build-essential \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
+
+# Install NVSHMEM libraries following NVIDIA's official procedure
+RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb && \
+    dpkg -i cuda-keyring_1.1-1_all.deb && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends libnvshmem3-cuda-12 libnvshmem3-dev-cuda-12 && \
+    rm cuda-keyring_1.1-1_all.deb && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy requirements file first (for better caching)
 COPY requirements.txt /tmp/requirements.txt
 
+# Install kaldifeat first before other packages can upgrade PyTorch
+RUN git clone https://github.com/csukuangfj/kaldifeat /tmp/kaldifeat && \
+    cd /tmp/kaldifeat && \
+    python3 setup.py install && \
+    cd / && \
+    rm -rf /tmp/kaldifeat
+
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -r /tmp/requirements.txt && \
-    rm /tmp/requirements.txt
+    pip install --no-cache-dir -r /tmp/requirements.txt
+
+
+
+# Clean up
+RUN rm /tmp/requirements.txt
 
 # Expose ports for TensorBoard and Jupyter (optional)
-EXPOSE 6006 8888
+# EXPOSE 6006 8888
 
 # Set the default command to bash (allows flexible execution)
 CMD ["/bin/bash"]
