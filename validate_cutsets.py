@@ -42,7 +42,7 @@ def validate_dataset(dataset_name: str, manifests_dir: Path) -> bool:
         print(f"✗ {dataset_name}: manifest directory not found at {dataset_path}")
         return False
 
-    manifests = DatasetManager._try_load_existing_manifests(dataset_path, dataset_name)
+    manifests = DatasetManager._try_load_existing_manifests(dataset_path, dataset_name, None)
     if not manifests:
         print(f"✗ {dataset_name}: no manifests detected in {dataset_path}")
         return False

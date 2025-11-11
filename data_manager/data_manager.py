@@ -52,13 +52,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 
 import lhotse as lh
-import torch
 from lhotse import (
     CutSet,
-    Fbank,
-    FbankConfig,
-    Mfcc,
-    MfccConfig,
     KaldifeatFbankConfig,
     KaldifeatFbank,
     KaldifeatMfcc,
@@ -91,7 +86,7 @@ from data_manager.dataset_types import (
 )
 from data_manager.parse_args import datasets_manager_parser
 from training.ego_dataset import EgoCentricDiarizationDataset
-
+import torch
 
 def __is_custom_recipe(dataset_name: str) -> bool:
     """
@@ -412,25 +407,100 @@ class DatasetManager:
 
     @staticmethod
     def _try_load_existing_manifests(
-        output_dir: Path, dataset_name: str
+        output_dir: Path, dataset_name: str, storage_path: Optional[Path] = None
     ) -> Optional[Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]]]:
         """
         Try to load existing manifests from disk to skip re-preparation.
+        Prioritizes cached CutSets with features if available.
 
         Args:
             output_dir: Base output directory for manifests
             dataset_name: Name of the dataset
+            storage_path: Optional storage path for cached features
 
         Returns:
             Dictionary of manifests by split if they exist, None otherwise
         """
 
+        # First, try to load cached CutSets with features if storage_path is provided
+        if storage_path is not None:
+            print("="*60)
+            print(
+                f"Checking for cached CutSets with features in {storage_path}")
+            print("="*60)
+
+            # Look for dataset split directories like a
+            cached_manifests = {}
+            storage_root = Path(storage_path)
+            candidate_dirs: List[Path] = []
+
+            dataset_storage_path = storage_root / dataset_name
+            if dataset_storage_path.exists():
+                candidate_dirs.append(dataset_storage_path)
+
+            if storage_root.exists():
+                candidate_dirs.append(storage_root)
+
+            seen_files: set[Path] = set()
+
+            for candidate_dir in candidate_dirs:
+                for manifest_file in candidate_dir.glob("**/*_with_feats.jsonl.gz"):
+                    if manifest_file in seen_files:
+                        continue
+
+                    # Ensure the file is associated with the dataset
+                    if dataset_name not in manifest_file.parts and not manifest_file.name.startswith(f"{dataset_name}_"):
+                        continue
+
+                    filename = manifest_file.name.replace(".jsonl.gz", "")
+                    split_candidate = filename
+
+                    if split_candidate.startswith(f"{dataset_name}_"):
+                        split_candidate = split_candidate[len(
+                            dataset_name) + 1:]
+
+                    if split_candidate.startswith("cuts_"):
+                        split_candidate = split_candidate[len("cuts_"):]
+
+                    if split_candidate.endswith("_with_feats"):
+                        split_name = split_candidate[: -len("_with_feats")]
+                    else:
+                        continue
+
+                    if not split_name:
+                        continue
+
+                    try:
+                        cuts = CutSet.from_file(manifest_file)
+                    except Exception as exc:  # pragma: no cover - logging only
+                        print(
+                            f"  → Failed to load cached CutSet from {manifest_file}: {exc}"
+                        )
+                        continue
+
+                    seen_files.add(manifest_file)
+                    cached_entry = cached_manifests.setdefault(split_name, {})
+                    cached_entry["cuts"] = cuts
+                    print(
+                        f"  ✓ {split_name}: Loaded cached CutSet with features from {manifest_file}"
+                    )
+
+            if cached_manifests:
+                print(
+                    f"✓ Using cached CutSets with features for {dataset_name} (skip manifest loading)")
+                print("="*60)
+                return cast(
+                    Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]],
+                    cached_manifests,
+                )
+
+        # Fall back to loading raw manifests if no cached features found
         # output_dir already includes dataset name (e.g., manifests/ava_avd)
         # So we use it directly, not append dataset_name again
         manifest_dir = output_dir
         if not manifest_dir.exists():
             print("="*60)
-            print(f"Manifest dir dose not exit!")
+            print(f"Manifest dir does not exist!")
             print("="*60)
             return None
 
@@ -528,7 +598,7 @@ class DatasetManager:
 
     @staticmethod
     def _load_cached_cuts_with_features(
-        storage_path: Path, split_name: str
+        storage_path: Path, split_name: str, dataset_name: str
     ) -> Optional[CutSet]:
         """
         Load cached CutSet with pre-computed features from the feature storage directory.
@@ -542,7 +612,8 @@ class DatasetManager:
         """
 
         # Look for cached cuts in the feature storage directory
-        cache_path = storage_path / f"cuts_{split_name}_with_feats.jsonl.gz"
+        cache_path = storage_path / \
+            f"{dataset_name}_{split_name}_with_feats.jsonl.gz"
 
         if cache_path.exists():
             print(
@@ -658,7 +729,7 @@ class DatasetManager:
 
         # Compute and store features to per-dataset directory (multiprocessing-friendly)
         dataset_storage_path = Path(
-            storage_root) / f"{dataset_name}_{split_name}"
+            storage_root) / f"{dataset_name}"
         dataset_storage_path.mkdir(parents=True, exist_ok=True)
 
         storage_type_map: Dict[str, Union[type[LilcomChunkyWriter], type[LilcomFilesWriter], type[NumpyFilesWriter]]] = {
@@ -670,64 +741,21 @@ class DatasetManager:
             feature_cfg.storage_type, LilcomChunkyWriter
         )
 
-        # Convert to eager mode if lazy to avoid len() issues during feature computation
-        if hasattr(cuts, "to_eager"):
-            cuts = cuts.to_eager()
-
         cuts_with_feats: CutSet = cuts.compute_and_store_features_batch(
             extractor=extractor,
-            storage_path=dataset_storage_path,
+            storage_path=dataset_storage_path / split_name,
             storage_type=storage_writer_cls,
             num_workers=feature_cfg.num_workers or 4,
-            # Seconds duration for feture processing
+            manifest_path=dataset_storage_path /
+            f"{dataset_name}_{split_name}_with_feats.jsonl.gz",
             batch_duration=feature_cfg.batch_duration,
-            overwrite=feature_cfg.overwrite
+            overwrite=feature_cfg.overwrite,
+            
         )
 
-        # Ensure eager CutSet for consistent behavior
-        if hasattr(cuts_with_feats, "to_eager"):
-            cuts_with_feats = cuts_with_feats.to_eager()
-
-        # Save the cuts-with-features manifest for future runs
-        DatasetManager.save_cuts_with_features(
-            cuts_with_feats, dataset_storage_path, split_name
-        )
         # Describe the dataset
         cuts_with_feats.describe()
         return cuts_with_feats
-
-    @staticmethod
-    def save_cuts_with_features(
-        cuts: CutSet, storage_path: Path, split_name: str
-    ) -> None:
-        """
-        Save CutSet with pre-computed features to the feature storage directory.
-
-        Args:
-            cuts: CutSet with features to save
-            storage_path: Feature storage directory (e.g., features/ava_avd_8khz)
-            split_name: Name of the split (train, dev, test, etc.)
-        """
-        storage_path.mkdir(parents=True, exist_ok=True)
-        cache_path = storage_path / f"cuts_{split_name}_with_feats.jsonl.gz"
-
-        # Check if cuts actually have features before saving
-        if cuts:
-            # Check first few cuts to see if they have features
-            sample_size = min(10, len(cuts))
-            sample_cuts = [cuts[i] for i in range(sample_size)]
-            if any(cut.has_features for cut in sample_cuts):
-                print(
-                    f"💾 Saving {split_name} cuts with features to {cache_path}")
-                cuts.to_file(cache_path)
-            else:
-                print(
-                    f"⚠️  Warning: {split_name} cuts don't have features yet, skipping save"
-                )
-        else:
-            print(
-                f"⚠️  Warning: {split_name} cuts is empty, skipping save"
-            )
 
     @staticmethod
     def _normalize_splits(
@@ -1129,9 +1157,14 @@ class DatasetManager:
         """
         output_dir = Path(process_kwargs.get("output_dir", "./manifests"))
 
-        # Try to load existing manifests
+        # Get storage path from global_config if available
+        global_config = getattr(dataset, "global_config", None)
+        storage_path = Path(global_config.storage_path) if global_config and hasattr(
+            global_config, 'storage_path') else None
+
+        # Try to load existing manifests (prioritizing cached features)
         existing_manifests = DatasetManager._try_load_existing_manifests(
-            output_dir, dataset.name
+            output_dir, dataset.name, storage_path
         )
 
         if existing_manifests:
@@ -1194,7 +1227,7 @@ class DatasetManager:
 
             # Try to load cached features
             cached_cuts = DatasetManager._load_cached_cuts_with_features(
-                storage_path, split_name
+                storage_path, split_name, dataset.name
             )
 
             if cached_cuts is not None:
@@ -1317,8 +1350,13 @@ class DatasetManager:
         print(f"Loading precomputed dataset: {dataset.name}")
         print(f"{'=' * 60}")
 
+        # Get storage path from global_config if available
+        global_config = getattr(dataset, "global_config", None)
+        storage_path = Path(global_config.storage_path) if global_config and hasattr(
+            global_config, 'storage_path') else None
+
         manifests = DatasetManager._try_load_existing_manifests(
-            manifest_dir, dataset.name
+            manifest_dir, dataset.name, storage_path
         )
 
         if manifests is None:
