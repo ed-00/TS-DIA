@@ -165,7 +165,7 @@ class FeatureConfig:
     storage_path: Optional[str] = None
     # Number of workers for feature extraction
     num_workers: Optional[int] = 1
-  
+
     # Storage type: 'lilcom_chunky', 'lilcom_files', 'numpy', 'hdf5'
     storage_type: str = "lilcom_chunky"
 
@@ -445,8 +445,6 @@ class LoadDatasetsParams:
     shuffle: bool = True
     num_workers: int = 4
     pin_memory: bool = True
-    validation_split: float = 0.1
-    test_split: float = 0.1
 
 
 # ============================================================================

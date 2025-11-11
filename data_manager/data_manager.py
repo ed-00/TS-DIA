@@ -1383,8 +1383,7 @@ class DatasetManager:
         shuffle: bool = True,
         num_workers: int = 4,
         pin_memory: bool = True,
-        validation_split: float = 0.1,
-        test_split: float = 0
+
     ) -> Dict[str, Dict[str, CutSet]]:
         """
         Load datasets and convert all manifest formats to CutSets for diarization tasks.
@@ -1395,14 +1394,15 @@ class DatasetManager:
         3. Converts manifests to Lhotse CutSets
         4. Returns structured dictionary of CutSets organized by dataset and split
 
+        NOTE: Only externally defined splits are used. This method does NOT perform automatic
+        train/val/test splitting to avoid materializing large CutSets in memory.
+
         Args:
             datasets: List of DatasetConfig objects
             batch_size: Batch size for data loading (default: 32)
             shuffle: Whether to shuffle data (default: True)
             num_workers: Number of worker processes (default: 4)
             pin_memory: Whether to pin memory (default: True)
-            validation_split: Validation split ratio (default: 0.1)
-            test_split: Test split ratio (default: 0.1)
 
         Returns:
             Dict[str, Dict[str, CutSet]]: Dictionary mapping dataset names to split dictionaries.
@@ -1441,8 +1441,7 @@ class DatasetManager:
             shuffle=shuffle,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            validation_split=validation_split,
-            test_split=test_split
+
         )
 
         # Import recipes for all datasets
