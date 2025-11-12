@@ -578,7 +578,7 @@ class Trainer:
                 batch_metrics = compute_metrics(
                     outputs if isinstance(outputs, torch.Tensor) else outputs.logits,
                     targets,
-                    task_type="diarization",
+                    task_type="classification", # TODO, make this configurable 
                 )
                 all_metrics.append(batch_metrics)
 
