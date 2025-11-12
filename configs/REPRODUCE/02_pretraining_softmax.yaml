@@ -299,7 +299,7 @@ global_config:
     use_log_fbank: True
     use_power: True
     htk_compat: False
-    num_workers: 2
+    num_workers: 0
     # frame option
     blackman_coeff: 0.42
     chunk_size: 1000 # for featture extaction with kaldi
