@@ -85,6 +85,24 @@ training:
   batch_size: 32 # Training batch size (matching EEND reference)
   random_seed: 42 # Random seed for reproducibility
   max_steps: null # Maximum training steps (null = use epochs)
+  training_dataset_map:
+    combine: true # Combine training sets if multiple datasets are used
+    splits:
+      - dataset_name: "simu_1spk"
+        split_name: "train_b2_mix100000"
+        subset_ratio: 0.2 # Use 20% of dataset
+      # - dataset_name: "simu_2spk"
+      #   split_name: "train_b2_mix100000"
+      #   subset_ratio: 0.2 # Use 50% of dataset
+      # - dataset_name: "simu_3spk"
+      #   split_name: "train_b2_mix100000"
+      #   subset_ratio: 0.2 # Use 50% of dataset
+      # - dataset_name: "simu_4spk"
+      #   split_name: "train_b2_mix100000"
+      #   subset_ratio: 0.2 # Use 50% of dataset
+      # - dataset_name: "simu_5spk"
+      #   split_name: "train_b2_mix100000"
+      #   subset_ratio: 0.2 # Use 50% of dataset
 
   # ---------------------------------------------------------------------------
   # Optimizer Configuration
@@ -156,7 +174,12 @@ training:
     batch_size: 32 # Validation batch size (matching training)
     metric_for_best_model: val_loss # Metric to track for best model
     greater_is_better: false # Whether higher metric is better
-    splits: ["dev_simu_1spk_b2_mix500"]
+    validation_dataset_map:
+      combine: false  # Keep validation splits separate
+      splits:
+        - dataset_name: "simu_1spk"
+          split_name: "dev_b2_mix500"
+          subset_ratio: 1.0
 
   # ---------------------------------------------------------------------------
   # Early Stopping Configuration

@@ -362,6 +362,26 @@ def training_parser():
         "--profiling", action="store_true", help="Enable PyTorch profiler"
     )
 
+    # Dataset mapping overrides
+    parser.add_argument(
+        "--train-combine-datasets",
+        action="store_true",
+        dest="train_combine_datasets",
+        help="Combine multiple training datasets",
+    )
+    parser.add_argument(
+        "--no-train-combine-datasets",
+        action="store_false",
+        dest="train_combine_datasets",
+        help="Do not combine multiple training datasets",
+    )
+    parser.add_argument(
+        "--train-splits",
+        type=str,
+        nargs="+",
+        help="List of training splits to use, e.g., 'dset1:split1:0.5 dset2:split2:1.0'",
+    )
+
     args = parser.parse_args()
 
     try:

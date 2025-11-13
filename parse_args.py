@@ -98,6 +98,8 @@ from training.config import (
     LossConfig,
     PerformanceConfig,
     TrainingConfig,
+    TrainingDatasetMap,
+    TrainingDatasetSplit,
     ValidationConfig,
 )
 from training.parse_training_args import (
@@ -317,9 +319,19 @@ def unified_parser() -> Tuple[SimpleNamespace, ModelConfig | None, List[DatasetC
 
             validation_config = None
             if "validation" in training_dict:
+                validation_dict = training_dict.pop("validation")
+                # Parse validation_dataset_map if present
+                if "validation_dataset_map" in validation_dict:
+                    validation_map_dict = validation_dict.pop(
+                        "validation_dataset_map")
+                    validation_dataset_map = from_dict(
+                        data_class=TrainingDatasetMap,
+                        data=validation_map_dict,
+                    )
+                    validation_dict["validation_dataset_map"] = validation_dataset_map
+
                 validation_config = from_dict(
-                    data_class=ValidationConfig, data=training_dict.pop(
-                        "validation")
+                    data_class=ValidationConfig, data=validation_dict
                 )
 
             checkpoint_config = None
@@ -355,6 +367,16 @@ def unified_parser() -> Tuple[SimpleNamespace, ModelConfig | None, List[DatasetC
                         "performance")
                 )
 
+            # Parse training_dataset_map if present
+            training_dataset_map = None
+            if "training_dataset_map" in training_dict:
+                training_dataset_map_dict = training_dict.pop(
+                    "training_dataset_map")
+                training_dataset_map = from_dict(
+                    data_class=TrainingDatasetMap,
+                    data=training_dataset_map_dict,
+                )
+
             # Create training config
             training_config = TrainingConfig(
                 optimizer=optimizer_config,
@@ -366,6 +388,7 @@ def unified_parser() -> Tuple[SimpleNamespace, ModelConfig | None, List[DatasetC
                 distributed=distributed_config,
                 logging=logging_config,
                 performance=performance_config,
+                training_dataset_map=training_dataset_map,
                 **training_dict,
             )
 

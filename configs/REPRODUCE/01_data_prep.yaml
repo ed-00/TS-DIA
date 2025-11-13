@@ -6,6 +6,7 @@ global_config:
   storage_path: ./outputs/features
   sampling_rate: 8000
 
+  combine_training_sets: true
   features:
     feature_type: "mfcc"
     sampling_rate: 8000

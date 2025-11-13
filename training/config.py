@@ -152,6 +152,36 @@ class CheckpointConfig:
 
 
 @dataclass
+class TrainingDatasetSplit:
+    """
+    Configuration for a single dataset split in the training map.
+
+    Attributes:
+        dataset_name: Name of the dataset.
+        split_name: Name of the split (e.g., 'train', 'train_si284').
+        subset_ratio: Fraction of the dataset to use (0.0 to 1.0).
+    """
+
+    dataset_name: str
+    split_name: str
+    subset_ratio: float = 1.0
+
+
+@dataclass
+class TrainingDatasetMap:
+    """
+    Configuration for mapping and combining training datasets.
+
+    Attributes:
+        combine: Whether to combine multiple datasets into one.
+        splits: List of dataset splits to use for training.
+    """
+
+    combine: bool = True
+    splits: List[TrainingDatasetSplit] = field(default_factory=list)
+
+
+@dataclass
 class ValidationConfig:
     """
     Validation configuration.
@@ -162,7 +192,8 @@ class ValidationConfig:
         max_steps: Maximum number of validation batches (None for all)
         metric_for_best_model: Metric to track for best model
         greater_is_better: Whether higher metric is better
-        splits: Optional list of validation split names to evaluate
+        splits: Optional list of validation split names to evaluate (deprecated, use validation_dataset_map)
+        validation_dataset_map: Configuration for validation dataset mapping
     """
 
     interval: int
@@ -171,6 +202,7 @@ class ValidationConfig:
     metric_for_best_model: str = "val_loss"
     greater_is_better: bool = False
     splits: List[str] = field(default_factory=lambda: ["val"])
+    validation_dataset_map: Optional[TrainingDatasetMap] = None
 
 
 @dataclass
@@ -256,6 +288,7 @@ class TrainingConfig:
         batch_size: Training batch size
         optimizer: Optimizer configuration
         scheduler: Scheduler configuration
+        training_dataset_map: Configuration for training dataset mapping.
         gradient_clipping: Gradient clipping value (None to disable)
         gradient_accumulation_steps: Number of gradient accumulation steps
         mixed_precision: Enable mixed precision training
@@ -281,6 +314,7 @@ class TrainingConfig:
     batch_size: int
     optimizer: OptimizerConfig
     scheduler: SchedulerConfig
+    training_dataset_map: Optional[TrainingDatasetMap] = None
     gradient_clipping: Optional[float] = None
     gradient_accumulation_steps: int = 1
     mixed_precision: bool = False

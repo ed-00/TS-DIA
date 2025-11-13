@@ -32,7 +32,7 @@ from data_manager.data_manager import DatasetManager
 from model.model_factory import create_model
 from parse_args import unified_parser
 from training import Trainer
-from data_manager.dataset_types import DatasetConfig
+from utility.dataset_utils import prepare_training_cuts
 
 
 def main():
@@ -59,27 +59,101 @@ def main():
         raise ValueError("No global configuration found in dataset config")
 
     # Get unified train/val splits (DatasetManager handles split mapping)
-    dataset_cuts = cut_sets[dataset_name]
-    train_cuts = dataset_cuts.get("train")
+    if training_config.training_dataset_map:
+        train_cuts = prepare_training_cuts(
+            cut_sets, training_config.training_dataset_map)
+    else:
+        # Fallback to old behavior if training_dataset_map is not provided
+        dataset_name = dataset_configs[0].name
+        dataset_cuts = cut_sets[dataset_name]
+        # TODO: make this more robust
+        train_cuts = dataset_cuts.get("train_b2_mix100000")
 
     if train_cuts is None:
-        raise ValueError(f"No training data found for dataset {dataset_name}")
-
-    # Determine requested validation splits (defaults to ['val'] when available)
-    validation_splits: List[str] = []
-    if training_config.validation:
-        requested_splits = training_config.validation.splits or []
-        for split in requested_splits:
-            if split and split not in validation_splits:
-                validation_splits.append(split)
-    elif dataset_cuts.get("val") is not None:
-        validation_splits = ["val"]
+        raise ValueError(f"No training data found for dataset.")
 
     # Get label type from training config
     label_type = training_config.eval_knobs.get("label_type", "binary")
 
     # Get random seed (training config takes precedence over global config)
     random_seed = training_config.random_seed or global_config.random_seed
+
+    # Prepare validation datasets
+    val_dataloaders: Dict[str, DataLoader] = {}
+
+    if training_config.validation:
+        if training_config.validation.validation_dataset_map:
+            # Use the new validation_dataset_map approach
+            if training_config.validation.validation_dataset_map.combine:
+                # Combine all validation splits into one
+                val_cuts = prepare_training_cuts(
+                    cut_sets, training_config.validation.validation_dataset_map)
+                val_dataloaders["val"] = DatasetManager.create_dataloader(
+                    cuts=val_cuts,
+                    data_loading=global_config.data_loading,
+                    batch_size=training_config.batch_size,
+                    label_type=label_type,
+                    random_seed=random_seed,
+                    shuffle=False,
+                )
+            else:
+                # Keep datasets separate
+                for split_info in training_config.validation.validation_dataset_map.splits:
+                    dataset_name = split_info.dataset_name
+                    split_name = split_info.split_name
+                    subset_ratio = split_info.subset_ratio
+
+                    if dataset_name not in cut_sets:
+                        print(
+                            f"Warning: Dataset '{dataset_name}' not found for validation, skipping.")
+                        continue
+
+                    dataset_cuts = cut_sets[dataset_name]
+                    if split_name not in dataset_cuts:
+                        print(
+                            f"Warning: Split '{split_name}' not found in dataset '{dataset_name}', skipping.")
+                        continue
+
+                    val_cuts = dataset_cuts[split_name]
+
+                    # Apply subsetting if needed
+                    if 0 < subset_ratio < 1.0:
+                        num_cuts = int(len(val_cuts) * subset_ratio)
+                        val_cuts = val_cuts.subset(first=num_cuts)
+
+                    # Create separate dataloader for each validation split
+                    val_key = f"{dataset_name}_{split_name}"
+                    val_dataloaders[val_key] = DatasetManager.create_dataloader(
+                        cuts=val_cuts,
+                        data_loading=global_config.data_loading,
+                        batch_size=training_config.batch_size,
+                        label_type=label_type,
+                        random_seed=random_seed,
+                        shuffle=False,
+                    )
+        else:
+            # Fallback to old behavior using splits list
+            requested_splits = training_config.validation.splits or []
+            dataset_name = dataset_configs[0].name
+            dataset_cuts = cut_sets.get(dataset_name, {})
+
+            for split in requested_splits:
+                if not split:
+                    continue
+                split_cuts = dataset_cuts.get(split)
+                if split_cuts is None:
+                    print(
+                        f"Warning: Requested validation split '{split}' not found, skipping.")
+                    continue
+
+                val_dataloaders[split] = DatasetManager.create_dataloader(
+                    cuts=split_cuts,
+                    data_loading=global_config.data_loading,
+                    batch_size=training_config.batch_size,
+                    label_type=label_type,
+                    random_seed=random_seed,
+                    shuffle=False,
+                )
 
     # Create diarization dataloaders using DatasetManager
     train_dataloader = DatasetManager.create_dataloader(
@@ -91,36 +165,8 @@ def main():
         shuffle=True,
     )
 
-    val_dataloaders: Dict[str, DataLoader] = {}
-    missing_splits: List[str] = []
-
-    for split in validation_splits:
-        split_cuts = dataset_cuts.get(split)
-        if split_cuts is None:
-            missing_splits.append(split)
-            continue
-
-        val_dataloaders[split] = DatasetManager.create_dataloader(
-            cuts=split_cuts,
-            data_loading=global_config.data_loading,
-            batch_size=training_config.batch_size,
-            label_type=label_type,
-            random_seed=random_seed,
-            shuffle=False,
-        )
-
-    if missing_splits:
-        if validation_splits == ["val"] and missing_splits == ["val"]:
-            val_dataloaders.clear()
-            print("Warning: Requested validation split 'val' not found; skipping validation.")
-        else:
-            available = ", ".join(sorted(dataset_cuts.keys()))
-            raise ValueError(
-                f"Requested validation split(s) {missing_splits} not found for dataset {dataset_name}. "
-                f"Available splits: {available}"
-            )
-
-    print(f"\n✓ Diarization dataloaders created with label_type='{label_type}'")
+    print(
+        f"\n✓ Diarization dataloaders created with label_type='{label_type}'")
     if val_dataloaders:
         print(f"  Validation splits: {', '.join(val_dataloaders.keys())}")
 
