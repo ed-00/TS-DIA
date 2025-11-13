@@ -20,6 +20,12 @@ def parse_args() -> argparse.Namespace:
         help="Directory that contains per-dataset manifest subfolders.",
     )
     parser.add_argument(
+        "--feature-storage-dir",
+        type=Path,
+        default=Path("./outputs/features_storage"),
+        help="Directory containing cached features. If provided, will try to load CutSets with features.",
+    )
+    parser.add_argument(
         "--datasets",
         nargs="+",
         default=None,
@@ -36,13 +42,12 @@ def discover_datasets(base_dir: Path) -> list[str]:
     )
 
 
-def validate_dataset(dataset_name: str, manifests_dir: Path) -> bool:
+def validate_dataset(dataset_name: str, manifests_dir: Path, feature_storage_dir: Path | None) -> bool:
     dataset_path = manifests_dir / dataset_name
-    if not dataset_path.exists():
-        print(f"✗ {dataset_name}: manifest directory not found at {dataset_path}")
-        return False
 
-    manifests = DatasetManager._try_load_existing_manifests(dataset_path, dataset_name, None)
+    manifests = DatasetManager._try_load_existing_manifests(
+        dataset_path, dataset_name, feature_storage_dir
+    )
     if not manifests:
         print(f"✗ {dataset_name}: no manifests detected in {dataset_path}")
         return False
@@ -67,6 +72,7 @@ def validate_dataset(dataset_name: str, manifests_dir: Path) -> bool:
 def main() -> int:
     args = parse_args()
     manifests_dir = args.manifests_dir.resolve()
+    feature_storage_dir = args.feature_storage_dir.resolve() if args.feature_storage_dir else None
 
     dataset_names = args.datasets or discover_datasets(manifests_dir)
     if not dataset_names:
@@ -75,7 +81,7 @@ def main() -> int:
 
     overall_success = True
     for dataset_name in dataset_names:
-        success = validate_dataset(dataset_name, manifests_dir)
+        success = validate_dataset(dataset_name, manifests_dir, feature_storage_dir)
         overall_success &= success
 
     return 0 if overall_success else 1

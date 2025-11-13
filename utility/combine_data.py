@@ -13,12 +13,6 @@ from lhotse import CutSet, RecordingSet, SupervisionSet
 from pathlib import Path
 import argparse
 
-
-
-
-
-
-
 def combine_data(
     cuts: List[CutSet],
     output_path: Optional[Pathlike] = '/workspace/outputs/manifests/combos',

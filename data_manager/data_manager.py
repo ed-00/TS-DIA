@@ -456,17 +456,13 @@ class DatasetManager:
                     filename = manifest_file.name.replace(".jsonl.gz", "")
                     split_candidate = filename
 
-                    if split_candidate.startswith(f"{dataset_name}_"):
-                        split_candidate = split_candidate[len(
-                            dataset_name) + 1:]
-
-                    if split_candidate.startswith("cuts_"):
-                        split_candidate = split_candidate[len("cuts_"):]
-
-                    if split_candidate.endswith("_with_feats"):
-                        split_name = split_candidate[: -len("_with_feats")]
-                    else:
+                    # The split name is what's between the dataset name prefix and "_with_feats"
+                    # e.g., "simu_1spk_dev_b2_mix500_with_feats" -> "dev_b2_mix500"
+                    start_pos = len(dataset_name) + 1
+                    end_pos = filename.rfind("_with_feats")
+                    if end_pos == -1:
                         continue
+                    split_name = filename[start_pos:end_pos]
 
                     if not split_name:
                         continue
