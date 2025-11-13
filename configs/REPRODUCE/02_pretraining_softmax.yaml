@@ -232,7 +232,7 @@ training:
   # Performance Optimization Configuration
   # ---------------------------------------------------------------------------
   performance:
-    num_workers: 4 # Number of DataLoader worker processes (matching EEND)
+    num_workers: 8 # Number of DataLoader worker processes (matching EEND)
     pin_memory: true # Pin memory for faster GPU transfer
     batch_shim: false # Use batch shim for irregular batch sizes
     prefetch_factor: 2 # Number of batches to prefetch per worker

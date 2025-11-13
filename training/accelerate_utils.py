@@ -60,7 +60,8 @@ def setup_accelerator(
     if project_dir or (
         training_config.checkpoint and training_config.checkpoint.save_dir
     ):
-        save_dir = project_dir or (training_config.checkpoint and training_config.checkpoint.save_dir)
+        save_dir = project_dir or (
+            training_config.checkpoint and training_config.checkpoint.save_dir)
         if save_dir is not None:
             project_config = ProjectConfiguration(
                 project_dir=save_dir,
@@ -200,10 +201,12 @@ def save_checkpoint_with_accelerate(
         )
 
     # Get the most recent checkpoint (highest number)
-    latest_checkpoint = max(checkpoint_dirs, key=lambda x: int(x.name.split("_")[1]))
+    latest_checkpoint = max(
+        checkpoint_dirs, key=lambda x: int(x.name.split("_")[1]))
 
     # Create named directory and copy files from Accelerate's checkpoint
-    named_path = Path(save_dir) / "checkpoints" / f"checkpoint-epoch{epoch}-step{step}"
+    named_path = Path(save_dir) / "checkpoints" / \
+        f"checkpoint-epoch{epoch}-step{step}"
     if named_path.exists() or named_path.is_symlink():
         named_path.unlink()
     named_path.mkdir(parents=True, exist_ok=True)
@@ -269,7 +272,6 @@ def load_checkpoint_with_accelerate(
         ```
     """
 
-
     if not Path(checkpoint_path).exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
@@ -280,7 +282,8 @@ def load_checkpoint_with_accelerate(
     extra_state = {}
     extra_state_path = Path(f"checkpoint_path/extra_state.pt")
     if extra_state_path.exists():
-        extra_state = torch.load(extra_state_path, map_location=accelerator.device)
+        extra_state = torch.load(
+            extra_state_path, map_location=accelerator.device)
 
     accelerator.print(f"Checkpoint loaded: {checkpoint_path}")
     return extra_state
@@ -330,7 +333,7 @@ def all_reduce_metrics(
     for key, value in metrics.items():
         tensor = torch.tensor(value, device=accelerator.device)
         reduced_result = accelerator.reduce(tensor, reduction="mean")
-        
+
         # Handle different return types explicitly with type guards
         if isinstance(reduced_result, torch.Tensor):
             reduced_metrics[key] = reduced_result.item()
@@ -345,7 +348,8 @@ def all_reduce_metrics(
                 reduced_metrics[key] = cast(float, single_value)
         else:
             # Convert unknown type to tensor first, then extract scalar
-            tensor_result = torch.as_tensor(reduced_result, device=accelerator.device)
+            tensor_result = torch.as_tensor(
+                reduced_result, device=accelerator.device)
             reduced_metrics[key] = tensor_result.item()
 
     return reduced_metrics
@@ -367,7 +371,8 @@ def print_training_info(accelerator: Accelerator, training_config: TrainingConfi
     accelerator.print(f"  Device: {accelerator.device}")
     accelerator.print(f"  Num processes: {accelerator.num_processes}")
     accelerator.print(f"  Process index: {accelerator.process_index}")
-    accelerator.print(f"  Local process index: {accelerator.local_process_index}")
+    accelerator.print(
+        f"  Local process index: {accelerator.local_process_index}")
     accelerator.print(f"  Mixed precision: {accelerator.mixed_precision}")
 
     accelerator.print("\nTraining Settings:")
@@ -381,15 +386,18 @@ def print_training_info(accelerator: Accelerator, training_config: TrainingConfi
     )
 
     if training_config.gradient_clipping:
-        accelerator.print(f"  Gradient clipping: {training_config.gradient_clipping}")
+        accelerator.print(
+            f"  Gradient clipping: {training_config.gradient_clipping}")
 
     accelerator.print(f"\nOptimizer: {training_config.optimizer.type}")
     accelerator.print(f"  Learning rate: {training_config.optimizer.lr}")
-    accelerator.print(f"  Weight decay: {training_config.optimizer.weight_decay}")
+    accelerator.print(
+        f"  Weight decay: {training_config.optimizer.weight_decay}")
 
     accelerator.print(f"\nScheduler: {training_config.scheduler.type}")
     if training_config.scheduler.warmup_steps > 0:
-        accelerator.print(f"  Warmup steps: {training_config.scheduler.warmup_steps}")
+        accelerator.print(
+            f"  Warmup steps: {training_config.scheduler.warmup_steps}")
 
     if training_config.checkpoint:
         accelerator.print("\nCheckpointing:")

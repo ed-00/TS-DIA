@@ -896,7 +896,8 @@ class DatasetManager:
 
         # Include subset ratio only if it's not the full dataset
         if subset_ratio < 1.0:
-            cache_dir = base_path / f"{dataset_name}_{split_name}_subset{subset_ratio:.3f}"
+            cache_dir = base_path / \
+                f"{dataset_name}_{split_name}_subset{subset_ratio:.3f}"
         else:
             cache_dir = base_path / f"{dataset_name}_{split_name}"
 
@@ -941,7 +942,7 @@ class DatasetManager:
             if validation_map.combine:
                 # Combine all validation splits into one
                 from utility.dataset_utils import prepare_training_cuts
-                
+
                 val_cuts = prepare_training_cuts(cut_sets, validation_map)
 
                 # Create label cache directory for combined validation
@@ -1193,7 +1194,6 @@ class DatasetManager:
         )
 
         return dataloader
-
 
     @staticmethod
     def _download_dataset(

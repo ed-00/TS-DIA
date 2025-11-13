@@ -3,99 +3,83 @@ import torch
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List, Tuple, Callable  # Callable is imported
 from pathlib import Path
 from tqdm.auto import tqdm
 
-from lhotse import validate, CutSet, SupervisionSet, RecordingSet
+from lhotse import validate, CutSet
 from lhotse.cut import Cut
-from lhotse.dataset.collation import collate_features
 from lhotse.supervision import SupervisionSegment
-import numpy as np
 from lhotse.utils import Pathlike
+import numpy as np
+
+# Added for efficient caching and parallel processing
+import hashlib
+import multiprocessing
+import os
+
 Seconds = float
 
 
+
 def splice(Y: torch.Tensor, context_size: int = 7) -> torch.Tensor:
-    """Feature splicing (concatenate adjacent frames).
-    
-    Takes context_size frames before + current frame + context_size frames after
-    Total frames = 2 * context_size + 1
-    Output dimension = input_dim * (2 * context_size + 1)
-
-    Args:
-        Y (torch.Tensor): Input features of shape (T, F) 
-        context_size (int): Number of frames to concatenate on each side (default: 7)
-
-    Returns:
-        torch.Tensor: Spliced features of shape (T, F * (2 * context_size + 1))
-    """
+    """Feature splicing (concatenate adjacent frames)."""
     T, F = Y.shape
-    
     total_context_frames = 2 * context_size + 1
     spliced_dim = F * total_context_frames
     spliced_Y = torch.zeros(T, spliced_dim, dtype=Y.dtype, device=Y.device)
-    
     for t in range(T):
-        # Collect context frames
         context_frames = []
         for offset in range(-context_size, context_size + 1):
             idx = t + offset
             if idx < 0:
-                # Pad with first frame for frames before the beginning
                 context_frames.append(Y[0])
             elif idx >= T:
-                # Pad with last frame for frames after the end
                 context_frames.append(Y[-1])
             else:
                 context_frames.append(Y[idx])
-        
-        # Concatenate all context frames
         spliced_Y[t] = torch.cat(context_frames, dim=0)
-    
     return spliced_Y
 
 
 def subsample_torch(Y: torch.Tensor, T: torch.Tensor, subsample: int = 10) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Subsampling utility function for PyTorch tensors.
-
-    Args:
-        Y (torch.Tensor): Input features of shape (T, F)
-        T (torch.Tensor): Target labels of shape (T,)
-        subsample (int): The subsampling factor. Defaults to 10.
-
-    Returns:
-        Tuple[torch.Tensor, torch.Tensor]: A tuple of subsampled values.
-    """
+    """Subsampling utility function for PyTorch tensors."""
     Y_ss = Y[::subsample]
     T_ss = T[::subsample]
     return Y_ss, T_ss
 
 
 def subsample(Y: np.ndarray, T: np.ndarray, subsample: int = 10) -> Tuple[np.ndarray, np.ndarray]:
-    """Simple subsampling utility function
-
-    Args:
-        Y (np.ndarray): Input features
-        T (np.ndarray): Target speakers (labels)
-        subsample (int, optional): the subsampling factor. Defaults to 10.
-
-    Returns:
-        Tuple[np.ndarray, np.ndarray]: a tuple of subsampled values. 
-    """
+    """Simple subsampling utility function (for numpy)."""
     Y_ss = Y[::subsample]
     T_ss = T[::subsample]
     return Y_ss, T_ss
 
 
+
+def _compute_label_worker(
+    cut: Cut,
+    target_speaker_id: Optional[str],
+    label_map: Dict[str, int]
+) -> torch.Tensor:
+    """
+    Worker function for parallel label generation.
+    This must be at the module level to be pickleable.
+    """
+    # Use the static methods from the class
+    return EgoCentricDiarizationDataset._generate_ego_centric_labels_static(
+        cut,
+        target_speaker_id,
+        label_map,
+        EgoCentricDiarizationDataset._supervision_to_frames_static
+    )
+
+
+
 class EgoCentricDiarizationDataset(Dataset):
     """
-    A PyTorch Dataset for ego-centric diarization (TS-DIA) that
-    pre-computes and caches labels for fast training.
-    
-    On first run, it will iterate through the entire dataset to
-    generate and save labels to a cache file. Subsequent runs
-    will load this cache directly.
+    An efficient, parallelized PyTorch Dataset for ego-centric diarization (TS-DIA)
+    that pre-computes and caches labels for fast training.
     """
 
     # Define the label-to-integer mapping
@@ -117,6 +101,7 @@ class EgoCentricDiarizationDataset(Dataset):
         max_enroll_len: float = 5.0,
         context_size: int = 7,
         subsampling: int = 10,
+        num_workers: Optional[int] = None,
         force_recompute: bool = False,
     ) -> None:
         super().__init__()
@@ -126,48 +111,58 @@ class EgoCentricDiarizationDataset(Dataset):
         self.context_size = context_size
         self.subsampling = subsampling
         self.chunk_size = chunk_size
-        
+        self.num_workers = num_workers if num_workers is not None else (
+            os.cpu_count() or 1)
+
         self.cuts = cuts
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.cache_file = self.cache_dir / "labels.pt"
 
-        # This map is still needed to define the examples
-        self.cut_speaker_map: List[Tuple[int, Optional[str]]] = []
+        # CutSet-specific cache file
+        cut_ids_string = ",".join(sorted(c.id for c in self.cuts))
+        cutset_hash = hashlib.sha256(
+            cut_ids_string.encode('utf-8')).hexdigest()
+        self.cache_file = self.cache_dir / \
+            f"labels_cache_{cutset_hash[:16]}.pt"
+
+        self.cut_speaker_map: List[Tuple[str, Optional[str]]] = []
         self._build_index_map()
-        
-        # This will hold the pre-computed labels
+
         self.cached_labels: List[torch.Tensor] = []
 
         if self.cache_file.exists() and not force_recompute:
-            print(f"Loading pre-computed labels from {self.cache_file}...")
+            print(
+                f"Loading pre-computed labels from {self.cache_file}...")
             self._load_labels_from_cache()
         else:
-            print("No cache found or recompute forced. Computing labels...")
+            print(f"Cache not found or recompute forced: {self.cache_file}")
+            print("Computing labels (this may take a while)...")
             self._compute_and_cache_labels()
 
         print(f"Dataset initialized with {len(self.cut_speaker_map)} examples")
 
     def _build_index_map(self) -> None:
-        """Pre-compute all valid (cut_index, target_speaker) combinations."""
+        """
+        Pre-compute all valid (cut_id, target_speaker) combinations.
+        """
         print("Building dataset index map...")
 
-        for cut_index, cut in enumerate(self.cuts):
+        for cut in tqdm(self.cuts, desc="Building index map"):
             all_speakers_in_cut = sorted(
                 set(s.speaker for s in cut.supervisions if s.speaker)
             )
-            
+
             for target_spk_id in all_speakers_in_cut:
                 target_supervisions = [
                     s for s in cut.supervisions if s.speaker == target_spk_id
                 ]
-                
+
                 if target_supervisions:
                     if self._can_get_enrollment(cut, target_spk_id, target_supervisions):
-                        self.cut_speaker_map.append((cut_index, target_spk_id))
-            
-            self.cut_speaker_map.append((cut_index, None))
-        
+                        self.cut_speaker_map.append((cut.id, target_spk_id))
+
+            self.cut_speaker_map.append((cut.id, None))
+
         print(f"Index map built. Total examples: {len(self.cut_speaker_map)}")
 
     def _load_labels_from_cache(self) -> None:
@@ -182,27 +177,71 @@ class EgoCentricDiarizationDataset(Dataset):
 
     def _compute_and_cache_labels(self) -> None:
         """
-        Generates all labels for the dataset and saves them to a cache file.
-        This is a one-time, slow operation.
+        Generates all labels for the dataset using multiprocessing
+        and saves them to a cache file.
         """
-        print("Generating and caching labels for all examples...")
+        print(
+            f"Generating and caching {len(self.cut_speaker_map)} labels...")
+        print(f"Using {self.num_workers} workers for parallel processing.")
+
+        # Prepare arguments for starmap
+        full_args_list = []
+        try:
+            full_args_list = [
+                (self.cuts[cut_id], target_spk_id, self.LABEL_MAP)
+                for cut_id, target_spk_id in self.cut_speaker_map
+            ]
+        except KeyError as e:
+            print(f"FATAL: Error preparing cache. Cut ID {e} was in the index map "
+                  "but is not in the provided CutSet. This should not happen.")
+            raise e
+        except Exception as e:
+            print(f"FATAL: Unknown error preparing cache arguments: {e}")
+            raise e
+
         all_labels = []
-        for cut_index, target_spk_id in tqdm(self.cut_speaker_map, desc="Caching labels"):
-            # We must load the cut to generate its labels
+
+        if self.num_workers > 0 and len(full_args_list) > 1:
             try:
-                cut = self.cuts[cut_index]
+                with multiprocessing.Pool(self.num_workers) as pool:
+                    # Using pool.starmap instead of istarmap to resolve the
+                    # linter error ("Attribute is unknown"). starmap is
+                    # universally available in all Python 3 versions.
+                    #
+                    # NOTE: This means tqdm will not show incremental progress.
+                    # It will wait for all tasks to finish and then
+                    # update to 100% at the end.
+                    print("Using starmap. Progress bar will update when all tasks are complete.")
+                    all_labels = list(tqdm(
+                        pool.starmap(_compute_label_worker, full_args_list),
+                        total=len(full_args_list),
+                        desc="Caching labels (parallel)"
+                    ))
             except Exception as e:
-                print(f"FATAL: Error loading cut at index {cut_index} during cache creation: {e}")
-                raise e # Fail fast
-                
-            labels = self._generate_ego_centric_labels(cut, target_spk_id)
-            all_labels.append(labels)
-        
+                print(
+                    f"Error during parallel label generation: {e}. "
+                    "This can happen on some platforms (e.g., Windows without a __main__ guard). "
+                    "Falling back to single-threaded processing."
+                )
+                # Fallback logic
+                all_labels = self._compute_labels_single_threaded(
+                    full_args_list)
+        else:
+            print("Using single-threaded processing (num_workers=0 or < 2 tasks).")
+            all_labels = self._compute_labels_single_threaded(full_args_list)
+
         print(f"Saving {len(all_labels)} labels to {self.cache_file}...")
         torch.save(all_labels, self.cache_file)
         self.cached_labels = all_labels
         print("Caching complete.")
 
+    def _compute_labels_single_threaded(self, full_args_list: List[Tuple[Cut, Optional[str], Dict[str, int]]]) -> List[torch.Tensor]:
+        """Helper for single-threaded computation as a fallback."""
+        all_labels = []
+        for args in tqdm(full_args_list, desc="Caching labels (single-thread)"):
+            labels = _compute_label_worker(*args)
+            all_labels.append(labels)
+        return all_labels
 
     def _can_get_enrollment(
         self,
@@ -236,25 +275,23 @@ class EgoCentricDiarizationDataset(Dataset):
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
         """
         Get a single example by index for standard PyTorch DataLoader.
-        
-        This method is now very fast as it loads pre-computed labels.
-        Per user request, it will BREAK (raise an error) if any data
-        is found to be incorrect or unloadable.
         """
         if index >= len(self.cut_speaker_map):
             raise IndexError(
                 f"Index {index} out of range for dataset of size {len(self.cut_speaker_map)}")
 
-        # Get the (cut_index, target_speaker) pair for this index
-        cut_index, target_spk_id = self.cut_speaker_map[index]
+        cut_id, target_spk_id = self.cut_speaker_map[index]
 
-        # --- ERROR HANDLING: Fail fast as requested ---
-        # This will raise an exception if the cut is bad
-        cut = self.cuts[cut_index]
+        try:
+            cut = self.cuts[cut_id]
+        except KeyError:
+            raise RuntimeError(f"Failed to find cut with ID {cut_id} for index {index}. "
+                               "The CutSet may have changed since caching.")
+        except Exception as e:
+            raise RuntimeError(
+                f"Error loading cut {cut_id} for index {index}: {e}")
 
-        # Extract features using Lhotse's feature loading
-        mixture_features = cut.load_features()  # Shape: (T, F)
-
+        mixture_features = cut.load_features()
         if not isinstance(mixture_features, torch.Tensor):
             mixture_features = torch.from_numpy(mixture_features)
         mixture_features = mixture_features.float()
@@ -262,7 +299,6 @@ class EgoCentricDiarizationDataset(Dataset):
         num_features_dim = mixture_features.shape[1]
 
         if target_spk_id is not None:
-            # Case 1: Real speaker enrollment
             target_supervisions = [
                 s for s in cut.supervisions if s.speaker == target_spk_id
             ]
@@ -270,7 +306,6 @@ class EgoCentricDiarizationDataset(Dataset):
                 cut, target_spk_id, target_supervisions
             )
 
-            # --- ERROR HANDLING: Fail fast as requested ---
             if enroll_cut is None:
                 raise RuntimeError(
                     f"Failed to sample a valid enrollment segment for index {index} "
@@ -278,36 +313,33 @@ class EgoCentricDiarizationDataset(Dataset):
                     "This can happen if no non-overlapping segment meets min_enroll_len."
                 )
 
-            enroll_features = enroll_cut.load_features()  # Shape: (T_enroll, F)
+            enroll_features = enroll_cut.load_features()
             if not isinstance(enroll_features, torch.Tensor):
                 enroll_features = torch.from_numpy(enroll_features)
             enroll_features = enroll_features.float()
         else:
-            # Case 2: Zero-enrollment ("+ 1" case)
             enroll_features = torch.zeros(
                 1, num_features_dim, dtype=torch.float)
 
-        # --- CACHING: Load pre-computed labels ---
         labels = self.cached_labels[index]
-        
         if not isinstance(labels, torch.Tensor):
             labels = torch.from_numpy(labels)
         labels = labels.long()
 
-        # Apply mean normalization per utterance (EEND-style)
+        # Apply mean normalization
         mixture_features = mixture_features - \
             mixture_features.mean(dim=0, keepdim=True)
         enroll_features = enroll_features - \
             enroll_features.mean(dim=0, keepdim=True)
 
-        # Apply subsampling to reduce sequence length
+        # Apply subsampling
         if self.subsampling > 1:
             mixture_features, labels = subsample_torch(
                 mixture_features, labels, subsample=self.subsampling)
             enroll_features, _ = subsample_torch(enroll_features, torch.arange(
                 enroll_features.size(0)), subsample=self.subsampling)
 
-        # Apply feature splicing for temporal context (concatenate adjacent frames)
+        # Apply feature splicing
         mixture_features = splice(
             mixture_features, context_size=self.context_size)
         enroll_features = splice(
@@ -323,24 +355,16 @@ class EgoCentricDiarizationDataset(Dataset):
 
     @staticmethod
     def collate_fn(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
-        """
-        Custom collate function to handle variable-length sequences with padding.
-        
-        NOTE: This function no longer checks for `None` items, as __getitem__
-        is designed to raise an error instead of returning None.
-        """
-        # Extract sequences from batch
+        """Custom collate function to handle variable-length sequences with padding."""
         features_list = [item["features"] for item in batch]
         enroll_features_list = [item["enroll_features"] for item in batch]
-        labels_list = [item["labels"] for item in batch]
+        labels_list = [item["labels"]for item in batch]
 
-        # Get lengths before padding
         features_lens = torch.tensor(
             [feat.size(0) for feat in features_list], dtype=torch.long)
         enroll_features_lens = torch.tensor(
             [feat.size(0) for feat in enroll_features_list], dtype=torch.long)
 
-        # Pad sequences to maximum length in batch
         features_padded = pad_sequence(
             features_list, batch_first=True, padding_value=0.0)
         enroll_features_padded = pad_sequence(
@@ -349,11 +373,11 @@ class EgoCentricDiarizationDataset(Dataset):
             labels_list, batch_first=True, padding_value=EgoCentricDiarizationDataset.IGNORE_INDEX)
 
         return {
-            "features": features_padded,  # (B, T_max, F)
-            "features_lens": features_lens,  # (B,)
-            "enroll_features": enroll_features_padded,  # (B, T_enroll_max, F)
-            "enroll_features_lens": enroll_features_lens,  # (B,)
-            "labels": labels_padded,  # (B, T_max)
+            "features": features_padded,
+            "features_lens": features_lens,
+            "enroll_features": enroll_features_padded,
+            "enroll_features_lens": enroll_features_lens,
+            "labels": labels_padded,
         }
 
     def _get_random_enrollment(
@@ -400,7 +424,7 @@ class EgoCentricDiarizationDataset(Dataset):
         start_offset = random.uniform(
             0, max_start_offset) if max_start_offset > 0 else 0
         enroll_start = selected_segment.start + start_offset
-        
+
         if enroll_start < 0:
             enroll_start = 0.0
         max_possible_start = cut.duration - enroll_len
@@ -418,14 +442,30 @@ class EgoCentricDiarizationDataset(Dataset):
         )
         return enroll_cut
 
-    def _generate_ego_centric_labels(
-        self,
+
+    @staticmethod
+    def _supervision_to_frames_static(
+        sup: SupervisionSegment,
+        num_frames: int,
+        frame_shift: float
+    ) -> Tuple[int, int]:
+        """Static helper to convert supervision start/end times to frame indices."""
+        start_frame = round(sup.start / frame_shift)
+        end_frame = start_frame + round(sup.duration / frame_shift)
+        start_frame = max(0, start_frame)
+        end_frame = min(num_frames, end_frame)
+        return start_frame, end_frame
+
+    @staticmethod
+    def _generate_ego_centric_labels_static(
         cut: Cut,
-        target_speaker_id: Optional[str]
+        target_speaker_id: Optional[str],
+        label_map: Dict[str, int],
+        # Correct, specific Callable hint
+        frame_converter: Callable[[SupervisionSegment, int, float], Tuple[int, int]]
     ) -> torch.Tensor:
         """
-        Generates the 1D categorical label sequence Y for a given cut
-        from the perspective of target_speaker_id.
+        Static version of label generation logic for parallel processing.
         """
         num_frames = cut.num_frames
         if num_frames is None or num_frames == 0:
@@ -433,7 +473,7 @@ class EgoCentricDiarizationDataset(Dataset):
 
         frame_shift = cut.frame_shift
         if frame_shift is None:
-            frame_shift = 0.01
+            frame_shift = 0.01  # Default fallback
 
         target_mask = torch.zeros(num_frames, dtype=torch.bool)
         other_speaker_count = torch.zeros(num_frames, dtype=torch.int32)
@@ -445,42 +485,34 @@ class EgoCentricDiarizationDataset(Dataset):
             other_speaker_ids: set[str] = all_speakers - {target_speaker_id}
             for sup in cut.supervisions:
                 if sup.speaker == target_speaker_id:
-                    start_frame, end_frame = self._supervision_to_frames(
+                    start_frame, end_frame = frame_converter(
                         sup, num_frames, frame_shift)
                     target_mask[start_frame:end_frame] = True
         else:
             other_speaker_ids: set[str] = all_speakers
-            
+
         for other_spk_id in other_speaker_ids:
             other_spk_mask = torch.zeros(num_frames, dtype=torch.bool)
             for sup in cut.supervisions:
                 if sup.speaker == other_spk_id:
-                    start_frame, end_frame = self._supervision_to_frames(
+                    start_frame, end_frame = frame_converter(
                         sup, num_frames, frame_shift)
                     other_spk_mask[start_frame:end_frame] = True
             other_speaker_count += other_spk_mask.int()
 
         labels = torch.full(
             (num_frames,),
-            fill_value=self.LABEL_MAP['ns'],
+            fill_value=label_map['ns'],
             dtype=torch.long
         )
 
         labels[(target_mask == True) & (
-            other_speaker_count == 0)] = self.LABEL_MAP['ts']
+            other_speaker_count == 0)] = label_map['ts']
         labels[(target_mask == True) & (other_speaker_count > 0)
-               ] = self.LABEL_MAP['ts_ovl']
+               ] = label_map['ts_ovl']
         labels[(target_mask == False) & (other_speaker_count == 1)
-               ] = self.LABEL_MAP['others_sgl']
+               ] = label_map['others_sgl']
         labels[(target_mask == False) & (other_speaker_count > 1)
-               ] = self.LABEL_MAP['others_ovl']
+               ] = label_map['others_ovl']
 
         return labels
-
-    def _supervision_to_frames(self, sup: SupervisionSegment, num_frames: int, frame_shift: float) -> Tuple[int, int]:
-        """Helper to convert supervision start/end times to frame indices."""
-        start_frame = round(sup.start / frame_shift)
-        end_frame = start_frame + round(sup.duration / frame_shift)
-        start_frame = max(0, start_frame)
-        end_frame = min(num_frames, end_frame)
-        return start_frame, end_frame
