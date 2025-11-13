@@ -73,20 +73,10 @@ def setup_accelerator(
 
     # Create accelerator
     accelerator = Accelerator(
-        mixed_precision=mixed_precision,
         gradient_accumulation_steps=training_config.gradient_accumulation_steps,
         log_with=_get_log_trackers(training_config),
         project_config=project_config,
-        cpu=(not torch.cuda.is_available()),
     )
-
-    # Initialize distributed backend if configured
-    if training_config.distributed and training_config.distributed.world_size > 1:
-        if accelerator.state.distributed_type.value == "NO":
-            accelerator.print(
-                "Warning: Distributed config specified but Accelerate is not in distributed mode. "
-                "Make sure to launch with accelerate launch or torchrun."
-            )
 
     return accelerator
 

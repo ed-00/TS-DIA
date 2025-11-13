@@ -62,6 +62,9 @@ from lhotse import (
     SupervisionSet
 )
 
+from lhotse.utils import (
+    Pathlike
+)
 from lhotse.features.kaldifeat import (
     KaldifeatFrameOptions,
     KaldifeatMelOptions,
@@ -818,6 +821,7 @@ class DatasetManager:
     @staticmethod
     def _create_dataset(
         cuts: CutSet,
+        cache_dir: Pathlike,
         label_type: LabelType = "binary",
         data_loading: Optional[DataLoadingConfig] = None,
     ) -> Union[DiarizationDataset, Any]:
@@ -856,6 +860,7 @@ class DatasetManager:
 
             return EgoCentricDiarizationDataset(
                 cuts=cuts,
+                cache_dir=cache_dir,
                 chunk_size=chunk_size,
                 min_enroll_len=min_enroll_len,
                 max_enroll_len=max_enroll_len,
@@ -868,8 +873,243 @@ class DatasetManager:
             raise ValueError(f"Unsupported label_type: {label_type}")
 
     @staticmethod
+    def create_label_cache_dir(
+        feature_storage_path: str,
+        dataset_name: str,
+        split_name: str,
+        subset_ratio: float = 1.0
+    ) -> Path:
+        """
+        Create label cache directory path with dataset name, split, and subset ratio.
+
+        Args:
+            feature_storage_path: Base feature storage path (e.g., './outputs/features_storage')
+            dataset_name: Name of the dataset
+            split_name: Split name (e.g., 'train', 'val', 'test')
+            subset_ratio: Ratio of subset used (1.0 means full dataset)
+
+        Returns:
+            Path object for the label cache directory
+        """
+        # Create a descriptive directory name with all relevant information
+        base_path = Path(feature_storage_path).parent / "label_cache"
+
+        # Include subset ratio only if it's not the full dataset
+        if subset_ratio < 1.0:
+            cache_dir = base_path / f"{dataset_name}_{split_name}_subset{subset_ratio:.3f}"
+        else:
+            cache_dir = base_path / f"{dataset_name}_{split_name}"
+
+        return cache_dir
+
+    @staticmethod
+    def create_validation_dataloaders(
+        cut_sets: Dict[str, Dict[str, CutSet]],
+        dataset_configs: List[Any],
+        global_config: Any,
+        training_config: Any,
+        label_type: LabelType = "binary",
+        random_seed: int = 42,
+    ) -> Dict[str, DataLoader[Any]]:
+        """
+        Create validation dataloaders based on training configuration.
+
+        Supports two modes:
+        1. validation_dataset_map: New flexible approach with per-dataset split control
+        2. splits list: Legacy approach for backward compatibility
+
+        Args:
+            cut_sets: Dictionary of CutSets organized by dataset and split
+            dataset_configs: List of dataset configurations
+            global_config: Global configuration with data_loading settings
+            training_config: Training configuration with validation settings
+            label_type: Type of labels ("ego" or "binary")
+            random_seed: Random seed for reproducibility
+
+        Returns:
+            Dictionary mapping validation split names to DataLoaders
+        """
+        val_dataloaders: Dict[str, DataLoader[Any]] = {}
+
+        if not training_config.validation:
+            return val_dataloaders
+
+        if training_config.validation.validation_dataset_map:
+            # Use the new validation_dataset_map approach
+            validation_map = training_config.validation.validation_dataset_map
+
+            if validation_map.combine:
+                # Combine all validation splits into one
+                from utility.dataset_utils import prepare_training_cuts
+                
+                val_cuts = prepare_training_cuts(cut_sets, validation_map)
+
+                # Create label cache directory for combined validation
+                combined_split_names = "_".join(
+                    [s.split_name for s in validation_map.splits]
+                )
+                label_cache_dir = DatasetManager.create_label_cache_dir(
+                    feature_storage_path=global_config.storage_path or "./outputs/features_storage",
+                    dataset_name="combined",
+                    split_name=combined_split_names,
+                    subset_ratio=1.0
+                )
+
+                val_dataloaders["val"] = DatasetManager.create_dataloader(
+                    cuts=val_cuts,
+                    lable_cache_dir=label_cache_dir,
+                    data_loading=global_config.data_loading,
+                    batch_size=training_config.batch_size,
+                    label_type=label_type,
+                    random_seed=random_seed,
+                    shuffle=False,
+                )
+            else:
+                # Keep datasets separate
+                for split_info in validation_map.splits:
+                    dataset_name = split_info.dataset_name
+                    split_name = split_info.split_name
+                    subset_ratio = split_info.subset_ratio
+
+                    if dataset_name not in cut_sets:
+                        print(
+                            f"Warning: Dataset '{dataset_name}' not found for validation, skipping."
+                        )
+                        continue
+
+                    dataset_cuts = cut_sets[dataset_name]
+                    if split_name not in dataset_cuts:
+                        print(
+                            f"Warning: Split '{split_name}' not found in dataset '{dataset_name}', skipping."
+                        )
+                        continue
+
+                    val_cuts = dataset_cuts[split_name]
+
+                    # Apply subsetting if needed
+                    if 0 < subset_ratio < 1.0:
+                        num_cuts = int(len(val_cuts) * subset_ratio)
+                        val_cuts = val_cuts.subset(first=num_cuts)
+
+                    # Create label cache directory with dataset, split, and subset ratio
+                    label_cache_dir = DatasetManager.create_label_cache_dir(
+                        feature_storage_path=global_config.storage_path or "./outputs/features_storage",
+                        dataset_name=dataset_name,
+                        split_name=split_name,
+                        subset_ratio=subset_ratio
+                    )
+
+                    # Create separate dataloader for each validation split
+                    val_key = f"{dataset_name}_{split_name}"
+                    val_dataloaders[val_key] = DatasetManager.create_dataloader(
+                        cuts=val_cuts,
+                        lable_cache_dir=label_cache_dir,
+                        data_loading=global_config.data_loading,
+                        batch_size=training_config.batch_size,
+                        label_type=label_type,
+                        random_seed=random_seed,
+                        shuffle=False,
+                    )
+        else:
+            # Fallback to old behavior using splits list
+            requested_splits = training_config.validation.splits or []
+            dataset_name = dataset_configs[0].name
+            dataset_cuts = cut_sets.get(dataset_name, {})
+
+            for split in requested_splits:
+                if not split:
+                    continue
+                split_cuts = dataset_cuts.get(split)
+                if split_cuts is None:
+                    print(
+                        f"Warning: Requested validation split '{split}' not found, skipping."
+                    )
+                    continue
+
+                # Create label cache directory for this validation split
+                label_cache_dir = DatasetManager.create_label_cache_dir(
+                    feature_storage_path=global_config.storage_path or "./outputs/features_storage",
+                    dataset_name=dataset_name,
+                    split_name=split,
+                    subset_ratio=1.0
+                )
+
+                val_dataloaders[split] = DatasetManager.create_dataloader(
+                    cuts=split_cuts,
+                    lable_cache_dir=label_cache_dir,
+                    data_loading=global_config.data_loading,
+                    batch_size=training_config.batch_size,
+                    label_type=label_type,
+                    random_seed=random_seed,
+                    shuffle=False,
+                )
+
+        return val_dataloaders
+
+    @staticmethod
+    def create_training_dataloader(
+        cut_sets: Dict[str, Dict[str, CutSet]],
+        global_config: Any,
+        training_config: Any,
+        label_type: LabelType = "binary",
+        random_seed: int = 42,
+    ) -> DataLoader[Any]:
+        """
+        Create training dataloader with label cache directory management.
+
+        Args:
+            cut_sets: Dictionary of CutSets organized by dataset and split
+            global_config: Global configuration with data_loading settings
+            training_config: Training configuration with training_dataset_map
+            label_type: Type of labels ("ego" or "binary")
+            random_seed: Random seed for reproducibility
+
+        Returns:
+            PyTorch DataLoader configured for training
+        """
+        from utility.dataset_utils import prepare_training_cuts
+
+        # Get training cuts from dataset map
+        train_cuts = prepare_training_cuts(
+            cut_sets, training_config.training_dataset_map
+        )
+
+        if train_cuts is None:
+            raise ValueError("No training data found for dataset.")
+
+        # Create label cache directory for training data
+        # Join all dataset names and split names from training_dataset_map
+        train_dataset_name = "_".join(
+            [s.dataset_name for s in training_config.training_dataset_map.splits]
+        )
+        train_split_name = "_".join(
+            [s.split_name for s in training_config.training_dataset_map.splits]
+        )
+
+        train_label_cache_dir = DatasetManager.create_label_cache_dir(
+            feature_storage_path=global_config.storage_path or "./outputs/features_storage",
+            dataset_name=train_dataset_name,
+            split_name=train_split_name,
+            subset_ratio=1.0
+        )
+
+        # Create training dataloader
+        train_dataloader = DatasetManager.create_dataloader(
+            cuts=train_cuts,
+            lable_cache_dir=train_label_cache_dir,
+            data_loading=global_config.data_loading,
+            batch_size=training_config.batch_size,
+            label_type=label_type,
+            random_seed=random_seed,
+            shuffle=True,
+        )
+
+        return train_dataloader
+
+    @staticmethod
     def create_dataloader(
         cuts: CutSet,
+        lable_cache_dir: Pathlike,
         data_loading: DataLoadingConfig,
         batch_size: int,
         label_type: LabelType = "binary",
@@ -927,7 +1167,7 @@ class DatasetManager:
 
         # Create dataset
         dataset = DatasetManager._create_dataset(
-            cuts=cuts, label_type=label_type, data_loading=data_loading)
+            cuts=cuts, label_type=label_type, cache_dir=lable_cache_dir, data_loading=data_loading)
 
         # Create worker init function for reproducibility
         worker_init_fn = make_worker_init_fn(seed=random_seed)
@@ -954,78 +1194,6 @@ class DatasetManager:
 
         return dataloader
 
-    @staticmethod
-    def create_train_val_dataloaders(
-        train_cuts: CutSet,
-        val_cuts: Optional[CutSet],
-        data_loading: DataLoadingConfig,
-        batch_size: int,
-        label_type: LabelType = "binary",
-        random_seed: int = 42,
-    ) -> Tuple[DataLoader[Any], Optional[DataLoader[Any]]]:
-        """
-        Create training and validation DataLoaders for diarization.
-
-        Args:
-            train_cuts: Training CutSet with precomputed features
-            val_cuts: Validation CutSet with precomputed features (optional)
-            data_loading: Configuration for data loading
-            batch_size: Explicit batch size for DataLoaders (required for Accelerate compatibility)
-            label_type: Type of labels ("ego" or "binary")
-            random_seed: Random seed for reproducibility
-
-        Returns:
-            Tuple of (train_dataloader, val_dataloader)
-
-        Example:
-            ```python
-            from data_manager import DatasetManager
-
-            # Load datasets
-            cut_sets = DatasetManager.load_datasets(datasets=configs)
-            train_cuts = cut_sets["ami"]["train"]
-            val_cuts = cut_sets["ami"]["val"]
-
-            # Create dataloaders
-            train_dl, val_dl = DatasetManager.create_train_val_dataloaders(
-                train_cuts=train_cuts,
-                val_cuts=val_cuts,
-                data_loading=data_loading_config,
-                batch_size=32,
-                label_type="binary",
-                random_seed=42,
-            )
-            ```
-        """
-        print("=" * 60)
-        print("Creating training dataloader")
-        print("=" * 60)
-
-        train_dataloader = DatasetManager.create_dataloader(
-            cuts=train_cuts,
-            data_loading=data_loading,
-            batch_size=batch_size,
-            label_type=label_type,
-            random_seed=random_seed,
-            shuffle=True,
-        )
-
-        val_dataloader = None
-        if val_cuts:
-            print("\n" + "=" * 60)
-            print("Creating validation dataloader")
-            print("=" * 60)
-
-            val_dataloader = DatasetManager.create_dataloader(
-                cuts=val_cuts,
-                data_loading=data_loading,
-                batch_size=batch_size,
-                label_type=label_type,
-                random_seed=random_seed,
-                shuffle=False,  # No shuffling for validation
-            )
-
-        return train_dataloader, val_dataloader
 
     @staticmethod
     def _download_dataset(
