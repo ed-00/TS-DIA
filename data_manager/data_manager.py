@@ -1350,15 +1350,21 @@ class DatasetManager:
         # Attach labels AND index map to cuts in custom field
         cuts_with_labels = []
         for cut in list(cuts):
+            # Create custom dict if doesn't exist
+            custom = cut.custom or {}
+            
+            # Add labels if available
             if cut.id in labels_cache:
-                # Create custom dict if doesn't exist
-                custom = cut.custom or {}
                 custom['ego_labels'] = labels_cache[cut.id]
-                # Cache the index map entries for this cut
+            
+            # Add index map entries for this cut (always add if cut has speakers)
+            if cut.id in cut_to_speakers:
                 custom['ego_index_map'] = [
-                    (cut.id, spk_id) for spk_id in cut_to_speakers.get(cut.id, [])
+                    (cut.id, spk_id) for spk_id in cut_to_speakers[cut.id]
                 ]
-                cut = cut.with_(custom=custom)
+            
+            # Update cut with custom field
+            cut = cut.with_(custom=custom)
             cuts_with_labels.append(cut)
 
         result = CutSet.from_cuts(cuts_with_labels)
@@ -1409,6 +1415,7 @@ class DatasetManager:
     ) -> CutSet:
         """
         Apply windowing/chunking to cuts. (Main process only)
+        Note: Labels should be computed AFTER windowing, not before.
         """
         if chunk_size is None or chunk_size <= 0:
             return cuts
@@ -1611,30 +1618,30 @@ class DatasetManager:
                 if data_loading and hasattr(data_loading, 'num_workers'):
                     num_workers = data_loading.num_workers
 
-                # 3. Apply Subsetting, Label Computation, Windowing, and Save to Final Cache
+                # 3. Apply Subsetting, Windowing, Label Computation, and Save to Final Cache
                 if chunk_size and chunk_size > 0:
                     for split_name, cuts in dataset_cut_sets.items():
-                        # Apply subsetting first (before label computation and windowing)
+                        # Apply subsetting first (before windowing)
                         cuts_subsetted = self._apply_subsetting(
                             cuts, dataset.name, split_name, training_dataset_mapping
                         )
-                        # Compute and cache labels (for ego-centric only)
-                        cuts_with_labels = self._compute_and_cache_labels(
-                            cuts_subsetted, dataset.name, split_name, label_type, num_workers
-                        )
-                        # Then apply windowing
+                        # Apply windowing BEFORE label computation
                         cuts_windowed = self._apply_windowing(
-                            cuts_with_labels, chunk_size, split_name
+                            cuts_subsetted, chunk_size, split_name
+                        )
+                        # Compute and cache labels for windowed cuts (for ego-centric only)
+                        cuts_with_labels = self._compute_and_cache_labels(
+                            cuts_windowed, dataset.name, split_name, label_type, num_workers
                         )
                         # Save to final cache
                         self._save_to_final_cache(
-                            cuts_windowed, final_cache_dir, dataset.name, split_name
+                            cuts_with_labels, final_cache_dir, dataset.name, split_name
                         )
                 else:
                     self.accelerator.print(
                         f"→ {dataset.name}: No chunk_size, applying subsetting, label computation, and saving to cache.")
                     for split_name, cuts in dataset_cut_sets.items():
-                        # Apply subsetting even without windowing
+                        # Apply subsetting
                         cuts_subsetted = self._apply_subsetting(
                             cuts, dataset.name, split_name, training_dataset_mapping
                         )

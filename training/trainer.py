@@ -433,12 +433,11 @@ class Trainer:
 
         for batch_idx, batch in enumerate(progress_bar):
             self.callback_handler.on_batch_begin(self, batch, batch_idx)
-
+            self.accelerator.print(f"DEBUG: batch {batch_idx}: {batch}")
             with self.accelerator.accumulate(self.model):
                 # Ego-centric diarization: labels are [batch, num_frames] with class indices
                 targets = batch["labels"]
 
-                self.accelerator.print(batch)
                 # Forward pass - extract features from diarization batch
                 outputs = self.model(x=batch["features"])
 
