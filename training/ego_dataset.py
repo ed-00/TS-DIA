@@ -72,7 +72,6 @@ class EgoCentricDiarizationDataset(Dataset):
         super().__init__()
         self.context_size = context_size
         self.subsampling = subsampling
-  
 
         self.cuts = cuts.to_eager()
         self.cut_speaker_map: List[Tuple[str,
@@ -143,7 +142,7 @@ class EgoCentricDiarizationDataset(Dataset):
             "features": mixture_features,
             "features_lens": torch.tensor(mixture_features.size(0), dtype=torch.long),
             "labels": labels,
-            "speaker_id": target_spk_id if target_spk_id else "__none__",
+            "speaker_id": torch.tensor(target_spk_id) if target_spk_id else torch.tensor(-1),
         }
 
     @staticmethod
@@ -168,7 +167,7 @@ class EgoCentricDiarizationDataset(Dataset):
             "features": features_padded,
             "features_lens": features_lens,
             "labels": labels_padded,
-            "speaker_ids": speaker_ids,
+            "speaker_ids": torch.tensor(speaker_ids),
         }
 
     @staticmethod
