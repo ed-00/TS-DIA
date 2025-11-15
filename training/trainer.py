@@ -293,7 +293,6 @@ class Trainer:
         if config.checkpoint and config.checkpoint.resume:
             self._resume_from_checkpoint(config.checkpoint.resume)
 
-
     def state_dict(self):
         return {
             "current_epoch": self.current_epoch,
@@ -558,23 +557,24 @@ class Trainer:
                 if "labels" in batch:
                     targets = batch["labels"]
                     loss = self.loss_fn(outputs[:, 1:, :], targets)
+                    total_samples += targets.size(0)
                 elif "speaker_activity" in batch:
                     targets = batch["speaker_activity"]
                     loss = self.loss_fn(outputs[:, 1:, :], targets)
+                    total_samples += targets.size(0)
                 else:
                     loss = None
                     targets = None
 
                 if loss is not None:
                     total_loss += loss.item()
-                    total_samples += targets.size(0)
 
                 # Compute metrics, ignoring the enrollment token
                 if targets is not None:
                     batch_metrics = compute_metrics(
                         outputs=outputs[:, 1:, :],
                         targets=targets,
-                        task_type=self.config.validation.task_type,
+                        task_type="classification",
                     )
                     all_metrics.append(batch_metrics)
 
@@ -713,7 +713,7 @@ class Trainer:
                 outputs if isinstance(
                     outputs, torch.Tensor) else outputs.logits,
                 targets,
-                task_type="diarization",
+                task_type="classification",
             )
             all_metrics.append(batch_metrics)
 

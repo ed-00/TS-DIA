@@ -104,12 +104,14 @@ class NormRegularizationLoss(nn.Module):
 
     def forward(self, model: nn.Module) -> torch.Tensor:
         norm = torch.tensor(0.0, device=next(model.parameters()).device)
+        num_params = torch.tensor(0.0, device=next(model.parameters()).device)
         for param in model.parameters():
             if self.norm_type == "l1":
                 norm += torch.abs(param).sum()
             elif self.norm_type == "l2":
                 norm += torch.square(param).sum()
-        return norm
+            num_params += param.numel()
+        return norm / num_params if num_params > 0 else norm
 
 
 class ContrastiveLoss(nn.Module):
