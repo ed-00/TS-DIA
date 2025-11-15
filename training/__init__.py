@@ -33,6 +33,8 @@ from .config import (
     SchedulerConfig,
     TrainingConfig,
     ValidationConfig,
+    TrainingDatasetMap,
+    TrainingDatasetSplit,
 )
 from .parse_training_args import parse_training_config, training_parser
 from .trainer import Trainer

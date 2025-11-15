@@ -111,7 +111,7 @@ class PerformerLayer(nn.Module):
                 num_heads=num_heads,
                 dropout=dropout,
                 batch_size=batch_size,
-                attention_type="softmax",  # Cross-attention typically uses softmax
+                attention_type="softmax",
                 nb_features=None,
             )
 
@@ -144,14 +144,18 @@ class PerformerLayer(nn.Module):
                 self.norm_cross_attn = PreScaleNorm(
                     dim=d_model, fn=nn.Identity(), eps=eps
                 )
-            self.norm_ff = PreScaleNorm(dim=d_model, fn=self.feed_forward, eps=eps)
+            self.norm_ff = PreScaleNorm(
+                dim=d_model, fn=self.feed_forward, eps=eps)
         else:
             # PreLayerNorm: standard layer normalization (default)
-            self.norm_self_attn = PreLayerNorm(dim=d_model, fn=self.self_attention, eps=eps)
+            self.norm_self_attn = PreLayerNorm(
+                dim=d_model, fn=self.self_attention, eps=eps)
             if use_cross_attention:
                 # Store just the LayerNorm for cross-attention
-                self.norm_cross_attn = PreLayerNorm(dim=d_model, fn=nn.Identity(), eps=eps)
-            self.norm_ff = PreLayerNorm(dim=d_model, fn=self.feed_forward, eps=eps)
+                self.norm_cross_attn = PreLayerNorm(
+                    dim=d_model, fn=nn.Identity(), eps=eps)
+            self.norm_ff = PreLayerNorm(
+                dim=d_model, fn=self.feed_forward, eps=eps)
 
     def forward(
         self,
@@ -267,8 +271,10 @@ class Performer(nn.Module):
                     d_ff=kwargs["d_ff"],
                     dropout=kwargs["dropout"],
                     attention_type=kwargs.get("attention_type", "softmax"),
-                    activation=kwargs.get("activation", ActivationFunctions.GELU),
-                    use_cross_attention=kwargs.get("use_cross_attention", False),
+                    activation=kwargs.get(
+                        "activation", ActivationFunctions.GELU),
+                    use_cross_attention=kwargs.get(
+                        "use_cross_attention", False),
                     use_rezero=kwargs.get("use_rezero", False),
                     use_scalenorm=kwargs.get("use_scalenorm", False),
                     nb_features=kwargs.get("nb_features"),
@@ -279,7 +285,8 @@ class Performer(nn.Module):
         )
 
         # Projection updater for linear attention
-        self.proj_updater = ProjectionUpdater(self.layers, feature_redraw_interval)
+        self.proj_updater = ProjectionUpdater(
+            self.layers, feature_redraw_interval)
 
     def fix_projection_matrices_(self) -> None:
         """
@@ -377,10 +384,10 @@ class PerformerEncoder(Performer):
             self.output_proj = None
 
     def forward(
-        self, 
-        x: Tensor, 
-        encoder_output: Tensor | None = None, 
-        self_attn_mask: Tensor | None = None, 
+        self,
+        x: Tensor,
+        encoder_output: Tensor | None = None,
+        self_attn_mask: Tensor | None = None,
         cross_attn_mask: Tensor | None = None,
         **kwargs
     ) -> Tensor:
@@ -404,7 +411,6 @@ class PerformerEncoder(Performer):
         # Apply input projection if exists
         if self.input_proj is not None:
             x = self.input_proj(x)
-    
 
         x = super().forward(x, self_attn_mask=self_attn_mask, **kwargs)
 

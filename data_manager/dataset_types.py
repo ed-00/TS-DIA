@@ -235,6 +235,7 @@ class DataLoadingConfig:
         "on_the_fly_features",
         "audio_samples",
     ] = "precomputed_features"
+    label_type: LabelType = "ego"  # Type of labels to generate: "ego" or "binary"
     frame_stack: int = 1  # Number of frames to stack for temporal context
     # Subsampling factor (e.g., 10 = keep every 10th frame)
     subsampling: int = 1
@@ -244,7 +245,7 @@ class DataLoadingConfig:
     context_size: int = 7
     min_enroll_len: float = 1.0  # Minimum enrollment segment length in seconds
     max_enroll_len: float = 5.0  # Maximum enrollment segment length in seconds
-
+    num_workers: int = 8  # Number of parallel workers for data loading
     dataloader: DataLoaderConfig = field(default_factory=DataLoaderConfig)
 
 
@@ -261,15 +262,18 @@ class GlobalConfig:
         output_dir: Directory for output manifests
         force_download: Force re-download of datasets
         storage_path: Path to store extracted features (for caching)
+        cache_dir: Path to store fully processed, windowed, and labeled cuts (final cache)
         features: Feature extraction configuration
         data_loading: Data pipeline configuration (strategy, sampler, dataloader)
         random_seed: Global seed used when training.random_seed is absent
     """
 
+    cache_dir: str = "./cache" # Final processed cuts cache (windowed + labeled)
     corpus_dir: str = "./data"
     output_dir: str = "./manifests"
     force_download: bool = False
     storage_path: str | None = None  # Feature storage path for caching
+    label_type: LabelType = "ego"  # Default label type for datasets
     features: FeatureConfig = field(default_factory=FeatureConfig)
     data_loading: DataLoadingConfig = field(default_factory=DataLoadingConfig)
     random_seed: int = 42

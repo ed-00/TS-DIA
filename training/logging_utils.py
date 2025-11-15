@@ -26,12 +26,12 @@ from typing import Any, Dict, Optional
 import torch
 import torch.nn as nn
 import yaml
-
+from accelerate import Accelerator
 from .config import LoggingConfig, TrainingConfig
 
 
 def init_trackers(
-    accelerator: Any,
+    accelerator:  Accelerator,
     config: LoggingConfig,
     training_config: TrainingConfig,
     project_name: str = "training",
@@ -108,11 +108,12 @@ def init_trackers(
             init_kwargs=init_kwargs,
         )
 
-        accelerator.print(f"Logging initialized: {', '.join(init_kwargs.keys())}")
+        accelerator.print(
+            f"Logging initialized: {', '.join(init_kwargs.keys())}")
 
 
 def log_metrics(
-    accelerator: Any,
+    accelerator:  Accelerator,
     metrics: Dict[str, float],
     step: int,
     log_metrics_filter: Optional[list] = None,
@@ -137,7 +138,7 @@ def log_metrics(
 
 
 def log_hyperparameters(
-    accelerator: Any,
+    accelerator:  Accelerator,
     hparams: Dict[str, Any],
     save_dir: Optional[str] = None,
 ) -> None:
@@ -160,7 +161,7 @@ def log_hyperparameters(
 
 
 def log_model_summary(
-    accelerator: Any,
+    accelerator:  Accelerator,
     model: nn.Module,
     save_dir: Optional[str] = None,
 ) -> None:
@@ -189,7 +190,7 @@ def log_model_summary(
         accelerator.print(f"Model summary saved: {model_summary_file}")
 
 
-def log_system_info(accelerator: Any):
+def log_system_info(accelerator: Accelerator):
     """
     Log system and hardware information.
 
@@ -206,7 +207,7 @@ def log_system_info(accelerator: Any):
     accelerator.print(f"PyTorch: {torch.__version__}")
 
     if torch.cuda.is_available():
-        accelerator.print(f"CUDA: {torch.version.cuda}")
+        accelerator.print(f"CUDA: {torch.cuda._parse_visible_devices()}")
         accelerator.print(f"cuDNN: {torch.backends.cudnn.version()}")
         accelerator.print(f"GPU: {torch.cuda.get_device_name(0)}")
         accelerator.print(
@@ -216,7 +217,7 @@ def log_system_info(accelerator: Any):
     accelerator.print("=" * 70 + "\n")
 
 
-def save_wandb_info(accelerator: Any, checkpoint_dir: str) -> None:
+def save_wandb_info(accelerator:  Accelerator, checkpoint_dir: str) -> None:
     """
     Save WandB run information to checkpoint directory.
 
@@ -256,7 +257,8 @@ def save_wandb_info(accelerator: Any, checkpoint_dir: str) -> None:
             json.dump(wandb_info, f, indent=2)
 
         accelerator.print(f"WandB info saved: {wandb_info_path}")
-        accelerator.print(f"  Run: {wandb_info['run_name']} ({wandb_info['run_id']})")
+        accelerator.print(
+            f"  Run: {wandb_info['run_name']} ({wandb_info['run_id']})")
         accelerator.print(f"  URL: {wandb_info['run_url']}")
     except Exception as e:
         accelerator.print(f"Warning: Could not save wandb info: {e}")

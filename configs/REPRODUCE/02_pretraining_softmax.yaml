@@ -82,7 +82,7 @@ training:
   # Basic Training Settings
   # ---------------------------------------------------------------------------
   epochs: 100 # Number of training epochs
-  batch_size: 32 # Training batch size (matching EEND reference)
+  batch_size: 128 # Training batch size
   random_seed: 42 # Random seed for reproducibility
   max_steps: null # Maximum training steps (null = use epochs)
   training_dataset_map:
@@ -175,7 +175,7 @@ training:
     metric_for_best_model: val_loss # Metric to track for best model
     greater_is_better: false # Whether higher metric is better
     validation_dataset_map:
-      combine: false  # Keep validation splits separate
+      combine: false # Keep validation splits separate
       splits:
         - dataset_name: "simu_1spk"
           split_name: "dev_b2_mix500"
@@ -229,17 +229,6 @@ training:
     log_model: true # Log model architecture
 
   # ---------------------------------------------------------------------------
-  # Performance Optimization Configuration
-  # ---------------------------------------------------------------------------
-  performance:
-    num_workers: 8 # Number of DataLoader worker processes (matching EEND)
-    pin_memory: true # Pin memory for faster GPU transfer
-    batch_shim: false # Use batch shim for irregular batch sizes
-    prefetch_factor: 2 # Number of batches to prefetch per worker
-    persistent_workers: true # Keep workers alive between epochs
-    compile_model: false # Use torch.compile (PyTorch 2.0+) not implemented yet
-
-  # ---------------------------------------------------------------------------
   # Callbacks (Advanced)
   # ---------------------------------------------------------------------------
   callbacks:
@@ -282,6 +271,7 @@ global_config:
   corpus_dir: ./outputs/data
   output_dir: ./outputs/manifests
   storage_path: ./outputs/features_storage
+  cache_dir: ./outputs/processed_cache/softmax_pretraining_model
   sampling_rate: 8000
 
   features:

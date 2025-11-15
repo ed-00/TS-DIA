@@ -16,7 +16,7 @@ from typing import Any
 
 import torch
 import torch.nn as nn
-from torch.optim import Optimizer
+from torch.optim.optimizer import Optimizer
 from torch.optim.lr_scheduler import (
     CosineAnnealingLR,
     CosineAnnealingWarmRestarts,
@@ -192,7 +192,6 @@ def create_scheduler(
             return CosineAnnealingLR(
                 optimizer,
                 T_max=T_max,
-                eta_min=config.min_lr or 0.0,
             )
 
     elif scheduler_type == "cosine_restarts":
@@ -200,7 +199,6 @@ def create_scheduler(
             optimizer,
             T_0=config.decay_steps or 1000,
             T_mult=config.num_cycles or 1,
-            eta_min=config.min_lr or 0.0,
         )
 
     elif scheduler_type == "linear":
@@ -210,7 +208,8 @@ def create_scheduler(
                 if current_step < config.warmup_steps:
                     return float(current_step) / float(max(1, config.warmup_steps))
 
-                total_decay_steps = (config.decay_steps or num_training_steps or 1000)
+                total_decay_steps = (
+                    config.decay_steps or num_training_steps or 1000)
                 progress = float(current_step - config.warmup_steps) / float(
                     max(1, total_decay_steps - config.warmup_steps)
                 )
@@ -218,7 +217,8 @@ def create_scheduler(
 
             return LambdaLR(optimizer, lr_lambda)
         else:
-            min_lr_factor = (config.min_lr or 0.0) / optimizer.param_groups[0]["lr"]
+            min_lr_factor = (config.min_lr or 0.0) / \
+                optimizer.param_groups[0]["lr"]
             return LinearLR(
                 optimizer,
                 start_factor=1.0,

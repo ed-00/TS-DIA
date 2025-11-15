@@ -22,20 +22,21 @@ def prepare_training_cuts(
     Prepare the training cuts based on the training_dataset_map.
 
     This function processes a dictionary of CutSets according to the
-    specifications in a TrainingDatasetMap object. It supports taking
-    subsets of specified dataset splits and combining them into a single
-    CutSet for training.
+    specifications in a TrainingDatasetMap object. It supports combining
+    multiple dataset splits into a single CutSet for training.
+    
+    Note: Subsetting should be applied earlier in the pipeline (before windowing).
+    This function only handles combining datasets.
 
     Args:
         cut_sets: A dictionary where keys are dataset names and values are
                   dictionaries mapping split names to CutSet objects.
                   Example: {'ami': {'train': CutSet(...), 'dev': CutSet(...)}}
         training_dataset_map: A configuration object that specifies which
-                              dataset splits to use, what subset ratio to
-                              apply, and whether to combine them.
+                              dataset splits to use and whether to combine them.
 
     Returns:
-        A single CutSet containing the combined and subsetted training data.
+        A single CutSet containing the combined training data.
 
     Raises:
         ValueError: If a specified dataset or split is not found in `cut_sets`.
@@ -47,7 +48,6 @@ def prepare_training_cuts(
     for split_info in training_dataset_map.splits:
         dataset_name = split_info.dataset_name
         split_name = split_info.split_name
-        subset_ratio = split_info.subset_ratio
 
         if dataset_name not in cut_sets:
             raise ValueError(f"Dataset '{dataset_name}' not found in loaded cut_sets.")
@@ -61,17 +61,7 @@ def prepare_training_cuts(
             )
 
         target_cuts = dataset_cuts[split_name]
-
-        # Apply subsetting based on the ratio
-        if 0 < subset_ratio < 1.0:
-            num_cuts = int(len(target_cuts) * subset_ratio)
-            target_cuts = target_cuts.subset(first=num_cuts)
-            print(
-                f"  - Using {subset_ratio:.2%} ({num_cuts} cuts) of {dataset_name}/{split_name}"
-            )
-        else:
-            print(f"  - Using all cuts from {dataset_name}/{split_name}")
-
+        print(f"  - Using {dataset_name}/{split_name} (already subsetted if configured)")
         all_train_cuts.append(target_cuts)
 
     if training_dataset_map.combine and len(all_train_cuts) > 1:

@@ -28,6 +28,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
+from accelerate import Accelerator
 
 from .accelerate_utils import (
     all_reduce_metrics,
@@ -88,7 +89,9 @@ class Trainer:
         model: nn.Module,
         train_dataloader: DataLoader,
         config: TrainingConfig,
-        val_dataloader: Optional[Union[DataLoader, Dict[str, DataLoader]]] = None,
+        accelerator: Accelerator,
+        val_dataloader: Optional[Union[DataLoader,
+                                       Dict[str, DataLoader]]] = None,
         test_dataloader: Optional[DataLoader] = None,
         config_path: Optional[str] = None,
     ):
@@ -109,6 +112,7 @@ class Trainer:
                     self._primary_val_key, primary_val_dl = next(
                         iter(val_dataloader.items())
                     )
+
         elif val_dataloader is not None:
             self._primary_val_key = "val"
             primary_val_dl = val_dataloader
@@ -119,31 +123,41 @@ class Trainer:
         # Set random seeds for reproducibility
         self._set_seed(config.random_seed)
 
-        # Validate checkpoint directory (before creating anything)
-        if config.checkpoint:
-            self._validate_checkpoint_directory(config.checkpoint)
-
-            # Copy config file to checkpoint directory
-            if config_path and Path(config_path).exists():
-                self._copy_config_file(config.checkpoint.save_dir, config_path)
-
-        # Setup Accelerate
-        self.accelerator = setup_accelerator(
-            config,
-            project_dir=config.checkpoint.save_dir if config.checkpoint else None,
-        )
-
-        # Setup file logging
-        if config.checkpoint:
-            is_resume = config.checkpoint.resume is not None
-            log_file = setup_file_logger(
-                config.checkpoint.save_dir, is_resume=is_resume
+        # Use provided accelerator or create new one
+        if accelerator is not None:
+            self.accelerator = accelerator
+        else:
+            # Only create accelerator if not provided (backward compatibility)
+            self.accelerator = setup_accelerator(
+                config,
+                project_dir=config.checkpoint.save_dir if config.checkpoint else None,
             )
-            self.accelerator.print(f"Console output logging to: {log_file}")
 
-        # Log system info
-        log_system_info(self.accelerator)
-        print_training_info(self.accelerator, config)
+            # Setup file logging (only if we created the accelerator)
+
+            if config.checkpoint:
+                is_resume = config.checkpoint.resume is not None
+                log_file = setup_file_logger(
+                    config.checkpoint.save_dir, is_resume=is_resume
+                )
+                self.accelerator.print(
+                    f"Console output logging to: {log_file}")
+
+            # Log system info
+            log_system_info(self.accelerator)
+            print_training_info(self.accelerator, config)
+
+        # Validate checkpoint directory (before creating anything)
+        if self.accelerator.is_main_process:
+            if config.checkpoint:
+                self._validate_checkpoint_directory(config.checkpoint)
+
+            # Copy config file to checkpoint directory (only on main process)
+                if config_path and Path(config_path).exists():
+                    self._copy_config_file(
+                        config.checkpoint.save_dir, config_path)
+        else:
+            self.accelerator.wait_for_everyone()
 
         # Create optimizer and scheduler
         self.optimizer = create_optimizer(model, config.optimizer)
@@ -164,12 +178,11 @@ class Trainer:
         else:
             estimated_total_steps = None
 
-        # Use estimated steps, explicit total_steps, or fallback to decay_steps
+        # Use estimated steps, explicit total_steps
         safe_total_steps = (
             self.total_steps or
             estimated_total_steps or
-            config.scheduler.decay_steps or
-            1000  # Final fallback
+            config.scheduler.decay_steps
         )
 
         self.lr_scheduler = create_scheduler(
@@ -425,6 +438,7 @@ class Trainer:
                 # Ego-centric diarization: labels are [batch, num_frames] with class indices
                 targets = batch["labels"]
 
+                self.accelerator.print(batch)
                 # Forward pass - extract features from diarization batch
                 outputs = self.model(x=batch["features"])
 
@@ -568,7 +582,8 @@ class Trainer:
 
                 loss_dict = compute_loss(
                     self.loss_fn,
-                    outputs if isinstance(outputs, torch.Tensor) else outputs.logits,
+                    outputs if isinstance(
+                        outputs, torch.Tensor) else outputs.logits,
                     targets,
                 )
 
@@ -576,9 +591,10 @@ class Trainer:
                 total_samples += targets.size(0)
 
                 batch_metrics = compute_metrics(
-                    outputs if isinstance(outputs, torch.Tensor) else outputs.logits,
+                    outputs if isinstance(
+                        outputs, torch.Tensor) else outputs.logits,
                     targets,
-                    task_type="classification", # TODO, make this configurable 
+                    task_type="classification",  # TODO, make this configurable
                 )
                 all_metrics.append(batch_metrics)
 

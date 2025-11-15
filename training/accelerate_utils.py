@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union, cast
 
 import torch
+from torch.utils.data import DataLoader
+from torch.optim.optimizer import Optimizer
 from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
 
@@ -96,10 +98,11 @@ def _get_log_trackers(training_config: TrainingConfig) -> list:
 def prepare_for_training(
     accelerator: Accelerator,
     model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
-    train_dataloader: torch.utils.data.DataLoader,
-    val_dataloader: Optional[torch.utils.data.DataLoader] = None,
+    optimizer: Optimizer,
+    train_dataloader: DataLoader,
+    val_dataloader: Optional[DataLoader] = None,
     lr_scheduler: Optional[Any] = None,
+
 ) -> Tuple:
     """
     Prepare model, optimizer, and dataloaders for training with Accelerate.
@@ -155,10 +158,11 @@ def save_checkpoint_with_accelerate(
     epoch: int,
     step: int,
     model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
+    optimizer: Optimizer,
     lr_scheduler: Optional[Any] = None,
     extra_state: Optional[Dict[str, Any]] = None,
     is_best: bool = False,
+
 ) -> str:
     """
     Save checkpoint using Accelerate's state management.
@@ -246,8 +250,9 @@ def load_checkpoint_with_accelerate(
     accelerator: Accelerator,
     checkpoint_path: str,
     model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
+    optimizer: Optimizer,
     lr_scheduler: Optional[Any] = None,
+
 ) -> Dict[str, Any]:
     """
     Load checkpoint using Accelerate's state management.
