@@ -2,13 +2,15 @@ import torch
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List, Tuple, cast
+from pathlib import Path
 from tqdm.auto import tqdm
 
 from lhotse import validate, CutSet
-from lhotse.cut import MonoCut
+from lhotse.cut import MonoCut, MixedCut, Cut
 import numpy as np
 from accelerate import Accelerator
+
 
 Seconds = float
 
@@ -62,66 +64,36 @@ class EgoCentricDiarizationDataset(Dataset):
     def __init__(
         self,
         cuts: CutSet,
-        accelerator: Accelerator,
         context_size: int = 7,
         subsampling: int = 10,
+        validate_cuts: bool = True,
 
     ) -> None:
         super().__init__()
-        validate(cuts)
-
-        self.accelerator = accelerator
         self.context_size = context_size
         self.subsampling = subsampling
+  
+
         self.cuts = cuts.to_eager()
-        self.cut_speaker_map: List[Tuple[str, Optional[str]]] = []
-        
-        # Try to load index map from cache first
-        self._load_or_build_index_map()
+        self.cut_speaker_map: List[Tuple[str,
+                                         Optional[str]]] = self._build_index_map()
 
-    def _load_or_build_index_map(self) -> None:
-        """
-        Load index map from cache if available, otherwise build it.
-        """
-        # Check if all cuts have cached index maps
-        all_cached = True
-        cached_map: List[Tuple[str, Optional[str]]] = []
-        
-        for cut in list(self.cuts):
-            if cut.custom and 'ego_index_map' in cut.custom:
-                cached_entries = cut.custom['ego_index_map']
-                cached_map.extend(cached_entries)
-            else:
-                all_cached = False
-                break
-        
-        if all_cached and cached_map:
-            self.accelerator.print(
-                f"✓ Loaded index map from cache: {len(cached_map)} speaker examples"
-            )
-            self.cut_speaker_map = cached_map
-        else:
-            self.accelerator.print(
-                f"→ Cache miss: Building index map from scratch..."
-            )
-            self._build_index_map()
-            self.accelerator.print(
-                f"✓ Built index map: {len(self.cut_speaker_map)} speaker examples"
-            )
-
-    def _build_index_map(self) -> None:
+    def _build_index_map(self) -> List[Tuple[str, Optional[str]]]:
         """
         Builds the cut_speaker_map with a single, fast loop.
         """
-        for cut in iter(self.cuts):
+        cut_speaker_map = []
+        for idx, cut in enumerate(iter(self.cuts)):
             all_speakers_in_cut = sorted(
                 set(s.speaker for s in cut.supervisions if s.speaker)
             )
 
             for target_spk_id in all_speakers_in_cut:
-                self.cut_speaker_map.append((cut.id, target_spk_id))
+                cut_speaker_map.append((cut.id, target_spk_id))
 
-            self.cut_speaker_map.append((cut.id, None))
+            cut_speaker_map.append((cut.id, None))
+
+        return cut_speaker_map
 
     def __len__(self) -> int:
         return len(self.cut_speaker_map)
@@ -137,8 +109,8 @@ class EgoCentricDiarizationDataset(Dataset):
         cut_id, target_spk_id = self.cut_speaker_map[index]
 
         cut = self.cuts[cut_id]
-        # Ensure we have a MonoCut (all cuts should be MonoCut type)
-        assert isinstance(cut, MonoCut), f"Expected MonoCut, got {type(cut)}"
+
+        cut = cast(MixedCut, cut)
 
         mixture_features = cut.load_features()
 
@@ -148,23 +120,15 @@ class EgoCentricDiarizationDataset(Dataset):
         mixture_features = mixture_features - \
             mixture_features.mean(dim=0, keepdim=True)
 
-        # Load labels from cache (should always exist after preprocessing)
+        # Generate labels on-the-fly
         speaker_key = target_spk_id if target_spk_id else "__none__"
-        
-        if cut.custom and 'ego_labels' in cut.custom:
-            cached_labels = cut.custom['ego_labels'].get(speaker_key)
-            if cached_labels is not None:
-                labels = torch.from_numpy(cached_labels)
-            else:
-                raise RuntimeError(
-                    f"Labels not found for cut {cut_id}, speaker {speaker_key}. "
-                    "Labels should be pre-computed during dataset loading."
-                )
-        else:
-            raise RuntimeError(
-                f"No ego_labels found in cut.custom for cut {cut_id}. "
-                "Labels should be pre-computed during dataset loading."
-            )
+        all_speakers_in_cut = sorted(
+            set(s.speaker for s in cut.supervisions if s.speaker))
+        speaker_ids = all_speakers_in_cut + [None]
+        labels_dict = self.generate_labels_for_cut(
+            cut, speaker_ids, self.LABEL_MAP)
+        np_labels = labels_dict[speaker_key]
+        labels = torch.from_numpy(np_labels).long()
 
         if self.subsampling > 1:
             mixture_features, labels = subsample_torch(
@@ -205,54 +169,70 @@ class EgoCentricDiarizationDataset(Dataset):
         }
 
     @staticmethod
-    def _generate_ego_centric_labels_static(
-        cut: MonoCut,
-        target_speaker_id: Optional[str],
+    def generate_labels_for_cut(
+        cut: Cut,
+        speaker_ids: List[Optional[str]],
         label_map: Dict[str, int],
-    ) -> torch.Tensor:
+    ) -> Dict[str, np.ndarray]:
         """
-        Generates the 1D categorical label sequence Y using
-        lhotse.speakers_feature_mask.
+        Generate ego-centric labels for all target speakers in a cut.
+        Returns dict mapping speaker_id to labels array.
         """
+        labels_dict = {}
         num_frames = cut.num_frames
+
         if num_frames is None or num_frames == 0:
-            return torch.empty(0, dtype=torch.long)
+            for spk_id in speaker_ids:
+                speaker_key = spk_id if spk_id else "__none__"
+                labels_dict[speaker_key] = np.empty(0, dtype=np.int64)
+            return labels_dict
 
         all_speakers_in_cut = sorted(
             set(s.speaker for s in cut.supervisions if s.speaker)
         )
+
         if not all_speakers_in_cut:
-            return torch.full((num_frames,), fill_value=label_map['ns'], dtype=torch.long)
+            for spk_id in speaker_ids:
+                speaker_key = spk_id if spk_id else "__none__"
+                labels_dict[speaker_key] = np.full(
+                    num_frames, fill_value=label_map['ns'], dtype=np.int64
+                )
+            return labels_dict
 
         speaker_to_idx_map = {spk: i for i,
                               spk in enumerate(all_speakers_in_cut)}
         mask = cut.speakers_feature_mask(speaker_to_idx_map=speaker_to_idx_map)
 
-        if target_speaker_id is None:
-            target_mask = np.zeros(num_frames, dtype=np.int32)
-            other_speaker_count = np.sum(mask, axis=0)
-        else:
-            target_idx = speaker_to_idx_map[target_speaker_id]
-            target_mask = mask[target_idx]
-            other_indices = [
-                i for spk, i in speaker_to_idx_map.items()
-                if spk != target_speaker_id
-            ]
-            if other_indices:
-                other_speaker_count = np.sum(mask[other_indices], axis=0)
+        # Generate labels for each target speaker
+        for target_speaker_id in speaker_ids:
+            speaker_key = target_speaker_id if target_speaker_id else "__none__"
+
+            if target_speaker_id is None:
+                target_mask = np.zeros(num_frames, dtype=np.int32)
+                other_speaker_count = np.sum(mask, axis=0)
             else:
-                other_speaker_count = np.zeros(num_frames, dtype=np.int32)
+                target_idx = speaker_to_idx_map[target_speaker_id]
+                target_mask = mask[target_idx]
+                other_indices = [
+                    i for spk, i in speaker_to_idx_map.items()
+                    if spk != target_speaker_id
+                ]
+                if other_indices:
+                    other_speaker_count = np.sum(mask[other_indices], axis=0)
+                else:
+                    other_speaker_count = np.zeros(num_frames, dtype=np.int32)
 
-        labels = np.full(
-            num_frames, fill_value=label_map['ns'], dtype=np.int64)
+            labels = np.full(
+                num_frames, fill_value=label_map['ns'], dtype=np.int64)
+            labels[(target_mask == 1) & (
+                other_speaker_count == 0)] = label_map['ts']
+            labels[(target_mask == 1) & (
+                other_speaker_count > 0)] = label_map['ts_ovl']
+            labels[(target_mask == 0) & (other_speaker_count == 1)
+                   ] = label_map['others_sgl']
+            labels[(target_mask == 0) & (other_speaker_count > 1)
+                   ] = label_map['others_ovl']
 
-        labels[(target_mask == 1) & (
-            other_speaker_count == 0)] = label_map['ts']
-        labels[(target_mask == 1) & (
-            other_speaker_count > 0)] = label_map['ts_ovl']
-        labels[(target_mask == 0) & (other_speaker_count == 1)
-               ] = label_map['others_sgl']
-        labels[(target_mask == 0) & (other_speaker_count > 1)
-               ] = label_map['others_ovl']
+            labels_dict[speaker_key] = labels
 
-        return torch.from_numpy(labels)
+        return labels_dict

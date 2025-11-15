@@ -36,10 +36,11 @@ Usage Examples:
 """
 import inspect
 from pathlib import Path
+
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 import numpy as np
-from tqdm.auto import tqdm
-from concurrent.futures import ProcessPoolExecutor, as_completed
+
+
 import multiprocessing as mp
 
 import lhotse as lh
@@ -287,65 +288,6 @@ class DatasetManager:
     instance.
     """
 
-    def __init__(self, accelerator: Accelerator):
-        """
-        Initialize the DatasetManager.
-
-        Args:
-            accelerator: An `Accelerator` instance for handling
-                         distributed training and logging.
-        """
-        self.accelerator = accelerator
-
-    def _get_cached_map(
-        self,
-        cache_path: Path,
-        cut_sets: Dict[str, Dict[str, CutSet]],
-        dataset_map: TrainingDatasetMap,
-    ) -> CutSet:
-        """
-        Helper to apply cache-aside logic for combined CutSets.
-        Note: Subsetting should be applied before this (during load_datasets).
-        Follows: Check -> Main Prepares -> Barrier -> All Load
-        """
-
-        # 1. Check if cache exists (All processes)
-        if cache_path.exists():
-            self.accelerator.print(
-                f"✓ Loading cached dataset map from: {cache_path}")
-            return CutSet.from_file(cache_path)
-
-        # 2. Cache miss: Main process prepares
-        if self.accelerator.is_main_process:
-            self.accelerator.print(
-                f"→ Cache miss. Preparing dataset map and caching to: {cache_path}")
-
-            # Ensure parent directory exists
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Prepare cuts (combine/subset)
-            final_cuts = prepare_training_cuts(cut_sets, dataset_map)
-
-            # Save to file
-            final_cuts.to_file(cache_path)
-
-        # 3. Barrier
-        self.accelerator.print(
-            f"Waiting for main process to cache: {cache_path}")
-        self.accelerator.wait_for_everyone()
-
-        # 4. All processes load
-        if not cache_path.exists():
-            if self.accelerator.is_main_process:
-                self.accelerator.print(
-                    f"ERROR: Main process failed to create cache file: {cache_path}")
-            raise FileNotFoundError(
-                f"Cache file not found after preparation: {cache_path}")
-
-        self.accelerator.print(
-            f"✓ Loading prepared dataset map from: {cache_path}")
-        return CutSet.from_file(cache_path)
-
     def _try_load_existing_manifests(
         self, output_dir: Path, dataset_name: str, storage_path: Optional[Path] = None
     ) -> Optional[Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]]]:
@@ -358,10 +300,10 @@ class DatasetManager:
 
         # First, try to load cached CutSets with features if storage_path is provided
         if storage_path is not None:
-            self.accelerator.print("="*60)
-            self.accelerator.print(
+            print("="*60)
+            print(
                 f"Checking for cached CutSets with features in {storage_path}")
-            self.accelerator.print("="*60)
+            print("="*60)
 
             cached_manifests = {}
             storage_root = Path(storage_path)
@@ -398,7 +340,7 @@ class DatasetManager:
                     try:
                         cuts = CutSet.from_jsonl_lazy(manifest_file)
                     except Exception as exc:
-                        self.accelerator.print(
+                        print(
                             f"→ Failed to load cached CutSet from {manifest_file}: {exc}"
                         )
                         continue
@@ -406,14 +348,14 @@ class DatasetManager:
                     seen_files.add(manifest_file)
                     cached_entry = cached_manifests.setdefault(split_name, {})
                     cached_entry["cuts"] = cuts
-                    self.accelerator.print(
+                    print(
                         f"✓ {split_name}: Loaded cached CutSet with features (lazy) from {manifest_file}"
                     )
 
             if cached_manifests:
-                self.accelerator.print(
+                print(
                     f"✓ Using cached CutSets with features for {dataset_name} (skip manifest loading)")
-                self.accelerator.print("="*60)
+                print("="*60)
                 return cast(
                     Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]],
                     cached_manifests,
@@ -422,10 +364,10 @@ class DatasetManager:
         # Fall back to loading raw manifests
         manifest_dir = output_dir
         if not manifest_dir.exists():
-            self.accelerator.print("="*60)
-            self.accelerator.print(
+            print("="*60)
+            print(
                 f"Manifest dir {manifest_dir} does not exist!")
-            self.accelerator.print("="*60)
+            print("="*60)
             return None
 
         splits: set[str] = set()
@@ -472,8 +414,8 @@ class DatasetManager:
                 cuts_patterns, f"cuts_{split_name}.jsonl.gz", manifest_dir
             )
 
-            self.accelerator.print("="*60)
-            self.accelerator.print(
+            print("="*60)
+            print(
                 f"Resolved Manifests for split: {split_name}")
             if not (recordings_path or cuts_path):
                 continue
@@ -481,23 +423,23 @@ class DatasetManager:
             if recordings_path:
                 split_manifests["recordings"] = RecordingSet.from_jsonl_lazy(
                     recordings_path)
-                self.accelerator.print(
+                print(
                     f"- Loaded recordings (lazy) from: {recordings_path}")
 
             if supervisions_path:
                 split_manifests["supervisions"] = SupervisionSet.from_jsonl_lazy(
                     supervisions_path
                 )
-                self.accelerator.print(
+                print(
                     f"- Loaded supervision (lazy) from: {supervisions_path}")
 
             if cuts_path:
                 split_manifests["cuts"] = CutSet.from_jsonl_lazy(cuts_path)
-                self.accelerator.print(f"- Loaded cutset (lazy): {cuts_path}")
+                print(f"- Loaded cutset (lazy): {cuts_path}")
 
             if split_manifests:
                 manifests[split_name] = split_manifests
-            self.accelerator.print("="*60)
+            print("="*60)
 
         if not manifests:
             return None
@@ -517,11 +459,11 @@ class DatasetManager:
             f"{dataset_name}_{split_name}_with_feats.jsonl.gz"
 
         if cache_path.exists():
-            self.accelerator.print(
+            print(
                 f"✓ {split_name}: Loaded from cache (lazy loading)")
             return CutSet.from_jsonl_lazy(cache_path)
 
-        self.accelerator.print(
+        print(
             f"→ {split_name}: No cache found (will extract features)")
         return None
 
@@ -539,7 +481,7 @@ class DatasetManager:
         """
         first_cut = next(iter(cuts))
         if first_cut.sampling_rate != feature_cfg.sampling_rate:
-            self.accelerator.print(
+            print(
                 f"Resampling audio {first_cut.sampling_rate} -> {feature_cfg.sampling_rate}")
             cuts = cuts.resample(feature_cfg.sampling_rate)
 
@@ -639,11 +581,11 @@ class DatasetManager:
             overwrite=feature_cfg.overwrite,
         )
 
-        self.accelerator.print(
+        print(
             f"→ Loading manifest lazily from {manifest_path}")
         cuts_with_feats = CutSet.from_jsonl_lazy(manifest_path)
 
-        self.accelerator.print(f"✓ Features computed and cached successfully")
+        print(f"✓ Features computed and cached successfully")
         return cuts_with_feats
 
     def _normalize_splits(
@@ -675,7 +617,6 @@ class DatasetManager:
         cuts: CutSet,
         label_type: LabelType = "binary",
         data_loading: Optional[DataLoadingConfig] = None,
-        cache_dir: Optional[Path] = None,
     ) -> Union[DiarizationDataset, Any]:
         """
         Create a diarization dataset based on the label type.
@@ -688,9 +629,8 @@ class DatasetManager:
 
             return EgoCentricDiarizationDataset(
                 cuts=cuts,
-                accelerator=self.accelerator,  # Pass accelerator
                 context_size=context_size,
-                subsampling=subsampling,
+                subsampling=subsampling
             )
         elif label_type == "binary":
             return DiarizationDataset(cuts)
@@ -717,21 +657,17 @@ class DatasetManager:
         # Get cache directory from global config
         if not global_config.cache_dir:
             raise ValueError(
-                "global_config.cache_dir must be set for caching final maps.")
+                "global_config.cache_dir must be set for caching.")
         final_cache_dir = Path(global_config.cache_dir)
 
         validation_map = training_config.validation.validation_dataset_map
 
         if validation_map.combine:
-            self.accelerator.print(
-                "Preparing combined validation dataloader...")
-            cache_path = final_cache_dir / "val_combined.jsonl.gz"
-
-            val_cuts = self._get_cached_map(
-                cache_path=cache_path,
-                cut_sets=cut_sets,
-                dataset_map=validation_map
-            )
+            print(
+                "→ Combining pre-processed validation splits...")
+            val_cuts = prepare_training_cuts(cut_sets, validation_map)
+            print(
+                f"✓ Combined {len(val_cuts)} validation cuts")
 
             val_dataloaders["val"] = self.create_dataloader(
                 cuts=val_cuts,
@@ -743,22 +679,19 @@ class DatasetManager:
                 cache_dir=final_cache_dir,
             )
         else:
-            self.accelerator.print(
-                "Preparing separate validation dataloaders...")
+            print(
+                "→ Preparing separate validation dataloaders...")
             for split_info in validation_map.splits:
                 val_key = f"{split_info.dataset_name}_{split_info.split_name}"
-                self.accelerator.print(f"Preparing: {val_key}")
+                print(f"  - {val_key}")
 
-                cache_path = final_cache_dir / f"val_{val_key}.jsonl.gz"
-
-                # Create a temporary map for this specific split to use the helper
+                # Create a temporary map for this specific split
                 temp_map = TrainingDatasetMap(
                     combine=False, splits=[split_info])
 
-                val_cuts = self._get_cached_map(
-                    cache_path=cache_path,
+                val_cuts = prepare_training_cuts(
                     cut_sets=cut_sets,
-                    dataset_map=temp_map
+                    training_dataset_map=temp_map
                 )
 
                 val_dataloaders[val_key] = self.create_dataloader(
@@ -782,28 +715,26 @@ class DatasetManager:
         random_seed: int = 42,
     ) -> DataLoader[Any]:
         """
-        Create training dataloader.
-        Applies cache-aside logic for the final combined training set.
-        Note: Subsetting is applied during load_datasets, before windowing.
+        Create training dataloader by combining pre-processed splits.
+        Note: Subsetting, windowing, and labels are already applied during load_datasets.
         """
         assert training_config.training_dataset_map is not None, "Training config map must be provided"
 
         # Get cache directory from global config
         if not global_config.cache_dir:
             raise ValueError(
-                "global_config.cache_dir must be set for caching final maps.")
+                "global_config.cache_dir must be set for caching.")
         final_cache_dir = Path(global_config.cache_dir)
 
-        cache_path = final_cache_dir / "train_final.jsonl.gz"
-
-        train_cuts = self._get_cached_map(
-            cache_path=cache_path,
-            cut_sets=cut_sets,
-            dataset_map=training_config.training_dataset_map
-        )
+        # Combine the pre-processed training splits directly (no intermediate cache)
+        print("→ Combining pre-processed training splits...")
+        train_cuts = prepare_training_cuts(
+            cut_sets, training_config.training_dataset_map)
 
         if train_cuts is None:
             raise ValueError("No training data found for dataset.")
+
+        print(f"✓ Combined {len(train_cuts)} training cuts")
 
         train_dataloader = self.create_dataloader(
             cuts=train_cuts,
@@ -832,8 +763,9 @@ class DatasetManager:
 
         The accelerator instance is passed during dataset creation.
         """
+
         dataset = self._create_dataset(
-            cuts=cuts, label_type=label_type, data_loading=data_loading, cache_dir=cache_dir)
+            cuts=cuts, label_type=label_type, data_loading=data_loading)
 
         worker_init_fn = make_worker_init_fn(seed=random_seed)
 
@@ -842,6 +774,7 @@ class DatasetManager:
             collate_fn = EgoCentricDiarizationDataset.collate_fn
 
         dataloader_cfg = data_loading.dataloader
+
         dataloader: DataLoader[Any] = DataLoader(
             dataset,
             batch_size=batch_size,
@@ -850,7 +783,7 @@ class DatasetManager:
             pin_memory=dataloader_cfg.pin_memory,
             worker_init_fn=worker_init_fn,
             collate_fn=collate_fn,
-            drop_last=True,  # Ensure consistent batch sizes for distributed
+            drop_last=True,
             persistent_workers=dataloader_cfg.persistent_workers if dataloader_cfg.num_workers > 0 else False,
             prefetch_factor=dataloader_cfg.prefetch_factor if dataloader_cfg.num_workers > 0 else None,
         )
@@ -876,7 +809,7 @@ class DatasetManager:
             try:
                 target_path = Path(target_dir)
                 if target_path.exists() and not force_dl:
-                    self.accelerator.print(
+                    print(
                         f"→ Skipping download for {dataset.name}: "
                         f"target_dir {target_path} exists (force_download={force_dl})"
                     )
@@ -925,17 +858,17 @@ class DatasetManager:
             if "corpus_dir" in ignored_keys:
                 if "audio_dir" in valid_keys:
                     filtered_kwargs["audio_dir"] = process_kwargs["corpus_dir"]
-                    self.accelerator.print(
+                    print(
                         "Note: 'corpus_dir' renamed to 'audio_dir' for this recipe.")
                     ignored_keys.remove("corpus_dir")
                 elif "data_dir" in valid_keys:
                     filtered_kwargs["data_dir"] = process_kwargs["corpus_dir"]
-                    self.accelerator.print(
+                    print(
                         "Note: 'corpus_dir' renamed to 'data_dir' for this recipe.")
                     ignored_keys.remove("corpus_dir")
 
             if ignored_keys:
-                self.accelerator.print(
+                print(
                     f"⚠️  Warning: Ignoring unsupported process parameters "
                     f"for {dataset.name}: {ignored_keys}"
                 )
@@ -962,13 +895,13 @@ class DatasetManager:
         )
 
         if existing_manifests:
-            self.accelerator.print(
+            print(
                 f"✓ Using existing manifests for {dataset.name} "
                 f"(skip audio extraction & manifest creation)"
             )
             return existing_manifests
         else:
-            self.accelerator.print(
+            print(
                 f"→ Preparing {dataset.name} dataset "
                 f"(manifests not found, will extract audio & create manifests)"
             )
@@ -991,7 +924,7 @@ class DatasetManager:
         )
 
         if dl_strategy != "precomputed_features":
-            self.accelerator.print(
+            print(
                 f"\nData loading strategy '{dl_strategy}' selected — "
                 f"skipping feature precomputation."
             )
@@ -1167,9 +1100,9 @@ class DatasetManager:
                 f"Dataset {dataset.name} has no download or process function"
             )
 
-        self.accelerator.print(f"\n{'=' * 60}")
-        self.accelerator.print(f"Processing dataset: {dataset.name}")
-        self.accelerator.print(f"{'=' * 60}")
+        print(f"\n{'=' * 60}")
+        print(f"Processing dataset: {dataset.name}")
+        print(f"{'=' * 60}")
 
         corpus_path = self._download_dataset(
             dataset, download_function)
@@ -1196,7 +1129,7 @@ class DatasetManager:
             dataset, dataset_cut_sets
         )
 
-        self.accelerator.print(f"✓ {dataset.name} ready (raw manifests)!\n")
+        print(f"✓ {dataset.name} ready (raw manifests)!\n")
         return dataset_cut_sets
 
     def _check_final_cache(
@@ -1225,8 +1158,24 @@ class DatasetManager:
         cache_path.mkdir(parents=True, exist_ok=True)
 
         output_file = cache_path / "cuts_windowed.jsonl.gz"
+
+        # Ensure cuts are materialized (not lazy) before saving
+        if hasattr(cuts, 'is_lazy') and cuts.is_lazy:
+            print(
+                f"→ Materializing lazy CutSet before saving...")
+            cuts = cuts.to_eager()
+
+        print(
+            f"→ Saving {len(cuts)} cuts to {output_file}...")
         cuts.to_file(output_file)
-        self.accelerator.print(f"✓ Saved final cache: {output_file}")
+
+        # Verify the file was written successfully
+        if output_file.exists() and output_file.stat().st_size > 0:
+            print(
+                f"✓ Saved final cache: {output_file} ({output_file.stat().st_size / (1024*1024):.2f} MB)")
+        else:
+            raise RuntimeError(
+                f"Failed to save cache file or file is empty: {output_file}")
 
     def _load_from_final_cache(
         self,
@@ -1238,7 +1187,7 @@ class DatasetManager:
         Load fully processed cuts from final cache. (Safe for all processes)
         """
         cache_path = cache_dir / dataset_name / split_name / "cuts_windowed.jsonl.gz"
-        self.accelerator.print(f"Loading from cache: {cache_path}")
+        print(f"Loading from cache: {cache_path}")
         return CutSet.from_file(cache_path)  # Use lazy loading
 
     def _build_index_map(
@@ -1265,117 +1214,6 @@ class DatasetManager:
 
         return cut_speaker_map
 
-    def _compute_and_cache_labels(
-        self,
-        cuts: CutSet,
-        dataset_name: str,
-        split_name: str,
-        label_type: LabelType,
-        num_workers: Optional[int] = None,
-    ) -> CutSet:
-        """
-        Compute and cache ego-centric labels for all cuts.
-        Uses parallel processing with multiple workers.
-        (Main process only)
-        """
-        if label_type != "ego":
-            # Only ego-centric needs pre-computed labels
-            return cuts
-
-        self.accelerator.print(
-            f"Computing and caching ego-centric labels for {dataset_name}/{split_name}..."
-        )
-
-        # Validate that cuts have speaker information
-        cuts = cuts.to_eager()
-
-        # Define label map
-        label_map = {
-            'ts': 0, 'ts_ovl': 1, 'others_sgl': 2,
-            'others_ovl': 3, 'ns': 4
-        }
-
-        # Build index map to know what labels to generate
-        self.accelerator.print(f"→ Building cut-speaker index map...")
-        cut_speaker_map = self._build_index_map(cuts)
-        self.accelerator.print(f"✓ Built index map with {len(cut_speaker_map)} speaker examples")
-
-        # Group by cut_id to know which speakers to generate for each cut
-        cut_to_speakers: Dict[str, List[Optional[str]]] = {}
-        for cut_id, speaker_id in cut_speaker_map:
-            if cut_id not in cut_to_speakers:
-                cut_to_speakers[cut_id] = []
-            cut_to_speakers[cut_id].append(speaker_id)
-
-        # Prepare cut data for parallel processing
-        cut_tasks = []
-        for cut in list(cuts):
-            if cut.id in cut_to_speakers:
-                cut_tasks.append((
-                    cut.id,
-                    cut.to_dict(),
-                    cut_to_speakers[cut.id],
-                    label_map
-                ))
-
-        # Determine number of workers
-        if num_workers is None:
-            num_workers = max(1, mp.cpu_count() - 1)
-
-        self.accelerator.print(
-            f"Using {num_workers} workers to generate labels for {len(cut_tasks)} cuts..."
-        )
-
-        # Process in parallel
-        labels_cache: Dict[str, Dict[str, np.ndarray]] = {}
-
-        if num_workers > 1:
-            with ProcessPoolExecutor(max_workers=num_workers) as executor:
-                futures = {
-                    executor.submit(_generate_labels_for_cut_static, *task): task[0]
-                    for task in cut_tasks
-                }
-
-                with tqdm(total=len(futures), desc="Generating labels", disable=not self.accelerator.is_main_process) as pbar:
-                    for future in as_completed(futures):
-                        cut_id, labels_dict = future.result()
-                        labels_cache[cut_id] = labels_dict
-                        pbar.update(1)
-        else:
-            # Single-threaded fallback
-            for task in tqdm(cut_tasks, desc="Generating labels", disable=not self.accelerator.is_main_process):
-                cut_id, labels_dict = _generate_labels_for_cut_static(*task)
-                labels_cache[cut_id] = labels_dict
-
-        # Attach labels AND index map to cuts in custom field
-        cuts_with_labels = []
-        for cut in list(cuts):
-            # Create custom dict if doesn't exist
-            custom = cut.custom or {}
-            
-            # Add labels if available
-            if cut.id in labels_cache:
-                custom['ego_labels'] = labels_cache[cut.id]
-            
-            # Add index map entries for this cut (always add if cut has speakers)
-            if cut.id in cut_to_speakers:
-                custom['ego_index_map'] = [
-                    (cut.id, spk_id) for spk_id in cut_to_speakers[cut.id]
-                ]
-            
-            # Update cut with custom field
-            cut = cut.with_(custom=custom)
-            cuts_with_labels.append(cut)
-
-        result = CutSet.from_cuts(cuts_with_labels)
-
-        self.accelerator.print(
-            f"✓ Generated and cached labels + index map for {len(labels_cache)} cuts "
-            f"({len(cut_speaker_map)} speaker examples)"
-        )
-
-        return result
-
     def _apply_subsetting(
         self,
         cuts: CutSet,
@@ -1399,7 +1237,7 @@ class DatasetManager:
                     cuts = cuts.to_eager()  # Need eager to get len
                     num_cuts = int(len(cuts) * subset_ratio)
                     cuts = cuts.subset(first=num_cuts)
-                    self.accelerator.print(
+                    print(
                         f"  → Subsetting {dataset_name}/{split_name}: "
                         f"{subset_ratio:.2%} ({num_cuts} cuts)"
                     )
@@ -1420,7 +1258,7 @@ class DatasetManager:
         if chunk_size is None or chunk_size <= 0:
             return cuts
 
-        self.accelerator.print(
+        print(
             f"Applying windowing: {chunk_size}s windows for {split_name}")
 
         cuts = cuts.to_eager()  # Eager before windowing
@@ -1432,7 +1270,7 @@ class DatasetManager:
 
         cuts = cuts.to_eager()  # Eager after to get len
 
-        self.accelerator.print(f"Windowed cuts count: {len(cuts)}")
+        print(f"Windowed cuts count: {len(cuts)}")
         return cuts
 
     def _load_precomputed_dataset(
@@ -1462,9 +1300,9 @@ class DatasetManager:
                 f"Manifest directory {manifest_dir} for dataset {dataset.name} was not found"
             )
 
-        self.accelerator.print(f"\n{'=' * 60}")
-        self.accelerator.print(f"Loading precomputed dataset: {dataset.name}")
-        self.accelerator.print(f"{'=' * 60}")
+        print(f"\n{'=' * 60}")
+        print(f"Loading precomputed dataset: {dataset.name}")
+        print(f"{'=' * 60}")
 
         global_config = getattr(dataset, "global_config", None)
         storage_path = Path(global_config.storage_path) if global_config and hasattr(
@@ -1491,7 +1329,7 @@ class DatasetManager:
             dataset, dataset_cut_sets
         )
 
-        self.accelerator.print(
+        print(
             f"✓ {dataset.name} ready (loaded from cached manifests)!\n")
         return dataset_cut_sets
 
@@ -1512,7 +1350,6 @@ class DatasetManager:
 
         PHASE 1: Main process checks cache. If invalid, it runs the full pipeline
                  (Download -> Manifest -> Features -> Windowing) and saves to disk.
-        PHASE 2: All processes wait at a barrier.
         PHASE 3: All processes load the fully prepared manifests from disk.
 
         Args:
@@ -1530,152 +1367,147 @@ class DatasetManager:
         # -------------------------------------------------------------------------
         # PHASE 1: PREPARATION (Main Process Only)
         # -------------------------------------------------------------------------
-        if self.accelerator.is_main_process:
-            self.accelerator.print(f"\n{'='*80}")
-            self.accelerator.print(
-                f"PHASE 1: Dataset Preparation (Main Process Only)")
-            self.accelerator.print(f"{'='*80}")
 
-            for dataset in params.datasets:
-                self.accelerator.print(f"\nProcessing dataset: {dataset.name}")
+        print(f"\n{'='*80}")
+        print(
+            f"PHASE 1: Dataset Preparation (Main Process Only)")
+        print(f"{'='*80}")
 
-             # Determine final cache directory
-                final_cache_dir = None
-                if cache_dir:
-                    final_cache_dir = Path(cache_dir)
-                elif global_config and global_config.cache_dir:
-                    final_cache_dir = Path(global_config.cache_dir)
+        for dataset in params.datasets:
+            print(f"\nProcessing dataset: {dataset.name}")
 
-                if not final_cache_dir:
-                    raise ValueError(
-                        f"No cache_dir specified for {dataset.name}. Provide one in load_datasets or global_config.")
+            # Determine final cache directory
+            final_cache_dir = None
+            if cache_dir:
+                final_cache_dir = Path(cache_dir)
+            elif global_config and global_config.cache_dir:
+                final_cache_dir = Path(global_config.cache_dir)
 
-                # Determine windowing
-                data_loading = global_config.data_loading if global_config else None
-                chunk_size = data_loading.chunk_size if data_loading else None
+            if not final_cache_dir:
+                raise ValueError(
+                    f"No cache_dir specified for {dataset.name}. Provide one in load_datasets or global_config.")
 
-                # Check if this dataset is already fully cached
-                # Use actual split names from training and validation mappings
-                is_fully_cached = True
-                splits_to_check = []
-                found_splits = []
+            # Determine windowing
+            data_loading = global_config.data_loading if global_config else None
+            chunk_size = data_loading.chunk_size if data_loading else None
 
-                # Collect all splits that should be cached for this dataset
-                for split_info in training_dataset_mapping.splits:
+            # Check if this dataset is already fully cached
+            # Use actual split names from training and validation mappings
+            is_fully_cached = True
+            splits_to_check = []
+            found_splits = []
+
+            # Collect all splits that should be cached for this dataset
+            for split_info in training_dataset_mapping.splits:
+                if split_info.dataset_name == dataset.name:
+                    splits_to_check.append(split_info.split_name)
+
+            if validation_dataset_mapping:
+                for split_info in validation_dataset_mapping.splits:
                     if split_info.dataset_name == dataset.name:
                         splits_to_check.append(split_info.split_name)
 
-                if validation_dataset_mapping:
-                    for split_info in validation_dataset_mapping.splits:
-                        if split_info.dataset_name == dataset.name:
-                            splits_to_check.append(split_info.split_name)
+            # If no splits found for this dataset, skip cache check
+            if not splits_to_check:
+                print(
+                    f"→ {dataset.name}: No splits configured in mappings, will process all available splits")
+                is_fully_cached = False
+            else:
+                # Check if all required splits are cached
+                for split in splits_to_check:
+                    if self._check_final_cache(final_cache_dir, dataset.name, split):
+                        found_splits.append(split)
 
-                # If no splits found for this dataset, skip cache check
-                if not splits_to_check:
-                    self.accelerator.print(
-                        f"→ {dataset.name}: No splits configured in mappings, will process all available splits")
+                # Cache is complete only if all required splits are found
+                if len(found_splits) < len(splits_to_check):
                     is_fully_cached = False
-                else:
-                    # Check if all required splits are cached
-                    for split in splits_to_check:
-                        if self._check_final_cache(final_cache_dir, dataset.name, split):
-                            found_splits.append(split)
+                    missing = set(splits_to_check) - set(found_splits)
+                    print(
+                        f"→ {dataset.name}: Found {len(found_splits)}/{len(splits_to_check)} cached splits. Missing: {missing}")
 
-                    # Cache is complete only if all required splits are found
-                    if len(found_splits) < len(splits_to_check):
-                        is_fully_cached = False
-                        missing = set(splits_to_check) - set(found_splits)
-                        self.accelerator.print(
-                            f"→ {dataset.name}: Found {len(found_splits)}/{len(splits_to_check)} cached splits. Missing: {missing}")
+            if is_fully_cached:
+                print(
+                    f"✓ {dataset.name}: Found all cached splits {found_splits} (Skipping processing)")
+                continue
 
-                if is_fully_cached:
-                    self.accelerator.print(
-                        f"✓ {dataset.name}: Found all cached splits {found_splits} (Skipping processing)")
-                    continue
+            print(
+                f"→ {dataset.name}: Cache missing or incomplete. Processing from scratch...")
 
-                self.accelerator.print(
-                    f"→ {dataset.name}: Cache missing or incomplete. Processing from scratch...")
+            # 1. Load/Compute base CutSets (Download -> Manifests -> Features)
+            if getattr(dataset, "precomputed_only", False):
+                dataset_cut_sets = self._load_precomputed_dataset(dataset)
+            else:
+                process_function, download_function = import_recipe(
+                    dataset.name)
+                dataset_cut_sets = self._process_single_dataset(
+                    dataset, process_function, download_function
+                )
 
-                # 1. Load/Compute base CutSets (Download -> Manifests -> Features)
-                if getattr(dataset, "precomputed_only", False):
-                    dataset_cut_sets = self._load_precomputed_dataset(dataset)
-                else:
-                    process_function, download_function = import_recipe(
-                        dataset.name)
-                    dataset_cut_sets = self._process_single_dataset(
-                        dataset, process_function, download_function
+            # 2. Determine label type from global config
+            label_type: LabelType = "binary"
+            if data_loading and hasattr(data_loading, 'label_type'):
+                label_type = data_loading.label_type
+            elif global_config and hasattr(global_config, 'label_type'):
+                label_type = global_config.label_type
+
+            # Get number of workers for label computation
+            num_workers = 32  # Default
+            if data_loading and hasattr(data_loading, 'num_workers'):
+                num_workers = data_loading.num_workers
+
+            # 3. Apply Subsetting, Windowing, Label Computation, and Save to Final Cache
+            if chunk_size and chunk_size > 0:
+                for split_name, cuts in dataset_cut_sets.items():
+                    # Apply subsetting first (before windowing)
+                    cuts_subsetted = self._apply_subsetting(
+                        cuts, dataset.name, split_name, training_dataset_mapping
+                    )
+                    # Apply windowing BEFORE label computation
+                    cuts_windowed = self._apply_windowing(
+                        cuts_subsetted, chunk_size, split_name
+                    )
+                    # Labels generated on-the-fly in dataset, no pre-computation needed
+
+                    # Save to final cache
+                    self._save_to_final_cache(
+                        cuts_windowed, final_cache_dir, dataset.name, split_name
+                    )
+            else:
+                print(
+                    f"→ {dataset.name}: No chunk_size, applying subsetting, label computation, and saving to cache.")
+                for split_name, cuts in dataset_cut_sets.items():
+                    # Apply subsetting
+                    cuts_subsetted = self._apply_subsetting(
+                        cuts, dataset.name, split_name, training_dataset_mapping
+                    )
+                    # Labels generated on-the-fly in dataset, no pre-computation needed
+
+                    self._save_to_final_cache(
+                        cuts_subsetted, final_cache_dir, dataset.name, split_name
                     )
 
-                # 2. Determine label type from global config
-                label_type: LabelType = "binary"
-                if data_loading and hasattr(data_loading, 'label_type'):
-                    label_type = data_loading.label_type
-                elif global_config and hasattr(global_config, 'label_type'):
-                    label_type = global_config.label_type
+            print(
+                f"✓ {dataset.name} processing complete.")
 
-                # Get number of workers for label computation
-                num_workers = 8  # Default
-                if data_loading and hasattr(data_loading, 'num_workers'):
-                    num_workers = data_loading.num_workers
+            # Sync after each dataset to prevent timeout on large saves
+            print(
+                f"→ Syncing after completing {dataset.name}...")
 
-                # 3. Apply Subsetting, Windowing, Label Computation, and Save to Final Cache
-                if chunk_size and chunk_size > 0:
-                    for split_name, cuts in dataset_cut_sets.items():
-                        # Apply subsetting first (before windowing)
-                        cuts_subsetted = self._apply_subsetting(
-                            cuts, dataset.name, split_name, training_dataset_mapping
-                        )
-                        # Apply windowing BEFORE label computation
-                        cuts_windowed = self._apply_windowing(
-                            cuts_subsetted, chunk_size, split_name
-                        )
-                        # Compute and cache labels for windowed cuts (for ego-centric only)
-                        cuts_with_labels = self._compute_and_cache_labels(
-                            cuts_windowed, dataset.name, split_name, label_type, num_workers
-                        )
-                        # Save to final cache
-                        self._save_to_final_cache(
-                            cuts_with_labels, final_cache_dir, dataset.name, split_name
-                        )
-                else:
-                    self.accelerator.print(
-                        f"→ {dataset.name}: No chunk_size, applying subsetting, label computation, and saving to cache.")
-                    for split_name, cuts in dataset_cut_sets.items():
-                        # Apply subsetting
-                        cuts_subsetted = self._apply_subsetting(
-                            cuts, dataset.name, split_name, training_dataset_mapping
-                        )
-                        # Compute and cache labels (for ego-centric only)
-                        cuts_with_labels = self._compute_and_cache_labels(
-                            cuts_subsetted, dataset.name, split_name, label_type, num_workers
-                        )
-                        self._save_to_final_cache(
-                            cuts_with_labels, final_cache_dir, dataset.name, split_name
-                        )
-
-                self.accelerator.print(
-                    f"✓ {dataset.name} processing complete.")
-
-        # -------------------------------------------------------------------------
-        # PHASE 2: SYNCHRONIZATION
-        # -------------------------------------------------------------------------
-        self.accelerator.print(
-            "Main process finished preparation. Syncing all processes...")
-        self.accelerator.wait_for_everyone()
-        self.accelerator.print("All processes synced.")
+        print(
+            "Main process finished all preparation. Final sync...")
+        print("All processes synced.")
 
         # -------------------------------------------------------------------------
         # PHASE 3: LOADING (All Processes)
         # -------------------------------------------------------------------------
-        self.accelerator.print(f"\n{'='*80}")
-        self.accelerator.print(
+        print(f"\n{'='*80}")
+        print(
             f"PHASE 3: Loading Prepared Data (All Processes)")
-        self.accelerator.print(f"{'='*80}")
+        print(f"{'='*80}")
 
         all_cut_sets: Dict[str, Dict[str, CutSet]] = {}
 
         for dataset in params.datasets:
-
             final_cache_dir = Path(cache_dir) if cache_dir else Path(
                 global_config.cache_dir)
 
@@ -1688,23 +1520,23 @@ class DatasetManager:
                         split_name = split_dir.name
                         cache_file = split_dir / "cuts_windowed.jsonl.gz"
                         if cache_file.exists():
-                            self.accelerator.print(
+                            print(
                                 f"Loading {dataset.name}/{split_name} from {cache_file}")
                             dataset_cuts[split_name] = CutSet.from_file(
                                 cache_file)
                         else:
-                            self.accelerator.print(
+                            print(
                                 f"⚠️  Warning: Found directory {split_dir} but no cuts_windowed.jsonl.gz inside")
             else:
-                self.accelerator.print(
+                print(
                     f"⚠️  Warning: Cache directory not found: {dataset_cache_dir}")
 
             if not dataset_cuts:
-                self.accelerator.print(
+                print(
                     f"⚠️  Warning: No cached splits loaded for {dataset.name}. Check cache_dir and permissions.")
             else:
                 all_cut_sets[dataset.name] = dataset_cuts
-                self.accelerator.print(
+                print(
                     f"✓ {dataset.name} loaded with {len(dataset_cuts)} splits: {list(dataset_cuts.keys())}")
 
         return all_cut_sets

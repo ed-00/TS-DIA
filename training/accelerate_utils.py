@@ -128,6 +128,7 @@ def prepare_for_training(
     # Prepare model/optimizer/scheduler only; keep Lhotse DataLoaders unwrapped so custom sampler is preserved.
     if lr_scheduler is not None:
         args = [model, optimizer, lr_scheduler, train_dataloader]
+        accelerator.print("preparing with lr_scheduler")
         if val_dataloader is not None:
             args.append(val_dataloader)
         prepared = accelerator.prepare(*args)
@@ -139,6 +140,7 @@ def prepare_for_training(
             val_dataloader = None
     else:
         args = [model, optimizer, train_dataloader]
+        accelerator.print("preparing without lr_scheduler")
         if val_dataloader is not None:
             args.append(val_dataloader)
         prepared = accelerator.prepare(*args)

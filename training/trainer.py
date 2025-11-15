@@ -149,15 +149,15 @@ class Trainer:
 
         # Validate checkpoint directory (before creating anything)
         if self.accelerator.is_main_process:
-            if config.checkpoint:
-                self._validate_checkpoint_directory(config.checkpoint)
-
             # Copy config file to checkpoint directory (only on main process)
-                if config_path and Path(config_path).exists():
-                    self._copy_config_file(
-                        config.checkpoint.save_dir, config_path)
-        else:
-            self.accelerator.wait_for_everyone()
+            if (
+                config.checkpoint is not None
+                and config.checkpoint.save_dir
+                and config_path
+                and Path(config_path).exists()
+            ):
+                self._copy_config_file(
+                    config.checkpoint.save_dir, config_path)
 
         # Create optimizer and scheduler
         self.optimizer = create_optimizer(model, config.optimizer)
@@ -191,7 +191,6 @@ class Trainer:
             num_training_steps=safe_total_steps,
         )
 
-        # Prepare for training with Accelerate
         (
             self.model,
             self.optimizer,
@@ -433,7 +432,6 @@ class Trainer:
 
         for batch_idx, batch in enumerate(progress_bar):
             self.callback_handler.on_batch_begin(self, batch, batch_idx)
-            self.accelerator.print(f"DEBUG: batch {batch_idx}: {batch}")
             with self.accelerator.accumulate(self.model):
                 # Ego-centric diarization: labels are [batch, num_frames] with class indices
                 targets = batch["labels"]

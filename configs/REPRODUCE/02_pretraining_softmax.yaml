@@ -90,7 +90,7 @@ training:
     splits:
       - dataset_name: "simu_1spk"
         split_name: "train_b2_mix100000"
-        subset_ratio: 0.2 # Use 20% of dataset
+        subset_ratio: 0.001 # Use 0.1% of dataset
       # - dataset_name: "simu_2spk"
       #   split_name: "train_b2_mix100000"
       #   subset_ratio: 0.2 # Use 50% of dataset
@@ -323,8 +323,8 @@ global_config:
       # This ensures consistent sequence lengths and memory usage
 
     dataloader:
-      num_workers: 4 # Use 4 workers for dataloading (after features are cached)
-      pin_memory: true
+      num_workers: 4 # Reduced for distributed training (2 × 8 GPUs = 16 workers total)
+      pin_memory: false
       persistent_workers: false
       prefetch_factor: 2
 

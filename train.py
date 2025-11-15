@@ -57,11 +57,22 @@ def main():
     log_system_info(accelerator)
     print_training_info(accelerator, training_config)
 
+    # Create model (parser ensures configs are never None)
+    if model_config is None:
+        raise ValueError("No model configuration found")
+    accelerator.print("\nCreating model...")
+    model = create_model(model_config)
+    accelerator.print(f"✓ Model created: {model_config.name}")
+
+    train_dataloader = None
+    val_dataloaders = None
+    DataManager = DatasetManager()
+    cut_sets = None
+   
     # Load datasets and create diarization dataloaders (parser ensures valid configs)
     accelerator.print("\n" + "="*70)
     accelerator.print("Loading Datasets")
     accelerator.print("="*70)
-    DataManager = DatasetManager(accelerator=accelerator)
     cut_sets = DataManager.load_datasets(
         datasets=dataset_configs,
         global_config=global_config,
@@ -101,20 +112,11 @@ def main():
         label_type=label_type,
         random_seed=random_seed
     )
-
     accelerator.print(
         f"\n✓ Diarization dataloaders created with label_type='{label_type}'")
     if val_dataloaders:
         accelerator.print(
             f"  Validation splits: {', '.join(val_dataloaders.keys())}")
-
-    # Create model (parser ensures configs are never None)
-    if model_config is None:
-        raise ValueError("No model configuration found")
-    accelerator.print("\nCreating model...")
-    model = create_model(model_config)
-    accelerator.print(f"✓ Model created: {model_config.name}")
-
     # Create trainer (pass accelerator to prevent re-initialization)
     accelerator.print("\nInitializing trainer...")
     trainer = Trainer(
