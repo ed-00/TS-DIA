@@ -32,10 +32,8 @@ from accelerate import Accelerator
 
 from .accelerate_utils import (
     all_reduce_metrics,
-    load_checkpoint_with_accelerate,
     prepare_for_training,
     print_training_info,
-    save_checkpoint_with_accelerate,
     setup_accelerator,
 )
 from .callbacks import CallbackHandler, create_callbacks_from_config
@@ -147,9 +145,8 @@ class Trainer:
             log_system_info(self.accelerator)
             print_training_info(self.accelerator, config)
 
-        # Validate checkpoint directory (before creating anything)
+        # Copy config file to checkpoint directory (only on main process)
         if self.accelerator.is_main_process:
-            # Copy config file to checkpoint directory (only on main process)
             if (
                 config.checkpoint is not None
                 and config.checkpoint.save_dir
@@ -205,6 +202,13 @@ class Trainer:
             primary_val_dl,
             self.lr_scheduler,
         )
+
+        # Register scheduler for checkpointing with Accelerate
+        if self.lr_scheduler:
+            self.accelerator.register_for_checkpointing(self.lr_scheduler)
+
+        # Register the trainer itself for checkpointing to save/load training state
+        self.accelerator.register_for_checkpointing(self)
 
         # Ensure validation dataloaders are prepared for distributed execution
         if self.val_dataloaders:
@@ -289,43 +293,21 @@ class Trainer:
         if config.checkpoint and config.checkpoint.resume:
             self._resume_from_checkpoint(config.checkpoint.resume)
 
-    def _set_seed(self, seed: int):
-        """Set random seeds for reproducibility."""
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
 
-    def _validate_checkpoint_directory(self, checkpoint_config):
-        """
-        Validate checkpoint directory doesn't exist unless resuming.
+    def state_dict(self):
+        return {
+            "current_epoch": self.current_epoch,
+            "global_step": self.global_step,
+            "best_metric": self.best_metric,
+        }
 
-        Args:
-            checkpoint_config: CheckpointConfig object
-
-        Raises:
-            CheckpointDirectoryExistsError: If directory exists and not resuming
-        """
-        checkpoint_dir = Path(checkpoint_config.save_dir)
-
-        # If resuming, directory should exist - no validation needed
-        if checkpoint_config.resume:
-            return
-
-        # If not resuming, directory should NOT exist
-        if checkpoint_dir.exists():
-            raise CheckpointDirectoryExistsError(
-                f"\n{'=' * 70}\n"
-                f"ERROR: Checkpoint directory already exists!\n"
-                f"{'=' * 70}\n"
-                f"Directory: {checkpoint_dir}\n\n"
-                f"To prevent accidental overwriting of existing experiments, training cannot proceed.\n\n"
-                f"Please choose ONE of the following options:\n"
-                f"  1. Change 'checkpoint.save_dir' in your config to a new path\n"
-                f"  2. Set 'checkpoint.resume' to resume from this checkpoint\n"
-                f"  3. Manually delete the directory if you want to overwrite it\n"
-                f"{'=' * 70}\n"
-            )
+    def load_state_dict(self, state_dict):
+        self.current_epoch = state_dict["current_epoch"]
+        self.global_step = state_dict["global_step"]
+        self.best_metric = state_dict["best_metric"]
+        self.accelerator.print(
+            f"Restored trainer state: epoch {self.current_epoch}, step {self.global_step}"
+        )
 
     def _copy_config_file(self, checkpoint_dir: str, config_path: str):
         """
@@ -341,7 +323,7 @@ class Trainer:
         config_dest = checkpoint_path / "config.yml"
         shutil.copy2(config_path, config_dest)
 
-        print(f"Configuration file copied to: {config_dest}")
+        self.accelerator.print(f"Configuration file copied to: {config_dest}")
 
     def _calculate_total_steps(self) -> Optional[int]:
         """Return max_steps if provided; otherwise None (lengthless iteration)."""
@@ -351,23 +333,15 @@ class Trainer:
         """Resume training from checkpoint."""
         self.accelerator.print(
             f"📂 Resuming from checkpoint: {checkpoint_path}")
+        self.accelerator.load_state(checkpoint_path)
 
-        extra_state = load_checkpoint_with_accelerate(
-            self.accelerator,
-            checkpoint_path,
-            self.model,
-            self.optimizer,
-            self.lr_scheduler,
-        )
-
-        # Restore training state
-        self.current_epoch = extra_state.get("epoch", 0)
-        self.global_step = extra_state.get("global_step", 0)
-        self.best_metric = extra_state.get("best_metric", float("inf"))
-
-        self.accelerator.print(
-            f"Resumed from epoch {self.current_epoch}, step {self.global_step}"
-        )
+    def _set_seed(self, seed: int):
+        """Set random seeds for reproducibility."""
+        # Set random seeds for reproducibility
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
 
     def train(self):
         """Main training loop."""
@@ -402,9 +376,13 @@ class Trainer:
                 self.config.checkpoint
                 and (epoch + 1) % self.config.checkpoint.interval == 0
             ):
-                self.save_checkpoint(f"epoch_{epoch + 1}")
+                self.save_checkpoint()
 
         self.callback_handler.on_train_end(self)
+
+        # Save final checkpoint
+        if self.config.checkpoint:
+            self.save_checkpoint()
 
         # End tracking
         self.accelerator.end_training()
@@ -519,7 +497,7 @@ class Trainer:
                 self.config.checkpoint
                 and self.global_step % self.config.checkpoint.interval == 0
             ):
-                self.save_checkpoint(f"step_{self.global_step}")
+                self.save_checkpoint()
 
             # Check if we've reached max steps
             if self.config.max_steps and self.global_step >= self.config.max_steps:
@@ -669,28 +647,13 @@ class Trainer:
 
         return aggregated
 
-    def save_checkpoint(self, name: str, is_best: bool = False):
-        """Save training checkpoint."""
-        if not self.config.checkpoint:
+    def save_checkpoint(self):
+        """Save training checkpoint using Accelerate."""
+        if not self.config.checkpoint or not self.config.checkpoint.save_dir:
             return
 
-        extra_state = {
-            "epoch": self.current_epoch,
-            "global_step": self.global_step,
-            "best_metric": self.best_metric,
-        }
-
-        save_checkpoint_with_accelerate(
-            self.accelerator,
-            self.config.checkpoint.save_dir,
-            epoch=self.current_epoch,
-            step=self.global_step,
-            model=self.model,
-            optimizer=self.optimizer,
-            lr_scheduler=self.lr_scheduler,
-            extra_state=extra_state,
-            is_best=is_best,
-        )
+        self.accelerator.save_state()
+        self.accelerator.print(f"✅ Checkpoint saved by Accelerate.")
 
     @torch.no_grad()
     def test(self) -> Dict[str, float]:

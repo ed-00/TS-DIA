@@ -170,7 +170,7 @@ training:
   # Validation Configuration
   # ---------------------------------------------------------------------------
   validation:
-    interval: 500 # Validate every N steps
+    interval: 16 # Validate every N steps
     batch_size: 32 # Validation batch size (matching training)
     metric_for_best_model: val_loss # Metric to track for best model
     greater_is_better: false # Whether higher metric is better
@@ -195,15 +195,16 @@ training:
   # Checkpoint Configuration
   # ---------------------------------------------------------------------------
   checkpoint:
-    save_dir: ./outputs/checkpoints/softmax_pretraining # Directory to save checkpoints
-    interval: 1000 # Save checkpoint every N steps
-    save_total_limit: 5 # Maximum number of checkpoints to keep
-    resume: null # Path to checkpoint to resume from
-    snapshot_optimizer: true # Save optimizer state
-    snapshot_scheduler: true # Save scheduler state
-    snapshot_features: true # Save Performer feature matrices
-    save_best_only: false # Only save best checkpoint
-    monitor_metric: val_loss # Metric to monitor for best checkpoint
+    save_dir: ./outputs/checkpoints/softmax_pretraining_2 # Directory to save checkpoints
+    interval: 16 # Save checkpoint every N steps
+    save_total_limit: 100 # Maximum number of checkpoints to keep
+    resume: ./outputs/checkpoints/softmax_pretraining/checkpoints/checkpoint_3 # Path to checkpoint to resume from
+    # The following are handled by Accelerate's save_state
+    # snapshot_optimizer: true
+    # snapshot_scheduler: true
+    # snapshot_features: true
+    # save_best_only: false
+    # monitor_metric: val_loss
 
   # ---------------------------------------------------------------------------
   # Distributed Training Configuration

@@ -143,6 +143,7 @@ class EgoCentricDiarizationDataset(Dataset):
             "features": mixture_features,
             "features_lens": torch.tensor(mixture_features.size(0), dtype=torch.long),
             "labels": labels,
+            "speaker_id": target_spk_id if target_spk_id else "__none__",
         }
 
     @staticmethod
@@ -153,6 +154,7 @@ class EgoCentricDiarizationDataset(Dataset):
         """
         features_list = [item["features"] for item in batch]
         labels_list = [item["labels"]for item in batch]
+        speaker_ids = [item["speaker_id"] for item in batch]
 
         features_lens = torch.tensor(
             [feat.size(0) for feat in features_list], dtype=torch.long)
@@ -166,6 +168,7 @@ class EgoCentricDiarizationDataset(Dataset):
             "features": features_padded,
             "features_lens": features_lens,
             "labels": labels_padded,
+            "speaker_ids": speaker_ids,
         }
 
     @staticmethod
