@@ -25,6 +25,7 @@ References:
 import torch
 from torch import Tensor, nn
 from typing_extensions import Unpack
+import random
 
 from .utils import ProjectionUpdater
 from .norm import PreLayerNorm, PreScaleNorm
@@ -561,7 +562,11 @@ class EncoderDecoderTransformer(nn.Module):
     """
 
     def __init__(
-        self, encoder_params: PerformerParams, decoder_params: PerformerParams
+        self,
+        encoder_params: PerformerParams,
+        decoder_params: PerformerParams,
+        min_enroll_len: int = 10,
+        max_enroll_len: int = 20,
     ):
         """
         Initialize encoder-decoder transformer.
@@ -571,6 +576,8 @@ class EncoderDecoderTransformer(nn.Module):
                 Configuration for encoder (use_cross_attention will be forced to False)
             decoder_params: PerformerParams
                 Configuration for decoder (use_cross_attention will be forced to True)
+            min_enroll_len: int - minimum length of enrollment segment
+            max_enroll_len: int - maximum length of enrollment segment
         """
         super().__init__()
 
@@ -579,6 +586,9 @@ class EncoderDecoderTransformer(nn.Module):
 
         # Create decoder (with cross-attention)
         self.decoder = PerformerDecoder(**decoder_params)
+        self.min_enroll_len = min_enroll_len
+        self.max_enroll_len = max_enroll_len
+        self.d_model = encoder_params["d_model"]
 
     def encode(self, src: Tensor, src_mask: Tensor | None = None, **kwargs) -> Tensor:
         """
@@ -639,6 +649,8 @@ class EncoderDecoderTransformer(nn.Module):
         src: Tensor | None = None,
         tgt: Tensor | None = None,
         x: Tensor | None = None,
+        speaker_ids: list[str] | None = None,
+        labels: Tensor | None = None,
         src_mask: Tensor | None = None,
         tgt_mask: Tensor | None = None,
         cross_attn_mask: Tensor | None = None,
@@ -655,6 +667,8 @@ class EncoderDecoderTransformer(nn.Module):
                 Target embeddings (if None, uses x)
             x: Tensor of shape (batch_size, seq_len, d_model)
                 Unified input for both src and tgt (for diarization tasks)
+            speaker_ids: List of speaker IDs for enrollment
+            labels: Tensor of shape (batch_size, seq_len) - target labels
             src_mask: Tensor of shape (batch_size, src_len, src_len) | None
                 Source self-attention mask
             tgt_mask: Tensor of shape (batch_size, tgt_len, tgt_len) | None
@@ -679,9 +693,49 @@ class EncoderDecoderTransformer(nn.Module):
         # Encode source
         encoder_output = self.encode(src, src_mask=src_mask, **kwargs)
 
+        # Enrollment Selection
+        enrollment_embeddings = []
+        if speaker_ids and labels is not None:
+            for i, speaker_id in enumerate(speaker_ids):
+                if speaker_id == "__none__":
+                    enrollment_embeddings.append(
+                        torch.full((1, self.d_model), -1.0, device=encoder_output.device)
+                    )
+                else:
+                    speaker_indices = (labels[i] == 0).nonzero(as_tuple=True)[0]
+                    if len(speaker_indices) > self.min_enroll_len:
+                        enroll_len = random.randint(
+                            self.min_enroll_len,
+                            min(self.max_enroll_len, len(speaker_indices)),
+                        )
+                        start_idx = random.randint(
+                            0, len(speaker_indices) - enroll_len
+                        )
+                        enrollment_segment = encoder_output[
+                            i, speaker_indices[start_idx : start_idx + enroll_len]
+                        ]
+                        enrollment_embeddings.append(
+                            enrollment_segment.mean(dim=0, keepdim=True)
+                        )
+                    else:
+                        enrollment_embeddings.append(
+                            torch.full(
+                                (1, self.d_model), -1.0, device=encoder_output.device
+                            )
+                        )
+        else:
+            # Default to -1 if no speaker_ids or labels
+            for _ in range(encoder_output.size(0)):
+                enrollment_embeddings.append(
+                    torch.full((1, self.d_model), -1.0, device=encoder_output.device)
+                )
+
+        enrollment_tensor = torch.stack(enrollment_embeddings)
+        decoder_input = torch.cat([enrollment_tensor, tgt], dim=1)
+
         # Decode target with encoder context
         decoder_output = self.decode(
-            tgt,
+            decoder_input,
             encoder_output=encoder_output,
             tgt_mask=tgt_mask,
             src_mask=cross_attn_mask,

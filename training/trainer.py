@@ -415,13 +415,18 @@ class Trainer:
                 targets = batch["labels"]
 
                 # Forward pass - extract features from diarization batch
-                outputs = self.model(x=batch["features"])
+                outputs = self.model(
+                    x=batch["features"],
+                    speaker_ids=batch["speaker_ids"],
+                    labels=batch["labels"],
+                )
 
-                # Compute loss
+                # Compute loss, ignoring the first token (enrollment)
                 loss_dict = compute_loss(
                     self.loss_fn,
-                    outputs if isinstance(
-                        outputs, torch.Tensor) else outputs.logits,
+                    outputs[:, 1:, :]
+                    if isinstance(outputs, torch.Tensor)
+                    else outputs.logits[:, 1:, :],
                     targets,
                     auxiliary_losses=self.auxiliary_losses,
                     auxiliary_weights=self.auxiliary_weights,
@@ -544,34 +549,34 @@ class Trainer:
                 if max_val_steps is not None and batch_idx >= max_val_steps:
                     break
 
-                outputs = self.model(x=batch["features"])
+                outputs = self.model(
+                    x=batch["features"],
+                    speaker_ids=batch.get("speaker_ids"),
+                    labels=batch.get("labels"),
+                )
 
                 if "labels" in batch:
                     targets = batch["labels"]
+                    loss = self.loss_fn(outputs[:, 1:, :], targets)
                 elif "speaker_activity" in batch:
-                    targets = batch["speaker_activity"].transpose(1, 2).float()
+                    targets = batch["speaker_activity"]
+                    loss = self.loss_fn(outputs[:, 1:, :], targets)
                 else:
-                    raise ValueError(
-                        "Batch must contain either 'labels' or 'speaker_activity'"
+                    loss = None
+                    targets = None
+
+                if loss is not None:
+                    total_loss += loss.item()
+                    total_samples += targets.size(0)
+
+                # Compute metrics, ignoring the enrollment token
+                if targets is not None:
+                    batch_metrics = compute_metrics(
+                        outputs=outputs[:, 1:, :],
+                        targets=targets,
+                        task_type=self.config.validation.task_type,
                     )
-
-                loss_dict = compute_loss(
-                    self.loss_fn,
-                    outputs if isinstance(
-                        outputs, torch.Tensor) else outputs.logits,
-                    targets,
-                )
-
-                total_loss += loss_dict["total"].item() * targets.size(0)
-                total_samples += targets.size(0)
-
-                batch_metrics = compute_metrics(
-                    outputs if isinstance(
-                        outputs, torch.Tensor) else outputs.logits,
-                    targets,
-                    task_type="classification",  # TODO, make this configurable
-                )
-                all_metrics.append(batch_metrics)
+                    all_metrics.append(batch_metrics)
 
             if total_samples == 0:
                 split_results = {"val_loss": float("nan")}

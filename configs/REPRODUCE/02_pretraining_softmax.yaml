@@ -20,9 +20,9 @@ model:
       345 # Input feature dimension (23 MFCC × 15 context frames from splicing)
       # Features are spliced: 23-dim MFCC with ±7 context frames = 345-dim
       # Splicing: 7 before + 1 current + 7 after = 15 total × 23 = 345
-    d_model: 256 # Model dimension / embedding size
+    d_model: 345 # Model dimension / embedding size
     num_layers: 4 # Number of encoder layers
-    num_heads: 8 # Number of attention heads (matching EEND: 4 heads)
+    num_heads: 5 # Number of attention heads (matching EEND: 4 heads)
 
     # Attention configuration
     attention_type: softmax # Options: softmax, linear, causal_linear
@@ -46,9 +46,9 @@ model:
   decoder:
     # Core architecture parameters
     input_dim: 345 # Input feature dimension (null = use encoder output, or specify for decoder-only)
-    d_model: 256 # Model dimension (should match encoder for encoder_decoder)
+    d_model: 345 # Model dimension (should match encoder for encoder_decoder)
     num_layers: 4 # Number of decoder layers
-    num_heads: 8 # Number of attention heads
+    num_heads: 5 # Number of attention heads
 
     # Attention configuration
     attention_type: softmax # Options: softmax, linear, causal_linear
@@ -198,7 +198,7 @@ training:
     save_dir: ./outputs/checkpoints/softmax_pretraining_2 # Directory to save checkpoints
     interval: 16 # Save checkpoint every N steps
     save_total_limit: 100 # Maximum number of checkpoints to keep
-    resume: ./outputs/checkpoints/softmax_pretraining/checkpoints/checkpoint_3 # Path to checkpoint to resume from
+    resume: null # Path to checkpoint to resume from
     # The following are handled by Accelerate's save_state
     # snapshot_optimizer: true
     # snapshot_scheduler: true

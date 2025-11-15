@@ -382,7 +382,7 @@ def compute_metrics(
         # Accuracy
         predictions = outputs.argmax(dim=-1)
         correct = (predictions == targets).float().sum()
-        total = targets.size(0)
+        total = targets.numel()  # Use numel for total elements
         metrics["accuracy"] = (correct / total).item()
 
         # Top-5 accuracy (if applicable)
@@ -392,6 +392,30 @@ def compute_metrics(
                 (top5_predictions == targets.unsqueeze(-1)).any(dim=-1).float().sum()
             )
             metrics["top5_accuracy"] = (top5_correct / total).item()
+
+        # F1, Precision, Recall (macro-averaged)
+        num_classes = outputs.size(-1)
+
+        # Flatten tensors
+        flat_preds = predictions.view(-1)
+        flat_targets = targets.view(-1)
+
+        tp = torch.zeros(num_classes, device=outputs.device)
+        fp = torch.zeros(num_classes, device=outputs.device)
+        fn = torch.zeros(num_classes, device=outputs.device)
+
+        for i in range(num_classes):
+            tp[i] = ((flat_preds == i) & (flat_targets == i)).sum()
+            fp[i] = ((flat_preds == i) & (flat_targets != i)).sum()
+            fn[i] = ((flat_preds != i) & (flat_targets == i)).sum()
+
+        precision = tp / (tp + fp + 1e-8)
+        recall = tp / (tp + fn + 1e-8)
+        f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
+
+        metrics["precision"] = precision.mean().item()
+        metrics["recall"] = recall.mean().item()
+        metrics["f1"] = f1.mean().item()
 
     elif task_type == "regression":
         # MSE and MAE
