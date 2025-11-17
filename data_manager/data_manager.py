@@ -38,6 +38,7 @@ import inspect
 from pathlib import Path
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
+import json
 import numpy as np
 
 
@@ -72,7 +73,8 @@ from lhotse.dataset import (
     DiarizationDataset,
     make_worker_init_fn,
 )
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, IterableDataset
+from accelerate import Accelerator
 
 from data_manager import recipes
 from data_manager.dataset_types import (
@@ -82,14 +84,15 @@ from data_manager.dataset_types import (
     LabelType,
 )
 from training.ego_dataset import EgoCentricDiarizationDataset
-from accelerate import Accelerator
 from utility.dataset_utils import prepare_training_cuts
-from training import TrainingConfig, TrainingDatasetMap, TrainingDatasetSplit
+from training import TrainingConfig, TrainingDatasetMap
 from data_manager import GlobalConfig
-from training.ego_dataset import EgoCentricDiarizationDataset
-
+from lhotse import load_manifest, store_manifest
+import torch
 
 # These functions are stateless and can be defined at the module level.
+
+
 def __is_custom_recipe(dataset_name: str) -> bool:
     """Check if a custom recipe exists for the dataset."""
     download_function_name = f"download_{dataset_name}"
@@ -205,78 +208,6 @@ def resolve_manifest(patterns: List[Path], glob_suffix: str, manifest_dir: Path)
     return wildcard
 
 
-def _generate_labels_for_cut_static(
-    cut_id: str,
-    cut_dict: Dict[str, Any],
-    speaker_ids: List[Optional[str]],
-    label_map: Dict[str, int],
-) -> Tuple[str, Dict[str, np.ndarray]]:
-    """
-    Static function for parallel label generation.
-    Returns (cut_id, {speaker_id: labels_array})
-    """
-    from lhotse.cut import MonoCut
-
-    # Reconstruct cut from dict
-    cut = MonoCut.from_dict(cut_dict)
-
-    labels_dict = {}
-    num_frames = cut.num_frames
-
-    if num_frames is None or num_frames == 0:
-        for spk_id in speaker_ids:
-            speaker_key = spk_id if spk_id else "__none__"
-            labels_dict[speaker_key] = np.empty(0, dtype=np.int64)
-        return cut_id, labels_dict
-
-    all_speakers_in_cut = sorted(
-        set(s.speaker for s in cut.supervisions if s.speaker)
-    )
-
-    if not all_speakers_in_cut:
-        for spk_id in speaker_ids:
-            speaker_key = spk_id if spk_id else "__none__"
-            labels_dict[speaker_key] = np.full(
-                num_frames, fill_value=label_map['ns'], dtype=np.int64
-            )
-        return cut_id, labels_dict
-
-    speaker_to_idx_map = {spk: i for i, spk in enumerate(all_speakers_in_cut)}
-    mask = cut.speakers_feature_mask(speaker_to_idx_map=speaker_to_idx_map)
-
-    # Generate labels for each target speaker
-    for target_speaker_id in speaker_ids:
-        speaker_key = target_speaker_id if target_speaker_id else "__none__"
-
-        if target_speaker_id is None:
-            target_mask = np.zeros(num_frames, dtype=np.int32)
-            other_speaker_count = np.sum(mask, axis=0)
-        else:
-            target_idx = speaker_to_idx_map[target_speaker_id]
-            target_mask = mask[target_idx]
-            other_indices = [
-                i for spk, i in speaker_to_idx_map.items()
-                if spk != target_speaker_id
-            ]
-            if other_indices:
-                other_speaker_count = np.sum(mask[other_indices], axis=0)
-            else:
-                other_speaker_count = np.zeros(num_frames, dtype=np.int32)
-
-        labels = np.full(
-            num_frames, fill_value=label_map['ns'], dtype=np.int64)
-        labels[(target_mask == 1) & (
-            other_speaker_count == 0)] = label_map['ts']
-        labels[(target_mask == 1) & (
-            other_speaker_count > 0)] = label_map['ts_ovl']
-        labels[(target_mask == 0) & (other_speaker_count == 1)
-               ] = label_map['others_sgl']
-        labels[(target_mask == 0) & (other_speaker_count > 1)
-               ] = label_map['others_ovl']
-
-        labels_dict[speaker_key] = labels
-
-    return cut_id, labels_dict
 
 
 class DatasetManager:
@@ -617,20 +548,23 @@ class DatasetManager:
         cuts: CutSet,
         label_type: LabelType = "binary",
         data_loading: Optional[DataLoadingConfig] = None,
+
     ) -> Union[DiarizationDataset, Any]:
         """
         Create a diarization dataset based on the label type.
         """
         if label_type == "ego":
+
             subsampling = getattr(
                 data_loading, 'subsampling', 10) if data_loading else 10
             context_size = getattr(
                 data_loading, 'context_size', 7) if data_loading else 7
-
+         
             return EgoCentricDiarizationDataset(
                 cuts=cuts,
                 context_size=context_size,
-                subsampling=subsampling
+                subsampling=subsampling,
+        
             )
         elif label_type == "binary":
             return DiarizationDataset(cuts)
@@ -643,13 +577,14 @@ class DatasetManager:
         dataset_configs: List[Any],
         global_config: GlobalConfig,
         training_config: TrainingConfig,
+        accelerator: Accelerator,
         label_type: LabelType = "binary",
         random_seed: int = 42,
-    ) -> Dict[str, DataLoader[Any]]:
+    ) -> Dict[str, Tuple[DataLoader[Any], int]]:
         """
         Create validation dataloaders based on training configuration.
         """
-        val_dataloaders: Dict[str, DataLoader[Any]] = {}
+        val_dataloaders: Dict[str, Tuple[DataLoader[Any], int]] = {}
 
         if not training_config.validation or not training_config.validation.validation_dataset_map:
             return val_dataloaders
@@ -668,16 +603,27 @@ class DatasetManager:
             val_cuts = prepare_training_cuts(cut_sets, validation_map)
             print(
                 f"✓ Combined {len(val_cuts)} validation cuts")
+            # Aggregate metadata sizes across validation splits, fall back to compute
+            dataset_size = 0
+            for split_info in validation_map.splits:
+                size = self._get_split_dataset_size_from_cache_or_compute(
+                    cut_sets=cut_sets,
+                    cache_dir=final_cache_dir,
+                    dataset_name=split_info.dataset_name,
+                    split_name=split_info.split_name,
+                    label_type=label_type,
+                    accelerator=accelerator
+                )
+                dataset_size += size
 
-            val_dataloaders["val"] = self.create_dataloader(
+            val_dataloaders["val"] = (self.create_dataloader(
                 cuts=val_cuts,
                 data_loading=global_config.data_loading,
                 batch_size=training_config.batch_size,
                 label_type=label_type,
                 random_seed=random_seed,
-                shuffle=False,
                 cache_dir=final_cache_dir,
-            )
+            ), dataset_size)
         else:
             print(
                 "→ Preparing separate validation dataloaders...")
@@ -693,27 +639,56 @@ class DatasetManager:
                     cut_sets=cut_sets,
                     training_dataset_map=temp_map
                 )
+                dataset_size = self._get_split_dataset_size_from_cache_or_compute(
+                    cut_sets=cut_sets,
+                    cache_dir=final_cache_dir,
+                    dataset_name=split_info.dataset_name,
+                    split_name=split_info.split_name,
+                    label_type=label_type,
+                    accelerator=accelerator
+                )
 
-                val_dataloaders[val_key] = self.create_dataloader(
+                val_dataloaders[val_key] = (self.create_dataloader(
                     cuts=val_cuts,
                     data_loading=global_config.data_loading,
                     batch_size=training_config.batch_size,
                     label_type=label_type,
                     random_seed=random_seed,
-                    shuffle=False,
                     cache_dir=final_cache_dir,
-                )
+                ), dataset_size)
 
         return val_dataloaders
+
+    # def __save_index_map(
+    #     self,
+    #     index_map:  List[Tuple[int, str | None]],
+    #     index_path: Path,
+    # ) -> None:
+    #     """
+    #     Save the cut to speaker index map to disk.
+    #     """
+    #     print(f"Saving index map to {index_path}...")
+    #     np.save(index_path, [(idx, spk if spk is not None else "")
+    #             for idx, spk in index_map], allow_pickle=True)
+
+    # def __load_index_map(
+    #     self,
+    #     index_path: Path,
+    # ) -> List[Tuple[int, str | None]]:
+    #     """
+    #     Load the cut to speaker index map from disk.
+    #     """
+    #     raw_data = np.load(index_path, allow_pickle=True)
+    #     return [(int(idx), spk if spk != "" else None) for idx, spk in raw_data]
 
     def create_training_dataloader(
         self,
         cut_sets: Dict[str, Dict[str, CutSet]],
         global_config: GlobalConfig,
         training_config: TrainingConfig,
-        label_type: LabelType = "binary",
+        accelerator: Accelerator,
         random_seed: int = 42,
-    ) -> DataLoader[Any]:
+    ) -> Tuple[DataLoader[Any], int]:
         """
         Create training dataloader by combining pre-processed splits.
         Note: Subsetting, windowing, and labels are already applied during load_datasets.
@@ -736,17 +711,39 @@ class DatasetManager:
 
         print(f"✓ Combined {len(train_cuts)} training cuts")
 
-        train_dataloader = self.create_dataloader(
+        dataset = EgoCentricDiarizationDataset(
             cuts=train_cuts,
-            data_loading=global_config.data_loading,
-            batch_size=training_config.batch_size,
-            label_type=label_type,
-            random_seed=random_seed,
-            shuffle=True,
-            cache_dir=final_cache_dir,
+            context_size=training_config.eval_knobs.get("context_size", 7),
+            subsampling=training_config.eval_knobs.get("subsampling", 10),
         )
 
-        return train_dataloader
+        # Attempt to compute total dataset size using cached metadata per split
+        total_data_size = 0
+        training_map = training_config.training_dataset_map
+        if training_map and hasattr(training_map, "splits"):
+            for split_info in training_map.splits:
+                size = self._get_split_dataset_size_from_cache_or_compute(
+                    cut_sets=cut_sets,
+                    cache_dir=final_cache_dir,
+                    dataset_name=split_info.dataset_name,
+                    split_name=split_info.split_name,
+                    label_type="ego",
+                    accelerator=accelerator
+                )
+                total_data_size += size
+        else:
+            # Fallback: compute from combined cuts if mapping is not available
+            total_data_size = EgoCentricDiarizationDataset.get_total_dataset_size(
+                train_cuts, desc=f"Calculating total training dataset size {accelerator.process_index}")
+        accelerator.wait_for_everyone()
+
+        return (DataLoader(
+            dataset,
+            batch_size=training_config.batch_size,
+            num_workers=global_config.data_loading.dataloader.num_workers,
+            worker_init_fn=make_worker_init_fn(seed=random_seed),
+            collate_fn=EgoCentricDiarizationDataset.collate_fn,
+        ), total_data_size)
 
     def create_dataloader(
         self,
@@ -755,7 +752,6 @@ class DatasetManager:
         batch_size: int,
         label_type: LabelType = "binary",
         random_seed: int = 42,
-        shuffle: bool = True,
         cache_dir: Optional[Path] = None,
     ) -> DataLoader[Any]:
         """
@@ -775,15 +771,25 @@ class DatasetManager:
 
         dataloader_cfg = data_loading.dataloader
 
+        # IterableDataset-specific handling
+        is_iterable = isinstance(dataset, IterableDataset)
+
+        if is_iterable and getattr(dataloader_cfg, "shuffle", False):
+            print(
+                "⚠️  Warning: 'shuffle' is ignored for IterableDataset — the dataset implements its own shuffle buffer."
+            )
+
+        # For iterable datasets, avoid dropping the last (partially-filled) batch by default
+        drop_last = False if is_iterable else True
+
         dataloader: DataLoader[Any] = DataLoader(
             dataset,
             batch_size=batch_size,
-            shuffle=shuffle,
             num_workers=dataloader_cfg.num_workers,
             pin_memory=dataloader_cfg.pin_memory,
             worker_init_fn=worker_init_fn,
             collate_fn=collate_fn,
-            drop_last=True,
+            drop_last=drop_last,
             persistent_workers=dataloader_cfg.persistent_workers if dataloader_cfg.num_workers > 0 else False,
             prefetch_factor=dataloader_cfg.prefetch_factor if dataloader_cfg.num_workers > 0 else None,
         )
@@ -1177,6 +1183,59 @@ class DatasetManager:
             raise RuntimeError(
                 f"Failed to save cache file or file is empty: {output_file}")
 
+    def _save_cache_metadata(
+        self,
+        cache_dir: Path,
+        dataset_name: str,
+        split_name: str,
+        dataset_size: Optional[int] = None,
+        num_cuts: Optional[int] = None,
+        label_type: Optional[LabelType] = None,
+    ) -> None:
+        """
+        Save small JSON metadata alongside final cache to avoid re-computing
+        dataset sizes repeatedly (main process only).
+        """
+        metadata_dir = cache_dir / dataset_name / split_name
+        metadata_dir.mkdir(parents=True, exist_ok=True)
+        metadata_file = metadata_dir / "cache_metadata.json"
+        meta = {
+            "dataset_name": dataset_name,
+            "split_name": split_name,
+            "dataset_size": int(dataset_size) if dataset_size is not None else None,
+            "num_cuts": int(num_cuts) if num_cuts is not None else None,
+            "label_type": label_type if label_type is not None else None,
+            "format_version": 1,
+        }
+        try:
+            with open(metadata_file, "w") as fh:
+                json.dump(meta, fh, indent=2)
+            print(f"✓ Saved cache metadata: {metadata_file}")
+        except Exception as exc:
+            print(
+                f"⚠️  Warning: Failed to write cache metadata to {metadata_file}: {exc}")
+
+    def _load_cache_metadata(
+        self,
+        cache_dir: Path,
+        dataset_name: str,
+        split_name: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Load cache metadata if it exists. (Safe for all processes)
+        """
+        metadata_file = cache_dir / dataset_name / split_name / "cache_metadata.json"
+        if not metadata_file.exists():
+            return None
+        try:
+            with open(metadata_file, "r") as fh:
+                meta = json.load(fh)
+            return meta
+        except Exception as exc:
+            print(
+                f"⚠️  Warning: Failed to read cache metadata from {metadata_file}: {exc}")
+            return None
+
     def _load_from_final_cache(
         self,
         cache_dir: Path,
@@ -1189,6 +1248,71 @@ class DatasetManager:
         cache_path = cache_dir / dataset_name / split_name / "cuts_windowed.jsonl.gz"
         print(f"Loading from cache: {cache_path}")
         return CutSet.from_file(cache_path)  # Use lazy loading
+
+    def _get_split_dataset_size_from_cache_or_compute(
+        self,
+        cut_sets: Dict[str, Dict[str, CutSet]],
+        cache_dir: Path,
+        dataset_name: str,
+        split_name: str,
+        label_type: LabelType,
+        accelerator: Accelerator
+    ) -> int:
+        """
+        Get dataset size for a specific split by reading cache metadata, and
+        fall back to a direct (and potentially expensive) computation.
+        """
+        # Try to load metadata first
+        meta = self._load_cache_metadata(cache_dir, dataset_name, split_name)
+        if meta and isinstance(meta.get("dataset_size"), int):
+            try:
+                print(
+                    f"✓ Loaded dataset_size from cache metadata for {dataset_name}/{split_name}: {meta['dataset_size']}")
+            except Exception:
+                pass
+            return int(meta["dataset_size"])
+
+        # Fall back to counting / computation.
+        try:
+            cuts = cut_sets[dataset_name][split_name]
+        except KeyError:
+            return 0
+
+        size = 0
+        if label_type == "ego":
+            if accelerator.is_main_process:
+                print(
+                    f"→ Computing total dataset size for {dataset_name}/{split_name} (this may take a while)...")
+                size = int(EgoCentricDiarizationDataset.get_total_dataset_size(
+                    cuts, desc=f"Calculating total dataset size for {dataset_name}/{split_name}"))
+                print(
+                    f"✓ Computed dataset size for {dataset_name}/{split_name}: {size}")
+
+                # Save metadata once so other processes can read it
+                self._save_cache_metadata(cache_dir, dataset_name, split_name,
+                                          dataset_size=size, num_cuts=len(cuts), label_type=label_type)
+
+            # Barrier: ensure metadata file is written by main process
+            accelerator.wait_for_everyone()
+
+            # Non-main process: read metadata once and return value
+            meta = self._load_cache_metadata(cache_dir, dataset_name, split_name)
+            if meta and isinstance(meta['dataset_size'], int):
+                size = int(meta['dataset_size'])
+            else:
+               raise RuntimeError(
+                   f"Failed to load dataset_size from cache metadata for {dataset_name}/{split_name}")
+        else:
+            size = len(cuts)
+        # Optionally save metadata to avoid future recompute
+
+        if accelerator.is_main_process:
+            self._save_cache_metadata(cache_dir, dataset_name, split_name,
+                                      dataset_size=size, num_cuts=len(cuts), label_type=label_type)
+        else:
+            accelerator.wait_for_everyone()
+
+        return size
 
     def _build_index_map(
         self,
@@ -1468,10 +1592,32 @@ class DatasetManager:
                     )
                     # Labels generated on-the-fly in dataset, no pre-computation needed
 
+                    # Compute dataset size (once) and save metadata with cache
+                    num_cuts = len(cuts_windowed)
+                    if label_type == "ego":
+                        dataset_size = EgoCentricDiarizationDataset.get_total_dataset_size(
+                            cuts_windowed, desc=f"Calculating total dataset size for {dataset.name}/{split_name}")
+                    else:
+                        dataset_size = num_cuts
+
                     # Save to final cache
                     self._save_to_final_cache(
                         cuts_windowed, final_cache_dir, dataset.name, split_name
                     )
+
+                    # Save metadata about the cached split
+                    try:
+                        self._save_cache_metadata(
+                            final_cache_dir,
+                            dataset.name,
+                            split_name,
+                            dataset_size=dataset_size,
+                            num_cuts=num_cuts,
+                            label_type=label_type,
+                        )
+                    except Exception as exc:
+                        print(
+                            f"⚠️  Warning: Failed to write cache metadata for {dataset.name}/{split_name}: {exc}")
             else:
                 print(
                     f"→ {dataset.name}: No chunk_size, applying subsetting, label computation, and saving to cache.")
@@ -1482,9 +1628,29 @@ class DatasetManager:
                     )
                     # Labels generated on-the-fly in dataset, no pre-computation needed
 
+                    num_cuts = len(cuts_subsetted)
+                    if label_type == "ego":
+                        dataset_size = EgoCentricDiarizationDataset.get_total_dataset_size(
+                            cuts_subsetted, desc=f"Calculating total dataset size for {dataset.name}/{split_name}")
+                    else:
+                        dataset_size = num_cuts
+
                     self._save_to_final_cache(
                         cuts_subsetted, final_cache_dir, dataset.name, split_name
                     )
+
+                    try:
+                        self._save_cache_metadata(
+                            final_cache_dir,
+                            dataset.name,
+                            split_name,
+                            dataset_size=dataset_size,
+                            num_cuts=num_cuts,
+                            label_type=label_type,
+                        )
+                    except Exception as exc:
+                        print(
+                            f"⚠️  Warning: Failed to write cache metadata for {dataset.name}/{split_name}: {exc}")
 
             print(
                 f"✓ {dataset.name} processing complete.")

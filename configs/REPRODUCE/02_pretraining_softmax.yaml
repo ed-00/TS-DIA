@@ -7,7 +7,7 @@ model:
   # ---------------------------------------------------------------------------
   global_config:
     dropout: 0.1 # Dropout probability (0.0 - 1.0)
-    batch_size: 32 # Batch size for training (matching EEND reference)
+    batch_size: 256 # Batch size for training (matching EEND reference)
     d_ff: 8 # Feed-forward expansion factor (hidden_dim = d_model * d_ff)
     device: cuda # Device: cpu, cuda, cuda:0, cuda:1, etc.
 
@@ -82,7 +82,7 @@ training:
   # Basic Training Settings
   # ---------------------------------------------------------------------------
   epochs: 100 # Number of training epochs
-  batch_size: 128 # Training batch size
+  batch_size: 256 # Training batch size
   random_seed: 42 # Random seed for reproducibility
   max_steps: null # Maximum training steps (null = use epochs)
   training_dataset_map:
@@ -90,19 +90,19 @@ training:
     splits:
       - dataset_name: "simu_1spk"
         split_name: "train_b2_mix100000"
-        subset_ratio: 0.001 # Use 0.1% of dataset
-      # - dataset_name: "simu_2spk"
-      #   split_name: "train_b2_mix100000"
-      #   subset_ratio: 0.2 # Use 50% of dataset
-      # - dataset_name: "simu_3spk"
-      #   split_name: "train_b2_mix100000"
-      #   subset_ratio: 0.2 # Use 50% of dataset
-      # - dataset_name: "simu_4spk"
-      #   split_name: "train_b2_mix100000"
-      #   subset_ratio: 0.2 # Use 50% of dataset
-      # - dataset_name: "simu_5spk"
-      #   split_name: "train_b2_mix100000"
-      #   subset_ratio: 0.2 # Use 50% of dataset
+        subset_ratio: 0.2 # Use 20% of dataset
+      - dataset_name: "simu_2spk"
+        split_name: "train_b2_mix100000"
+        subset_ratio: 0.2 # Use 20% of dataset
+      - dataset_name: "simu_3spk"
+        split_name: "train_b5_mix100000"
+        subset_ratio: 0.2 # Use 20% of dataset
+      - dataset_name: "simu_4spk"
+        split_name: "train_b9_mix100000"
+        subset_ratio: 0.2 # Use 20% of dataset
+      - dataset_name: "simu_5spk"
+        split_name: "train_b13_mix100000"
+        subset_ratio: 0.2 # Use 20% of dataset
 
   # ---------------------------------------------------------------------------
   # Optimizer Configuration
@@ -124,8 +124,8 @@ training:
     type: cosine # Options: cosine, linear, exponential, step, plateau, constant
     min_lr: 0.000001 # Minimum learning rate
     max_lr: null # Maximum learning rate (for cyclic schedulers)
-    warmup_steps: 1000 # Number of warmup steps
-    decay_steps: 10000 # Number of decay steps
+    warmup_steps: 413720 # Number of warmup steps
+    decay_steps: 3723480  # Number of decay steps
     num_cycles: 1 # Number of cycles (for cosine with restarts)
     step_size: null # Step size for StepLR scheduler
     gamma: 0.1 # Multiplicative factor for decay
@@ -170,8 +170,8 @@ training:
   # Validation Configuration
   # ---------------------------------------------------------------------------
   validation:
-    interval: 16 # Validate every N steps
-    batch_size: 32 # Validation batch size (matching training)
+    interval: 1000 # Validate every N steps
+    batch_size: 256 # Validation batch size (matching training)
     metric_for_best_model: val_loss # Metric to track for best model
     greater_is_better: false # Whether higher metric is better
     validation_dataset_map:
@@ -180,7 +180,30 @@ training:
         - dataset_name: "simu_1spk"
           split_name: "dev_b2_mix500"
           subset_ratio: 1.0
-
+        - dataset_name: "simu_2spk"
+          split_name: "dev_b2_mix500"
+          subset_ratio: 1.0
+        - dataset_name: "simu_2spk"
+          split_name: "dev_b3_mix500"
+          subset_ratio: 1.0
+        - dataset_name: "simu_2spk"
+          split_name: "dev_b5_mix500"
+          subset_ratio: 1.0
+        - dataset_name: "simu_3spk"
+          split_name: "dev_b5_mix500"
+          subset_ratio: 1.0
+        - dataset_name: "simu_3spk"
+          split_name: "dev_b7_mix500"
+          subset_ratio: 1.0
+        - dataset_name: "simu_3spk"
+          split_name: "dev_b11_mix500"
+          subset_ratio: 1.0
+        - dataset_name: "simu_4spk"
+          split_name: "dev_b9_mix500"
+          subset_ratio: 1.0
+        - dataset_name: "simu_5spk"
+          split_name: "dev_b13_mix500"
+          subset_ratio: 1.0
   # ---------------------------------------------------------------------------
   # Early Stopping Configuration
   # ---------------------------------------------------------------------------
@@ -196,7 +219,7 @@ training:
   # ---------------------------------------------------------------------------
   checkpoint:
     save_dir: ./outputs/checkpoints/softmax_pretraining_2 # Directory to save checkpoints
-    interval: 16 # Save checkpoint every N steps
+    interval: 41372 # Save checkpoint every N steps
     save_total_limit: 100 # Maximum number of checkpoints to keep
     resume: null # Path to checkpoint to resume from
     # The following are handled by Accelerate's save_state
@@ -222,7 +245,7 @@ training:
   # Logging Configuration
   # ---------------------------------------------------------------------------
   logging:
-    interval: 50 # Log every N steps
+    interval: 10 # Log every N steps
     tensorboard: false # Enable TensorBoard logging
     wandb: true # Enable Weights & Biases logging
     wandb_project: TS-DIA # WandB project name
@@ -247,7 +270,7 @@ training:
   # Evaluation Knobs (for inference and diarization)
   # ---------------------------------------------------------------------------
   eval_knobs:
-    batch_size: 32 # Batch size for evaluation/inference (matching training)
+    batch_size: 256 # Batch size for evaluation/inference (matching training)
     beam_width: 5 # Beam width for beam search
     sliding_window: 512 # Sliding window size for long sequences
 
@@ -324,17 +347,17 @@ global_config:
       # This ensures consistent sequence lengths and memory usage
 
     dataloader:
-      num_workers: 4 # Reduced for distributed training (2 × 8 GPUs = 16 workers total)
-      pin_memory: false
-      persistent_workers: false
-      prefetch_factor: 2
+      num_workers: 8
+      pin_memory: true
+      persistent_workers: true
+      prefetch_factor: 4
 
 datasets:
   - name: simu_1spk
-  # - name: simu_2spk
-  # - name: simu_4spk
-  # - name: simu_3spk
-  # - name: simu_5spk
+  - name: simu_2spk
+  - name: simu_4spk
+  - name: simu_3spk
+  - name: simu_5spk
 
   # - name: ami
   #   download_params:

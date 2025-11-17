@@ -649,7 +649,7 @@ class EncoderDecoderTransformer(nn.Module):
         src: Tensor | None = None,
         tgt: Tensor | None = None,
         x: Tensor | None = None,
-        speaker_ids: list[str] | None = None,
+        is_target: Tensor | list[int] | None = None,
         labels: Tensor | None = None,
         src_mask: Tensor | None = None,
         tgt_mask: Tensor | None = None,
@@ -667,7 +667,7 @@ class EncoderDecoderTransformer(nn.Module):
                 Target embeddings (if None, uses x)
             x: Tensor of shape (batch_size, seq_len, d_model)
                 Unified input for both src and tgt (for diarization tasks)
-            speaker_ids: List of speaker IDs for enrollment
+            is_target: Tensor or list (0/1) indicating whether each batch item is a target speaker
             labels: Tensor of shape (batch_size, seq_len) - target labels
             src_mask: Tensor of shape (batch_size, src_len, src_len) | None
                 Source self-attention mask
@@ -695,14 +695,16 @@ class EncoderDecoderTransformer(nn.Module):
 
         # Enrollment Selection
         enrollment_embeddings = []
-        if speaker_ids and labels is not None:
-            for i, speaker_id in enumerate(speaker_ids):
-                if speaker_id == "__none__":
+        if is_target is not None and labels is not None:
+            for i, is_tgt in enumerate(is_target):
+                if int(is_tgt) == 0:
                     enrollment_embeddings.append(
-                        torch.full((1, self.d_model), -1.0, device=encoder_output.device)
+                        torch.full((1, self.d_model), -1.0,
+                                   device=encoder_output.device)
                     )
                 else:
-                    speaker_indices = (labels[i] == 0).nonzero(as_tuple=True)[0]
+                    speaker_indices = (labels[i] == 0).nonzero(
+                        as_tuple=True)[0]
                     if len(speaker_indices) > self.min_enroll_len:
                         enroll_len = random.randint(
                             self.min_enroll_len,
@@ -712,7 +714,7 @@ class EncoderDecoderTransformer(nn.Module):
                             0, len(speaker_indices) - enroll_len
                         )
                         enrollment_segment = encoder_output[
-                            i, speaker_indices[start_idx : start_idx + enroll_len]
+                            i, speaker_indices[start_idx: start_idx + enroll_len]
                         ]
                         enrollment_embeddings.append(
                             enrollment_segment.mean(dim=0, keepdim=True)
@@ -727,7 +729,8 @@ class EncoderDecoderTransformer(nn.Module):
             # Default to -1 if no speaker_ids or labels
             for _ in range(encoder_output.size(0)):
                 enrollment_embeddings.append(
-                    torch.full((1, self.d_model), -1.0, device=encoder_output.device)
+                    torch.full((1, self.d_model), -1.0,
+                               device=encoder_output.device)
                 )
 
         enrollment_tensor = torch.stack(enrollment_embeddings)

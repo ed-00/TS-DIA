@@ -29,7 +29,7 @@ PASSWD_MOUNTS="-v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
 
 # Compute memory cap = 80% of host RAM (read from /proc/meminfo, MiB)
 HOST_MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
-MEM_LIMIT_MB=$(( HOST_MEM_MB * 80 / 100 ))
+MEM_LIMIT_MB=$(( HOST_MEM_MB * 98 / 100 ))
 MEM_LIMIT="${MEM_LIMIT_MB}m"              # e.g., "24576m"
 SWAP_LIMIT="${SWAP_LIMIT:-${MEM_LIMIT}}"  # equal to MEM_LIMIT to avoid swap thrash
 
@@ -50,7 +50,7 @@ echo "Image: ${IMAGE_NAME}:latest"
 echo "Container: ${CONTAINER_NAME}"
 echo "GPU configuration: ${GPU_IDS}"
 echo ""
-echo "Host memory: ${HOST_MEM_MB} MiB  -> Limit (80%): ${MEM_LIMIT}"
+echo "Host memory: ${HOST_MEM_MB} MiB  -> Limit (98%): ${MEM_LIMIT}"
 echo ""
 echo "Volume Mounts:"
 echo "  Fast Storage: ${FAST_STORAGE} -> /storage/fast"

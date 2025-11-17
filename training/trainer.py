@@ -21,7 +21,7 @@ import numbers
 import random
 import shutil
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, Tuple
 
 import numpy as np
 import torch
@@ -85,36 +85,43 @@ class Trainer:
     def __init__(
         self,
         model: nn.Module,
-        train_dataloader: DataLoader,
+        train_dataloader: Tuple[DataLoader, int],
         config: TrainingConfig,
         accelerator: Accelerator,
         val_dataloader: Optional[Union[DataLoader,
-                                       Dict[str, DataLoader]]] = None,
+                                       Dict[str, Tuple[DataLoader, int]]]] = None,
         test_dataloader: Optional[DataLoader] = None,
         config_path: Optional[str] = None,
     ):
         self.config = config
-        self.train_dataloader = train_dataloader
+        self.train_dataloader = train_dataloader[0]
+        self.total_training_size = train_dataloader[1]
         self.test_dataloader = test_dataloader
         self.config_path = config_path
 
         # Normalize validation dataloaders input for multi-split evaluation
         self.val_dataloaders: Dict[str, DataLoader] = {}
+        self.val_total_sizes: Dict[str, int] = {}
         self._primary_val_key: Optional[str] = None
         primary_val_dl: Optional[DataLoader] = None
 
         if isinstance(val_dataloader, dict):
             if val_dataloader:
-                self.val_dataloaders = dict(val_dataloader)
+                self.val_dataloaders = {k: v[0]
+                                        for k, v in val_dataloader.items()}
                 if len(val_dataloader) == 1:
-                    self._primary_val_key, primary_val_dl = next(
+                    self._primary_val_key, (primary_val_dl, _) = next(
                         iter(val_dataloader.items())
                     )
-
+                for k, v in val_dataloader.items():
+                    self.val_total_sizes[k] = v[1]
         elif val_dataloader is not None:
             self._primary_val_key = "val"
             primary_val_dl = val_dataloader
             self.val_dataloaders[self._primary_val_key] = val_dataloader
+            # If val_dataloader is a tuple (DataLoader, int), unpack accordingly
+            if isinstance(val_dataloader, tuple) and len(val_dataloader) == 2:
+                self.val_total_sizes[self._primary_val_key] = val_dataloader[1]
         else:
             self.val_dataloaders = {}
 
@@ -159,33 +166,16 @@ class Trainer:
         # Create optimizer and scheduler
         self.optimizer = create_optimizer(model, config.optimizer)
 
-        # Calculate total training steps
-        self.total_steps = self._calculate_total_steps()
-
-        # Estimate steps per epoch using dataloader length and gradient accumulation
-        estimated_batches_per_epoch = len(train_dataloader)
-        if estimated_batches_per_epoch is not None and not self.total_steps:
-            # Calculate steps per epoch considering gradient accumulation
-            steps_per_epoch = estimated_batches_per_epoch // config.gradient_accumulation_steps
-            estimated_total_steps = steps_per_epoch * config.epochs
-            self.accelerator.print(
-                f"Estimated training steps: {estimated_total_steps} "
-                f"({estimated_batches_per_epoch} batches/epoch ÷ {config.gradient_accumulation_steps} grad_accum × {config.epochs} epochs)"
-            )
-        else:
-            estimated_total_steps = None
-
         # Use estimated steps, explicit total_steps
-        safe_total_steps = (
-            self.total_steps or
-            estimated_total_steps or
-            config.scheduler.decay_steps
+        self.safe_total_steps = (
+            self.total_training_size // (config.gradient_accumulation_steps
+                                         * config.batch_size)  # total training points / Effctive batch size
         )
 
         self.lr_scheduler = create_scheduler(
             self.optimizer,
             config.scheduler,
-            num_training_steps=safe_total_steps,
+            num_training_steps=self.safe_total_steps * config.epochs,
         )
 
         (
@@ -198,7 +188,7 @@ class Trainer:
             self.accelerator,
             model,
             self.optimizer,
-            train_dataloader,
+            self.train_dataloader,
             primary_val_dl,
             self.lr_scheduler,
         )
@@ -215,16 +205,15 @@ class Trainer:
             if self._primary_val_key and prepared_primary_val_dl is not None:
                 self.val_dataloaders[self._primary_val_key] = prepared_primary_val_dl
 
-            if len(self.val_dataloaders) > 1 or prepared_primary_val_dl is None:
-                for split_name, dataloader in list(self.val_dataloaders.items()):
-                    if (
-                        self._primary_val_key == split_name
-                        and prepared_primary_val_dl is not None
-                    ):
-                        continue
-                    self.val_dataloaders[split_name] = self.accelerator.prepare_data_loader(
-                        dataloader
-                    )
+            # Prepare any remaining validation dataloaders that were not part of the initial prepare call
+            # This is crucial for multi-split validation to avoid deadlocks.
+            for split_name, dataloader in self.val_dataloaders.items():
+                # Skip the one that's already prepared
+                if split_name == self._primary_val_key and prepared_primary_val_dl is not None:
+                    continue
+                self.val_dataloaders[split_name] = self.accelerator.prepare_data_loader(
+                    dataloader
+                )
 
         # Maintain backward compatibility attribute
         self.val_dataloader = (
@@ -395,16 +384,15 @@ class Trainer:
         total_loss = 0.0
         num_batches = 0
 
-        # Estimate total batches for tqdm progress bar
-        total_batches = len(self.train_dataloader)
         self.accelerator.print(
-            f"Training for {total_batches} batches per epoch")
-
+            f"Training for {self.safe_total_steps} batches per epoch")
+        steps_per_epoch = self.total_training_size // self.config.batch_size
+        steps_per_gpu = steps_per_epoch // self.accelerator.num_processes
         progress_bar = tqdm(
             self.train_dataloader,
             desc=f"Epoch {self.current_epoch}",
             disable=not self.accelerator.is_local_main_process,
-            total=total_batches,
+            total=steps_per_gpu,
         )
 
         for batch_idx, batch in enumerate(progress_bar):
@@ -416,7 +404,7 @@ class Trainer:
                 # Forward pass - extract features from diarization batch
                 outputs = self.model(
                     x=batch["features"],
-                    speaker_ids=batch["speaker_ids"],
+                    is_target=batch.get("is_target"),
                     labels=batch["labels"],
                 )
 
@@ -550,8 +538,8 @@ class Trainer:
 
                 outputs = self.model(
                     x=batch["features"],
-                    speaker_ids=batch.get("speaker_ids"),
-                    labels=batch.get("labels"),
+                    is_target=batch["is_target"],
+                    labels=batch["labels"],
                 )
 
                 if "labels" in batch:

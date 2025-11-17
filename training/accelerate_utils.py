@@ -23,7 +23,8 @@ from torch.utils.data import DataLoader
 from torch.optim.optimizer import Optimizer
 from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
-
+from accelerate.utils import InitProcessGroupKwargs
+from datetime import timedelta
 from .config import TrainingConfig
 
 
@@ -79,6 +80,7 @@ def setup_accelerator(
         gradient_accumulation_steps=training_config.gradient_accumulation_steps,
         log_with=_get_log_trackers(training_config),
         project_config=project_config,
+        kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(hours=1))],
     )
 
     return accelerator

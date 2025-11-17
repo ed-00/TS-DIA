@@ -68,7 +68,7 @@ def main():
     val_dataloaders = None
     DataManager = DatasetManager()
     cut_sets = None
-   
+
     # Load datasets and create diarization dataloaders (parser ensures valid configs)
     accelerator.print("\n" + "="*70)
     accelerator.print("Loading Datasets")
@@ -99,7 +99,7 @@ def main():
         cut_sets=cut_sets,
         global_config=global_config,
         training_config=training_config,
-        label_type=label_type,
+        accelerator=accelerator,
         random_seed=random_seed
     )
 
@@ -109,6 +109,7 @@ def main():
         dataset_configs=dataset_configs,
         global_config=global_config,
         training_config=training_config,
+        accelerator=accelerator,
         label_type=label_type,
         random_seed=random_seed
     )
