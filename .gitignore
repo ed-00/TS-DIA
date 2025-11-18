@@ -15,7 +15,7 @@ docs/.obsidian/*
 data/
 
 manifests/
-
+cache_20/
 cache/
 .env
 **/.DS_Store

@@ -233,7 +233,6 @@ class EgoCentricDiarizationDataset(IterableDataset):
         return {
             "features": features_padded,
             "labels": labels_padded,
-            # Note: no per-frame one-hot; using compact `labels` instead
             "is_target": is_target_tensor,
         }
 

@@ -44,6 +44,18 @@ class FocalLoss(nn.Module):
         self.reduction = reduction
 
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        # Validate targets
+        num_classes = inputs.size(-1)
+        # Ensure targets are integral and in range
+        try:
+            if targets.min() < 0 or targets.max() >= num_classes:
+                raise ValueError(
+                    f"Targets indices out of range for FocalLoss: min {int(targets.min())}, max {int(targets.max())}, num_classes={num_classes}"
+                )
+        except Exception as e:
+            # If we can't get min/max (e.g., non-tensor), re-raise informative error
+            raise ValueError(f"Invalid targets for FocalLoss: {e}")
+
         ce_loss = F.cross_entropy(inputs, targets, reduction="none")
         pt = torch.exp(-ce_loss)
         focal_loss = ((1 - pt) ** self.gamma) * ce_loss
@@ -76,6 +88,14 @@ class LabelSmoothingCrossEntropy(nn.Module):
 
         # One-hot encoding with smoothing
         num_classes = inputs.size(-1)
+        # Validate targets indices
+        try:
+            if targets.min() < 0 or targets.max() >= num_classes:
+                raise ValueError(
+                    f"Targets indices out of range for LabelSmoothingCrossEntropy: found min {int(targets.min())}, max {int(targets.max())}, but num_classes={num_classes}"
+                )
+        except Exception as e:
+            raise ValueError(f"Invalid targets for LabelSmoothingCrossEntropy: {e}")
         targets_one_hot = torch.zeros_like(log_probs).scatter_(
             -1, targets.unsqueeze(-1), 1.0
         )
