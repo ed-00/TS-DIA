@@ -56,7 +56,17 @@ class FocalLoss(nn.Module):
             # If we can't get min/max (e.g., non-tensor), re-raise informative error
             raise ValueError(f"Invalid targets for FocalLoss: {e}")
 
-        ce_loss = F.cross_entropy(inputs, targets, reduction="none")
+        # PyTorch's F.cross_entropy expects the class dimension as dim=1
+        # (i.e., shape [N, C, *]). Our code elsewhere produces logits
+        # with classes on the last dimension [N, * , C]. To remain consistent
+        # with that convention, permute inputs if needed before invoking
+        # F.cross_entropy.
+        inputs_for_ce = inputs
+        if inputs.ndim == 3:
+            # [N, T, C] -> [N, C, T]
+            inputs_for_ce = inputs.transpose(1, 2).contiguous()
+
+        ce_loss = F.cross_entropy(inputs_for_ce, targets, reduction="none")
         pt = torch.exp(-ce_loss)
         focal_loss = ((1 - pt) ** self.gamma) * ce_loss
 
@@ -342,6 +352,26 @@ def compute_loss(
         total_loss = loss_dict['total']
         ```
     """
+    # Normalization: Many models produce logits with classes on the last
+    # dimension: [batch, time, classes]. However, some loss implementations
+    # (e.g., nn.CrossEntropyLoss, FocalLoss which wraps F.cross_entropy)
+    # expect the channel/class dimension to be at dim=1: [batch, classes, time].
+    #
+    # To keep the dataset and model outputs consistent (classes on the last
+    # axis), detect these loss types and permute the dimensions accordingly.
+    permuted_for_main_loss = False
+    try:
+        loss_types_needing_perm = (nn.CrossEntropyLoss,)
+    except Exception:
+        loss_types_needing_perm = (nn.CrossEntropyLoss,)
+
+    if isinstance(main_loss_fn, loss_types_needing_perm):
+        # If outputs is 3D and the last dim looks like number of classes, swap
+        # axes to make it [batch, classes, time]
+        if outputs is not None and outputs.ndim == 3:
+            outputs = outputs.transpose(1, 2).contiguous()
+            permuted_for_main_loss = True
+
     # Compute main loss
     main_loss = main_loss_fn(outputs, targets)
 
@@ -368,7 +398,13 @@ def compute_loss(
                 aux_loss = aux_loss_fn(features, targets)
             else:
                 # Generic auxiliary loss
-                aux_loss = aux_loss_fn(outputs, targets)
+                # Ensure the correct dimension order for auxiliary losses that
+                # expect classes at dim=1 as well. We avoid mutating the main
+                # `outputs` variable by working on a temporary tensor.
+                tmp_out = outputs
+                if isinstance(aux_loss_fn, (nn.CrossEntropyLoss,)) and tmp_out is not None and tmp_out.ndim == 3:
+                    tmp_out = tmp_out.transpose(1, 2).contiguous()
+                aux_loss = aux_loss_fn(tmp_out, targets)
 
             loss_dict[loss_name] = aux_loss
             loss_dict["total"] = loss_dict["total"] + weight * aux_loss

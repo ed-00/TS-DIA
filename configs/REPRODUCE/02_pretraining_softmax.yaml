@@ -124,7 +124,7 @@ training:
     type: cosine # Options: cosine, linear, exponential, step, plateau, constant
     min_lr: 0.000001 # Minimum learning rate
     max_lr: null # Maximum learning rate (for cyclic schedulers)
-    warmup_steps: 25850 # Number of warmup steps
+    warmup_steps: 64625 # Number of warmup steps
     num_cycles: 1 # Number of cycles (for cosine with restarts)
     step_size: null # Step size for StepLR scheduler
     gamma: 0.1 # Multiplicative factor for decay
@@ -155,6 +155,7 @@ training:
   loss:
     main: cross_entropy # Options: cross_entropy, mse, mae, bce, bce_with_logits
     reduction: mean # Options: mean, sum, null
+    label_smoothing: 0.1            # Label smoothing factor (0.0 = no smoothing)
 
     # # Auxiliary losses (optional)
     # auxiliary:
@@ -206,19 +207,19 @@ training:
           split_name: "val"
           subset_ratio: 1.0
         - dataset_name: "ami"
-          split_name: "dev"
+          split_name: "val"
           subset_ratio: 1.0
         - dataset_name: "icsi"
-          split_name: "dev"
+          split_name: "val"
           subset_ratio: 1.0
-        - dataset_name: "aishell4"
-          split_name: "test"
-          subset_ratio: 1.0
+        # - dataset_name: "aishell4"
+        #   split_name: "test"
+        #   subset_ratio: 1.0
         - dataset_name: "voxconverse"
-          split_name: "dev"
+          split_name: "val"
           subset_ratio: 1.0
         - dataset_name: "mswild"
-          split_name: "dev"
+          split_name: "val"
           subset_ratio: 1.0
 
   # ---------------------------------------------------------------------------
@@ -418,21 +419,21 @@ datasets:
       audio_dir: ./outputs/data/icsi/speech
       transcripts_dir: ./outputs/data/icsi/ICSI
 
-  - name: aishell4
-    download_params:
-      # Base URL for downloads
-      base_url: http://www.openslr.org/resources
+  # - name: aishell4
+  #   download_params:
+  #     # Base URL for downloads
+  #     base_url: http://www.openslr.org/resources
 
-    process_params:
-      # Chinese text normalization
-      normalize_text: false # Set true to normalize Chinese characters
+  #   process_params:
+  #     # Chinese text normalization
+  #     normalize_text: false # Set true to normalize Chinese characters
 
-  - name: voxconverse
-    download_params:
-      corpus_dir: null # Will use global_config corpus_dir/voxconverse
+  # - name: voxconverse
+  #   download_params:
+  #     corpus_dir: null # Will use global_config corpus_dir/voxconverse
 
-    process_params:
-      split_test: false # Whether to split test set
+  #   process_params:
+  #     split_test: false # Whether to split test set
 
   - name: mswild
     download_params:

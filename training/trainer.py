@@ -474,7 +474,6 @@ class Trainer:
                         if isinstance(outputs, torch.Tensor)
                         else outputs.logits
                     )
-                    self.accelerator.print(f"Logits shape: {logits.shape}")
                 except Exception:
                     logits = None
 

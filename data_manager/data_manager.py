@@ -934,8 +934,73 @@ class DatasetManager:
                 f"\nData loading strategy '{dl_strategy}' selected — "
                 f"skipping feature precomputation."
             )
+            return dataset_cut_sets
 
-        return dataset_cut_sets
+        # Ensure we have a FeatureConfig available
+        feature_cfg: FeatureConfig = (
+            global_config.get_feature_config()
+            if global_config and hasattr(global_config, "get_feature_config")
+            else FeatureConfig()
+        )
+
+        # Resolve storage directory for computed features
+        storage_root = None
+        if global_config and getattr(global_config, "storage_path", None):
+            storage_root = Path(global_config.storage_path)
+        elif getattr(dataset, "global_config", None) and getattr(dataset.global_config, "storage_path", None):
+            storage_root = Path(dataset.global_config.storage_path)
+        else:
+            # Default storage location
+            storage_root = Path("./outputs/features_storage")
+
+        # Iterate through splits and compute features only when needed
+        processed_cut_sets: Dict[str, CutSet] = {}
+        for split_name, cuts in dataset_cut_sets.items():
+            try:
+                if cuts is None:
+                    processed_cut_sets[split_name] = cuts
+                    continue
+
+                # Quick check: if there's a cache with features, use it
+                cached = self._load_cached_cuts_with_features(storage_root, split_name, dataset.name)
+                if cached is not None:
+                    processed_cut_sets[split_name] = cached
+                    continue
+
+                # Next, inspect the first cut to see if features already exist
+                has_features = False
+                try:
+                    first_cut = next(iter(cuts))
+                    # Lhotse Cut may expose .features or .has_features
+                    if hasattr(first_cut, "has_features"):
+                        has_features = bool(getattr(first_cut, "has_features", False))
+                    elif hasattr(first_cut, "features"):
+                        features_attr = getattr(first_cut, "features", None)
+                        has_features = features_attr is not None
+                except StopIteration:
+                    # Empty cutset
+                    has_features = False
+                except Exception:
+                    has_features = False
+
+                if has_features:
+                    processed_cut_sets[split_name] = cuts
+                    continue
+
+                print(f"→ {dataset.name}:{split_name}: No features found — computing features...")
+
+                # Compute and cache features for this split
+                computed = self._compute_and_cache_features_for_split(
+                    cuts, dataset.name, split_name, feature_cfg, storage_root
+                )
+                processed_cut_sets[split_name] = computed
+            except Exception as exc:
+                print(
+                    f"⚠️  Warning: Failed computing features for {dataset.name}:{split_name}: {exc} — falling back to original cuts"
+                )
+                processed_cut_sets[split_name] = cuts
+
+        return processed_cut_sets
 
     def _manifests_to_cutsets_dict(
         self, manifests: Any, dataset_name: str
