@@ -75,6 +75,7 @@ class EgoCentricDiarizationDataset(IterableDataset):
         'ts': 0, 'ts_ovl': 1, 'others_sgl': 2,
         'others_ovl': 3, 'ns': 4
     }
+    
     IGNORE_INDEX = CrossEntropyLoss().ignore_index
 
     def __init__(
