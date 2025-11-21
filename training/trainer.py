@@ -96,7 +96,7 @@ class Trainer:
     ):
         self.config = config
         self.train_dataloader = train_dataloader[0]
-        self.total_training_size = train_dataloader[1]
+        self.total_training_size = math.ceil(train_dataloader[1] / 2)
         self.test_dataloader = test_dataloader
         self.config_path = config_path
 
@@ -168,27 +168,38 @@ class Trainer:
         self.optimizer = create_optimizer(model, config.optimizer)
 
         # Calculate training steps and sizes
-        self.global_training_examples = int(self.total_training_size)
+        self.global_training_examples = int(self.total_training_size) 
         self.global_steps_per_epoch = math.ceil(
             self.global_training_examples
             / (config.gradient_accumulation_steps * config.batch_size)
         )
         self.examples_per_process = math.ceil(
-            self.global_training_examples / max(1, self.accelerator.num_processes)
+            self.global_training_examples /
+            max(1, self.accelerator.num_processes)
         )
         self.steps_per_gpu_expected = math.ceil(
-            self.examples_per_process / (config.gradient_accumulation_steps * config.batch_size)
+            self.examples_per_process /
+            (config.gradient_accumulation_steps * config.batch_size)
         )
 
         # Compatibility variable used to set scheduler total steps
         self.safe_total_steps = self.global_steps_per_epoch
+        num_scheduler_steps =  self.safe_total_steps * config.epochs
+        accelerator.print("="*60)
+        accelerator.print("Global training examples:", self.global_training_examples)
+        accelerator.print("Global steps per epoch:", self.global_steps_per_epoch)
+        accelerator.print("Examples per process:", self.examples_per_process)
+        accelerator.print("Expected steps per process:", self.steps_per_gpu_expected)
+        accelerator.print("="*60)
 
-        self.lr_scheduler = create_scheduler(
-            self.optimizer,
-            config.scheduler,
-            num_training_steps=self.safe_total_steps * config.epochs,
-        )
-
+        if config.scheduler is not None:
+            self.lr_scheduler = create_scheduler(
+                self.optimizer,
+                config.scheduler,
+                num_training_steps=num_scheduler_steps,
+            )
+        else:
+            self.lr_scheduler = None
         (
             self.model,
             self.optimizer,
@@ -238,7 +249,7 @@ class Trainer:
             create_loss_function(
                 config.loss) if config.loss else nn.CrossEntropyLoss()
         )
-        
+
         self.auxiliary_losses = (
             create_auxiliary_losses(config.loss) if config.loss else {}
         )
@@ -267,7 +278,7 @@ class Trainer:
                     "batch_size": config.batch_size,
                     "optimizer": config.optimizer.type,
                     "lr": config.optimizer.lr,
-                    "scheduler": config.scheduler.type,
+                    **({"scheduler": config.scheduler.type} if config.scheduler else {}),
                 },
                 save_dir=config.checkpoint.save_dir,
             )
@@ -296,7 +307,8 @@ class Trainer:
         try:
             num_workers = getattr(self.train_dataloader, "num_workers", 1)
             self.examples_per_worker = math.ceil(
-                self.global_training_examples / max(1, self.accelerator.num_processes * max(1, num_workers))
+                self.global_training_examples /
+                max(1, self.accelerator.num_processes * max(1, num_workers))
             )
             self.train_dataloader_num_workers = num_workers
         except Exception:
@@ -425,7 +437,7 @@ class Trainer:
                 f"  -> {self.examples_per_worker} examples per worker ({self.train_dataloader_num_workers} workers per process)"
             )
 
-        steps_per_gpu = math.ceil(self.steps_per_gpu_expected / 2)
+        steps_per_gpu = self.steps_per_gpu_expected
         progress_bar = tqdm(
             self.train_dataloader,
             desc=f"Epoch {self.current_epoch}",
@@ -503,7 +515,8 @@ class Trainer:
                                         "logits_min": float(torch.min(logits).cpu().item()),
                                         "logits_max": float(torch.max(logits).cpu().item()),
                                     },
-                                    diag_dir / f"bad_batch_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
+                                    diag_dir /
+                                    f"bad_batch_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
                                 )
                         except Exception:
                             pass
@@ -533,14 +546,15 @@ class Trainer:
                                     "logits_min": float(torch.min(logits).cpu().item()),
                                     "logits_max": float(torch.max(logits).cpu().item()),
                                 },
-                                diag_dir / f"bad_batch_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
+                                diag_dir /
+                                f"bad_batch_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
                             )
                         except Exception as e:
-                            self.accelerator.print(f"Failed saving logits diagnostics: {e}")
+                            self.accelerator.print(
+                                f"Failed saving logits diagnostics: {e}")
                         raise RuntimeError(
                             f"Non-finite logits detected at epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}. See diag files if saved."
                         )
-
 
                 # Compute loss, ignoring the first token (enrollment)
                 loss_dict = compute_loss(
@@ -590,20 +604,110 @@ class Trainer:
                                 "features": batch.get("features"),
                                 "labels": batch.get("labels"),
                                 "loss_dict": {
-                                    k: float(v.item()) if isinstance(v, torch.Tensor) else float(v)
+                                    k: float(v.item()) if isinstance(
+                                        v, torch.Tensor) else float(v)
                                     for k, v in loss_dict.items()
                                 },
                             },
-                            diag_dir / f"bad_loss_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
+                            diag_dir /
+                            f"bad_loss_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
                         )
                     except Exception as e:
-                        self.accelerator.print(f"Failed saving loss diagnostics: {e}")
+                        self.accelerator.print(
+                            f"Failed saving loss diagnostics: {e}")
                     self.accelerator.print(
                         f"⚠️ Non-finite loss detected at epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}. Raising RuntimeError to surface the issue."
                     )
+                    # If configured to skip extremely high losses we may also offer
+                    # an option to skip non-finite losses; default behavior is to
+                    # raise so failures surface during debugging.
+                    skip_non_finite = False
+                    try:
+                        safeguards = getattr(self.config, "safeguards", {}) or {}
+                        skip_non_finite = bool(safeguards.get("skip_non_finite_losses", False))
+                    except Exception:
+                        skip_non_finite = False
+
+                    if skip_non_finite:
+                        self.accelerator.print(
+                            f"⚠️ Non-finite loss detected at epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}. Skipping step per safeguards configuration."
+                        )
+                        # Best-effort save (already attempted above) and continue
+                        try:
+                            # Zero gradients to avoid optimizer contamination
+                            try:
+                                self.optimizer.zero_grad(set_to_none=True)
+                            except Exception:
+                                self.optimizer.zero_grad()
+                        except Exception:
+                            pass
+                        # Call batch end callback and increment global_step
+                        self.callback_handler.on_batch_end(self, batch, batch_idx, None)
+                        self.global_step += 1
+                        continue
+
+                    # Default behavior (do not silently continue)
                     raise RuntimeError(
                         f"Non-finite loss detected at epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}. See diag files if saved."
                     )
+
+                # Optionally skip excessively large loss values to avoid optimizer corruption
+                try:
+                    safeguards = getattr(self.config, "safeguards", {}) or {}
+                    skip_high_loss = bool(safeguards.get("skip_high_loss", True))
+                    max_loss = float(safeguards.get("max_loss", 1e6))
+                except Exception:
+                    skip_high_loss = True
+                    max_loss = 1e6
+
+                if skip_high_loss:
+                    try:
+                        loss_val = float(loss.item())
+                    except Exception:
+                        loss_val = None
+
+                    if loss_val is not None and loss_val > max_loss:
+                        # Save diagnostics for large loss and skip optimizer step
+                        self.accelerator.print(
+                            f"⚠️ Extremely large loss {loss_val:.3e} > max_loss {max_loss:.3e} detected; skipping optimizer update for epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}."
+                        )
+                        try:
+                            save_root = None
+                            if self.config.checkpoint and self.config.checkpoint.save_dir:
+                                save_root = self.config.checkpoint.save_dir
+                            if save_root:
+                                diag_dir = Path(save_root) / "diag_high_losses"
+                                diag_dir.mkdir(parents=True, exist_ok=True)
+                                torch.save(
+                                    {
+                                        "epoch": int(self.current_epoch),
+                                        "step": int(self.global_step),
+                                        "batch_idx": int(batch_idx),
+                                        "features": batch.get("features"),
+                                        "labels": batch.get("labels"),
+                                        "loss_dict": {
+                                            k: float(v.item()) if isinstance(v, torch.Tensor) else float(v)
+                                            for k, v in loss_dict.items()
+                                        },
+                                    },
+                                    diag_dir / f"high_loss_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
+                                )
+                        except Exception as e:
+                            self.accelerator.print(f"Failed saving high-loss diagnostics: {e}")
+
+                        # Zero gradients and skip update
+                        try:
+                            try:
+                                self.optimizer.zero_grad(set_to_none=True)
+                            except Exception:
+                                self.optimizer.zero_grad()
+                        except Exception:
+                            pass
+
+                        # Call batch end callback and increment global_step (we skip optimizer and scheduler)
+                        self.callback_handler.on_batch_end(self, batch, batch_idx, outputs)
+                        self.global_step += 1
+                        continue
 
                 # Backward pass
                 self.accelerator.backward(loss)
@@ -628,7 +732,8 @@ class Trainer:
                     # Compute parameter norms for diagnostics
                     param_total_norm_sq = 0.0
                     for p in self.model.parameters():
-                        param_total_norm_sq += float(p.detach().float().norm() ** 2)
+                        param_total_norm_sq += float(
+                            p.detach().float().norm() ** 2)
                     param_norm = math.sqrt(param_total_norm_sq)
 
                     grad_norm = math.sqrt(total_norm_sq)
@@ -666,10 +771,12 @@ class Trainer:
                                     k: v for k, v in self.optimizer.state_dict().items() if k in ["state", "param_groups"]
                                 },
                             },
-                            diag_dir / f"bad_grads_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
+                            diag_dir /
+                            f"bad_grads_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
                         )
                     except Exception as e:
-                        self.accelerator.print(f"Failed saving gradient diagnostics: {e}")
+                        self.accelerator.print(
+                            f"Failed saving gradient diagnostics: {e}")
                     raise RuntimeError(
                         f"Non-finite gradients detected at epoch {self.current_epoch}, step {self.global_step}. See diag files if saved."
                     )
@@ -699,10 +806,12 @@ class Trainer:
                                 "param_norm": param_norm,
                                 "lr": self.optimizer.param_groups[0]["lr"],
                             },
-                            diag_dir / f"bad_grad_norm_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
+                            diag_dir /
+                            f"bad_grad_norm_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
                         )
                     except Exception as e:
-                        self.accelerator.print(f"Failed saving grad_norm diagnostics: {e}")
+                        self.accelerator.print(
+                            f"Failed saving grad_norm diagnostics: {e}")
                     raise RuntimeError(
                         f"Extremely large gradient norm {grad_norm:.3e} detected at epoch {self.current_epoch}, step {self.global_step}. See diag files if saved."
                     )
@@ -739,16 +848,19 @@ class Trainer:
                         if self.config.checkpoint and self.config.checkpoint.save_dir:
                             save_root = self.config.checkpoint.save_dir
                         if save_root:
-                            diagnostic_path = Path(save_root) / f"param_anomaly_epoch{self.current_epoch}_step{self.global_step}.pt"
+                            diagnostic_path = Path(
+                                save_root) / f"param_anomaly_epoch{self.current_epoch}_step{self.global_step}.pt"
                             torch.save({
                                 "model_state_dict": self.accelerator.unwrap_model(self.model).state_dict(),
                                 "batch": {"features": batch.get("features"), "labels": batch.get("labels")},
                             }, diagnostic_path)
-                            self.accelerator.print(f"Saved parameter diagnostics to: {diagnostic_path}")
+                            self.accelerator.print(
+                                f"Saved parameter diagnostics to: {diagnostic_path}")
                     except Exception:
                         pass
                     # Stop training to avoid further corruption
-                    raise RuntimeError("Detected NaN/Inf in model parameters after update. See saved diagnostics.")
+                    raise RuntimeError(
+                        "Detected NaN/Inf in model parameters after update. See saved diagnostics.")
 
                 # Scheduler step
                 if self.lr_scheduler and not isinstance(
@@ -877,7 +989,8 @@ class Trainer:
 
                 # Diagnostic checks for validation as well
                 try:
-                    logits = outputs if isinstance(outputs, torch.Tensor) else outputs.logits
+                    logits = outputs if isinstance(
+                        outputs, torch.Tensor) else outputs.logits
                     if not torch.isfinite(logits).all():
                         self.accelerator.print(
                             f"⚠️ Non-finite logits detected during validation at step {batch_idx} for split {split_name}. Skipping batch."
@@ -1021,7 +1134,8 @@ class Trainer:
 
             # Check for non-finite logits in test run
             try:
-                logits = outputs if isinstance(outputs, torch.Tensor) else outputs.logits
+                logits = outputs if isinstance(
+                    outputs, torch.Tensor) else outputs.logits
                 if not torch.isfinite(logits).all():
                     self.accelerator.print(
                         "⚠️ Non-finite logits detected during testing. Skipping batch."

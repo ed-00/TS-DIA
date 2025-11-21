@@ -402,11 +402,11 @@ def print_training_info(accelerator: Accelerator, training_config: TrainingConfi
     accelerator.print(f"  Learning rate: {training_config.optimizer.lr}")
     accelerator.print(
         f"  Weight decay: {training_config.optimizer.weight_decay}")
-
-    accelerator.print(f"\nScheduler: {training_config.scheduler.type}")
-    if training_config.scheduler.warmup_steps > 0:
-        accelerator.print(
-            f"  Warmup steps: {training_config.scheduler.warmup_steps}")
+    if training_config.scheduler:
+        accelerator.print(f"\nScheduler: {training_config.scheduler.type}")
+        if training_config.scheduler.warmup_steps > 0:
+            accelerator.print(
+                f"  Warmup steps: {training_config.scheduler.warmup_steps}")
 
     if training_config.checkpoint:
         accelerator.print("\nCheckpointing:")

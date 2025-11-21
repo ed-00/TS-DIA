@@ -205,7 +205,6 @@ class ValidationConfig:
     validation_dataset_map: Optional[TrainingDatasetMap] = None
 
 
-
 @dataclass
 class LoggingConfig:
     """
@@ -228,7 +227,6 @@ class LoggingConfig:
     wandb_project: Optional[str] = None
     wandb_entity: Optional[str] = None
     log_model: bool = False
-
 
 
 @dataclass
@@ -314,7 +312,7 @@ class TrainingConfig:
     epochs: int
     batch_size: int
     optimizer: OptimizerConfig
-    scheduler: SchedulerConfig
+    scheduler: Optional[SchedulerConfig] = None
     training_dataset_map: Optional[TrainingDatasetMap] = None
     gradient_clipping: Optional[float] = None
     gradient_accumulation_steps: int = 1
@@ -335,3 +333,12 @@ class TrainingConfig:
     eval_knobs: Dict[str, Any] = field(default_factory=dict)
     tuning: Dict[str, Any] = field(default_factory=dict)
     max_steps: Optional[int] = None
+    # Safeguards for runtime anomalies
+    # - skip_high_loss: if True, batches whose loss exceeds `max_loss` will be
+    #   skipped (no optimizer step) and diagnostic artifacts will be saved.
+    # - max_loss: numeric threshold above which a loss is considered anomalously high
+    #   and should be skipped. Defaults to 1e6 (should be tuned by user).
+    safeguards: Optional[Dict[str, Any]] = field(default_factory=lambda: {
+        "skip_high_loss": True,
+        "max_loss": 1e6,
+    })

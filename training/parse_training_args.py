@@ -362,6 +362,20 @@ def training_parser():
         "--profiling", action="store_true", help="Enable PyTorch profiler"
     )
 
+    # Safeguard overrides
+    parser.add_argument(
+        "--max-loss",
+        type=float,
+        help="Skip a batch if computed loss is greater than this value (disables skip when not provided)",
+    )
+    parser.add_argument(
+        "--no-skip-high-loss",
+        dest="skip_high_loss",
+        action="store_false",
+        help="Disable skipping of excessively high loss batches",
+        default=True,
+    )
+
     # Dataset mapping overrides
     parser.add_argument(
         "--train-combine-datasets",
@@ -463,6 +477,16 @@ def training_parser():
         # Profiling
         if args.profiling is not None:
             training_config.profiling = args.profiling
+
+        # Safeguard overrides
+        if getattr(args, "max_loss", None) is not None:
+            if training_config.safeguards is None:
+                training_config.safeguards = {}
+            training_config.safeguards["max_loss"] = args.max_loss
+        if getattr(args, "skip_high_loss", None) is not None:
+            if training_config.safeguards is None:
+                training_config.safeguards = {}
+            training_config.safeguards["skip_high_loss"] = args.skip_high_loss
 
         return args, training_config
 

@@ -295,19 +295,20 @@ def unified_parser() -> Tuple[SimpleNamespace, ModelConfig | None, List[DatasetC
                 raise TrainingConfigError(
                     "Training configuration missing required 'optimizer' section"
                 )
-            if "scheduler" not in training_dict:
-                raise TrainingConfigError(
-                    "Training configuration missing required 'scheduler' section"
-                )
+            # if "scheduler" not in training_dict:
+            #     raise TrainingConfigError(
+            #         "Training configuration missing required 'scheduler' section"
+            #     )
 
             # Parse nested configurations
             optimizer_config = _validate_optimizer_config(
                 training_dict.pop("optimizer")
             )
-
-            scheduler_config = _validate_scheduler_config(
-                training_dict.pop("scheduler")
-            )
+            scheduler_config = None
+            if "scheduler" in training_dict:
+                scheduler_config = _validate_scheduler_config(
+                    training_dict.pop("scheduler")
+                )
 
             # Parse optional nested configurations
             early_stopping_config = None

@@ -107,12 +107,13 @@ class MultiHeadAttention(Module):
             self.nb_features = None
             self.projection_matrix = None
 
-        ## Projection matrices for Q, K, V
+        # Projection matrices for Q, K, V
         self.w_q = Linear(self.d_model, self.d_model, device=self.device)
         self.w_k = Linear(self.d_model, self.d_model, device=self.device)
         self.w_v = Linear(self.d_model, self.d_model, device=self.device)
 
-        self.linear_out = Linear(self.d_model, self.d_model, device=self.device)
+        self.linear_out = Linear(
+            self.d_model, self.d_model, device=self.device)
 
         self.dropout_attn = Dropout(self.dropout)
         self.dropout_out = Dropout(self.dropout)
@@ -136,7 +137,6 @@ class MultiHeadAttention(Module):
                 Output tensor after applying multi-head attention
         """
         batch_size = x.shape[0]
-
 
         # Project to Q, K, V
         q = self.w_q(x)
@@ -175,7 +175,8 @@ class MultiHeadAttention(Module):
             if mask is not None:
                 # Apply mask to values: expand (B, seq, seq) -> (B, 1, seq, 1)
                 # We use the diagonal or last column of the mask to determine which positions are valid
-                global_mask = mask[:, 0, :].unsqueeze(1).unsqueeze(-1)  # (B, 1, seq, 1)
+                global_mask = mask[:, 0, :].unsqueeze(
+                    1).unsqueeze(-1)  # (B, 1, seq, 1)
                 v = v.masked_fill(global_mask == 0, 0.0)
 
             # Transform Q and K using softmax kernel
@@ -194,7 +195,8 @@ class MultiHeadAttention(Module):
             # Causal linear attention for autoregressive tasks
             if mask is not None:
                 # Apply mask to values: expand (B, seq, seq) -> (B, 1, seq, 1)
-                global_mask = mask[:, 0, :].unsqueeze(1).unsqueeze(-1)  # (B, 1, seq, 1)
+                global_mask = mask[:, 0, :].unsqueeze(
+                    1).unsqueeze(-1)  # (B, 1, seq, 1)
                 v = v.masked_fill(global_mask == 0, 0.0)
 
             # Transform Q and K using softmax kernel
@@ -208,7 +210,6 @@ class MultiHeadAttention(Module):
 
             # Compute causal linear attention
             attn_output = causal_linear_attention(q_prime, k_prime, v)
-
         else:
             raise ValueError(f"Unknown attention type: {self.attention_type}")
 
@@ -290,8 +291,8 @@ class CrossAttention(MultiHeadAttention):
         # Use x as both query and key/value if mask is None (self-attention)
         q = x
         kv = mask if mask is not None else x
-        
-        # q: (B, N_q, D) - Query 
+
+        # q: (B, N_q, D) - Query
         # kv: (B, N_kv, D) - Key/Value from embedding encoder
         batch_size = q.shape[0]
 

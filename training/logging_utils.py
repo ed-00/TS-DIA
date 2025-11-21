@@ -81,8 +81,8 @@ def init_trackers(
                     "optimizer_type": training_config.optimizer.type,
                     "optimizer_lr": training_config.optimizer.lr,
                     "optimizer_weight_decay": training_config.optimizer.weight_decay,
-                    "scheduler_type": training_config.scheduler.type,
-                    "scheduler_warmup_steps": training_config.scheduler.warmup_steps,
+                    **({"scheduler_type": training_config.scheduler.type} if training_config.scheduler else {}),
+                    **({"scheduler_warmup_steps": training_config.scheduler.warmup_steps} if training_config.scheduler else {}),
                     "mixed_precision": str(training_config.mixed_precision),
                     "gradient_accumulation_steps": training_config.gradient_accumulation_steps,
                     "gradient_clipping": training_config.gradient_clipping,
@@ -95,8 +95,8 @@ def init_trackers(
                 "optimizer_type": training_config.optimizer.type,
                 "optimizer_lr": training_config.optimizer.lr,
                 "optimizer_weight_decay": training_config.optimizer.weight_decay,
-                "scheduler_type": training_config.scheduler.type,
-                "scheduler_warmup_steps": training_config.scheduler.warmup_steps,
+                **({"scheduler_type": training_config.scheduler.type} if training_config.scheduler else {}),
+                **({"scheduler_warmup_steps": training_config.scheduler.warmup_steps} if training_config.scheduler else {}),
                 "mixed_precision": str(training_config.mixed_precision),
                 "gradient_accumulation_steps": training_config.gradient_accumulation_steps,
                 "gradient_clipping": training_config.gradient_clipping,
@@ -116,7 +116,7 @@ def log_metrics(
     accelerator:  Accelerator,
     metrics: Dict[str, float],
     step: int,
-    log_metrics_filter: Optional[list] = None,
+    log_metrics_filter: Optional[list]=None,
 ) -> None:
     """
     Log metrics through Accelerate.
@@ -140,7 +140,7 @@ def log_metrics(
 def log_hyperparameters(
     accelerator:  Accelerator,
     hparams: Dict[str, Any],
-    save_dir: Optional[str] = None,
+    save_dir: Optional[str]=None,
 ) -> None:
     """
     Log hyperparameters.
@@ -163,7 +163,7 @@ def log_hyperparameters(
 def log_model_summary(
     accelerator:  Accelerator,
     model: nn.Module,
-    save_dir: Optional[str] = None,
+    save_dir: Optional[str]=None,
 ) -> None:
     """
     Log model architecture summary.
@@ -264,7 +264,7 @@ def save_wandb_info(accelerator:  Accelerator, checkpoint_dir: str) -> None:
         accelerator.print(f"Warning: Could not save wandb info: {e}")
 
 
-def setup_file_logger(checkpoint_dir: str, is_resume: bool = False) -> str:
+def setup_file_logger(checkpoint_dir: str, is_resume: bool=False) -> str:
     """
     Setup file logging to capture all console output.
 

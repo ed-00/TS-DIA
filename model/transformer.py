@@ -412,7 +412,6 @@ class PerformerEncoder(Performer):
         # Apply input projection if exists
         if self.input_proj is not None:
             x = self.input_proj(x)
-
         x = super().forward(x, self_attn_mask=self_attn_mask, **kwargs)
 
         # Apply final normalization if using LayerNorm
@@ -530,7 +529,6 @@ class PerformerDecoder(Performer):
             batch_size, seq_len, _ = x.shape
             self_attn_mask = self.create_causal_mask(seq_len, x.device)
             self_attn_mask = self_attn_mask.expand(batch_size, -1, -1)
-
         x = super().forward(
             x,
             encoder_output=encoder_output,
