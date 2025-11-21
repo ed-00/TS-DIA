@@ -88,6 +88,15 @@ class MultiHeadAttention(Module):
         # Attention type configuration
         self.attention_type = kwargs.get("attention_type", "softmax")
 
+        # Per-attention-mode extra params
+        # For causal linear attention we process the sequence in chunks; the
+        # chunk size can be tuned to trade memory for speed. Use a safe default
+        # of 128 if the caller provides None or invalid values.
+        causal_chunk_size = kwargs.get("causal_chunk_size", 128)
+        if not isinstance(causal_chunk_size, int) or causal_chunk_size <= 0:
+            causal_chunk_size = 128
+        self.causal_chunk_size = causal_chunk_size
+
         # Linear attention setup
         if self.attention_type in ("linear", "causal_linear"):
             # Number of random features for kernel approximation
@@ -209,7 +218,11 @@ class MultiHeadAttention(Module):
             )
 
             # Compute causal linear attention
-            attn_output = causal_linear_attention(q_prime, k_prime, v)
+            # Pass configured chunk size into the causal implementation so
+            # callers (model / config) can tune memory usage at runtime.
+            attn_output = causal_linear_attention(
+                q_prime, k_prime, v, chunk_size=self.causal_chunk_size
+            )
         else:
             raise ValueError(f"Unknown attention type: {self.attention_type}")
 

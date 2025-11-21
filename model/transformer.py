@@ -92,8 +92,11 @@ class PerformerLayer(nn.Module):
         eps = kwargs.get("eps", 1e-5)
 
         self.use_cross_attention = use_cross_attention
+        # Default chunk size for causal linear attention. Keep the same default
+        # used in the causal implementation (128) when the caller doesn't set
+        # any value. 
+        causal_chunk_size = kwargs.get("causal_chunk_size", 128)
 
-        # Create self-attention layer
         self.self_attention = MultiHeadAttention(
             device=device,
             d_model=d_model,
@@ -102,6 +105,7 @@ class PerformerLayer(nn.Module):
             batch_size=batch_size,
             attention_type=attention_type,
             nb_features=nb_features,
+            causal_chunk_size=causal_chunk_size,
         )
 
         # Create cross-attention layer (for decoder)

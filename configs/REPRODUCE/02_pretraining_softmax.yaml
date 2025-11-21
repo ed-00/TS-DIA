@@ -7,7 +7,7 @@ model:
   # ---------------------------------------------------------------------------
   global_config:
     dropout: 0.1 # Dropout probability (0.0 - 1.0)
-    batch_size: 256 # Batch size for training (matching EEND reference)
+    batch_size: 128 # Batch size for training (matching EEND reference)
     d_ff: 4 # Feed-forward expansion factor (hidden_dim = d_model * d_ff)
     device: cuda # Device: cpu, cuda, cuda:0, cuda:1, etc.
 
@@ -91,7 +91,7 @@ training:
   # ---------------------------------------------------------------------------
   # Basic Training Settings
   # ---------------------------------------------------------------------------
-  epochs: 100 # Number of training epochs
+  epochs: 20 # Number of training epochs
   batch_size: 256 # Training batch size
   random_seed: 42 # Random seed for reproducibility
   max_steps: null # Maximum training steps (null = use epochs)
@@ -114,12 +114,9 @@ training:
         split_name: "train_b13_mix100000"
         subset_ratio: 1 # Use 20% of dataset
 
-  # ---------------------------------------------------------------------------
-  # Optimizer Configuration
-  # ---------------------------------------------------------------------------
   optimizer:
     type: adamw # Options: adam, adamw, sgd, adagrad, rmsprop, adadelta
-    lr: 0.0003 # Learning rate
+    lr: 0.0001 # Learning rate
     weight_decay: 0.1 # Weight decay / L2 regularization
     betas: [0.9, 0.95] # Beta parameters for Adam-style optimizers
     epsilon: 0.00000001 # Epsilon for numerical stability (1e-8)
@@ -131,15 +128,15 @@ training:
   scheduler:
     type: cosine
     min_lr: 0.00003      
-    warmup_steps: 10000
+    warmup_steps: 206800
     max_lr: null
     num_cycles: 1
 
   # ---------------------------------------------------------------------------
   # Gradient Management
   # ---------------------------------------------------------------------------
-  gradient_clipping: 5.0 # Max gradient norm (matching EEND: 5.0)
-  gradient_accumulation_steps: 1 # Number of gradient accumulation steps
+  gradient_clipping: 5.0
+  gradient_accumulation_steps: 2 # Number of gradient accumulation steps
 
   # ---------------------------------------------------------------------------
   # Mixed Precision Training
@@ -232,7 +229,7 @@ training:
   early_stopping:
     patience: 100 # Number of epochs to wait for improvement
     metric: val_loss # Metric to monitor
-    min_delta: 0.00001 # Minimum change to qualify as improvement
+    min_delta: 0.001 # Minimum change to qualify as improvement
     mode: min # Direction: min or max
     restore_best_weights: true # Restore model to best checkpoint on early stop
 
@@ -240,7 +237,7 @@ training:
   # Checkpoint Configuration
   # ---------------------------------------------------------------------------
   checkpoint:
-    save_dir: ./outputs/checkpoints/softmax_pretraining_large_pos # Directory to save checkpoints
+    save_dir: ./outputs/checkpoints/softmax_pretraining_large_pos_loss_patch_final # Directory to save checkpoints
     interval: 2585 # Save checkpoint every N steps
     save_total_limit: 100 # Maximum number of checkpoints to keep
     resume: null # Path to checkpoint to resume from

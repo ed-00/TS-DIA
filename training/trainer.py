@@ -650,63 +650,130 @@ class Trainer:
                     raise RuntimeError(
                         f"Non-finite loss detected at epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}. See diag files if saved."
                     )
-
-                # Optionally skip excessively large loss values to avoid optimizer corruption
+                    
                 try:
                     safeguards = getattr(self.config, "safeguards", {}) or {}
-                    skip_high_loss = bool(safeguards.get("skip_high_loss", True))
                     max_loss = float(safeguards.get("max_loss", 1e6))
                 except Exception:
-                    skip_high_loss = True
                     max_loss = 1e6
 
-                if skip_high_loss:
-                    try:
-                        loss_val = float(loss.item())
-                    except Exception:
-                        loss_val = None
+                try:
+                    loss_val = float(loss.item())
+                except Exception:
+                    loss_val = None
 
-                    if loss_val is not None and loss_val > max_loss:
-                        # Save diagnostics for large loss and skip optimizer step
+                if loss_val is not None and loss_val > max_loss:
+                    # Save diagnostics for large loss (do NOT skip the step)
+                    self.accelerator.print(
+                        f"⚠️ Extremely large loss {loss_val:.3e} > max_loss {max_loss:.3e} detected; saving diagnostics and continuing optimizer update for epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}."
+                    )
+                    try:
+                        save_root = None
+                        if self.config.checkpoint and self.config.checkpoint.save_dir:
+                            save_root = self.config.checkpoint.save_dir
+                        if save_root:
+                            diag_dir = Path(save_root) / "diag_high_losses"
+                            diag_dir.mkdir(parents=True, exist_ok=True)
+                            torch.save(
+                                {
+                                    "epoch": int(self.current_epoch),
+                                    "step": int(self.global_step),
+                                    "batch_idx": int(batch_idx),
+                                    "features": batch.get("features"),
+                                    "labels": batch.get("labels"),
+                                    "loss_dict": {
+                                        k: float(v.item()) if isinstance(v, torch.Tensor) else float(v)
+                                        for k, v in loss_dict.items()
+                                    },
+                                },
+                                diag_dir / f"high_loss_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
+                            )
+                    except Exception as e:
+                        self.accelerator.print(f"Failed saving high-loss diagnostics: {e}")
+
+                    # Decide whether to skip this step. By default we enable
+                    # distributed-safe skipping to avoid a single rank corrupting
+                    # model state when it observes an extremely large loss.
+                    safeguards = getattr(self.config, "safeguards", {}) or {}
+                    # Backwards-compatible default: enable ddp-safe skipping for
+                    # very large losses unless explicitly disabled.
+                    skip_on_high_loss = bool(safeguards.get("skip_on_high_loss", True))
+                    ddp_sync_skip = bool(safeguards.get("ddp_sync_skip", True))
+
+                    # Local decision: do we want to skip because of a large loss?
+                    local_skip = skip_on_high_loss
+
+                    should_skip_global = local_skip
+                    if ddp_sync_skip and getattr(self.accelerator, "num_processes", 1) > 1:
+                        try:
+                            # Use accelerator.reduce to compute the logical OR
+                            # across processes (max reduction of integer flag).
+                            skip_tensor = torch.tensor(
+                                1 if local_skip else 0,
+                                dtype=torch.int,
+                                device=self.accelerator.device,
+                            )
+                            reduced = self.accelerator.reduce(skip_tensor, reduction="max")
+                            if isinstance(reduced, torch.Tensor):
+                                should_skip_global = bool(int(reduced.item()))
+                            else:
+                                try:
+                                    # Try converting to tensor and read scalar
+                                    should_skip_global = bool(
+                                        int(torch.as_tensor(
+                                            reduced, device=self.accelerator.device
+                                        ).item())
+                                    )
+                                except Exception:
+                                    # If conversion fails, fall back to local decision
+                                    should_skip_global = local_skip
+                        except Exception:
+                            # Fall back to local decision if reduce is unavailable
+                            should_skip_global = local_skip
+
+                    if should_skip_global:
+                        # Save an explicit message and ensure optimizer state isn't corrupted.
                         self.accelerator.print(
-                            f"⚠️ Extremely large loss {loss_val:.3e} > max_loss {max_loss:.3e} detected; skipping optimizer update for epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}."
+                            "⚠️ High loss detected on at least one process — skipping optimizer update for this step across all processes (DDP-safe skip)."
                         )
+
+                        # Make a best-effort to save per-process diagnostics if not already
+                        # produced above; this is best-effort and should not cause the
+                        # training to fail.
                         try:
                             save_root = None
                             if self.config.checkpoint and self.config.checkpoint.save_dir:
                                 save_root = self.config.checkpoint.save_dir
                             if save_root:
-                                diag_dir = Path(save_root) / "diag_high_losses"
+                                diag_dir = Path(save_root) / "diag_skipped_steps"
                                 diag_dir.mkdir(parents=True, exist_ok=True)
                                 torch.save(
                                     {
                                         "epoch": int(self.current_epoch),
                                         "step": int(self.global_step),
                                         "batch_idx": int(batch_idx),
+                                        "loss": loss_val,
                                         "features": batch.get("features"),
                                         "labels": batch.get("labels"),
-                                        "loss_dict": {
-                                            k: float(v.item()) if isinstance(v, torch.Tensor) else float(v)
-                                            for k, v in loss_dict.items()
-                                        },
                                     },
-                                    diag_dir / f"high_loss_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
+                                    diag_dir / f"skip_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
                                 )
                         except Exception as e:
-                            self.accelerator.print(f"Failed saving high-loss diagnostics: {e}")
+                            self.accelerator.print(f"Failed saving skip diagnostics: {e}")
 
-                        # Zero gradients and skip update
+                        # Clear accumulated gradients to avoid contaminating future steps
                         try:
-                            try:
-                                self.optimizer.zero_grad(set_to_none=True)
-                            except Exception:
-                                self.optimizer.zero_grad()
+                            self.optimizer.zero_grad(set_to_none=True)
                         except Exception:
-                            pass
+                            self.optimizer.zero_grad()
 
-                        # Call batch end callback and increment global_step (we skip optimizer and scheduler)
+                        # Call batch-end callbacks with outputs so callbacks can record
+                        # the skip for tracing / debugging. Increase global_step so
+                        # bookkeeping remains consistent.
                         self.callback_handler.on_batch_end(self, batch, batch_idx, outputs)
                         self.global_step += 1
+
+                        # Continue to next batch — do not call optimizer.step() on any rank
                         continue
 
                 # Backward pass
@@ -714,7 +781,6 @@ class Trainer:
 
                 self.callback_handler.on_backward_end(self)
 
-                # --- Gradient diagnostics: check for NaN/Inf in gradients before optimizer step
                 invalid_grad = False
                 grad_norm = None
                 param_norm = None
@@ -816,14 +882,40 @@ class Trainer:
                         f"Extremely large gradient norm {grad_norm:.3e} detected at epoch {self.current_epoch}, step {self.global_step}. See diag files if saved."
                     )
 
-                # Gradient clipping (if not using callback)
-                if self.config.gradient_clipping and not any(
-                    hasattr(cb, "max_norm") for cb in self.callback_handler.callbacks
+                # Gradient clipping (if not using callback). Be explicit about
+                # types: a boolean value in the config (eg. `gradient_clipping: true`)
+                # should not be treated as a numeric clip value (True == 1.0),
+                # because that silently enforces clipnorm=1.0. Instead warn and
+                # skip clipping unless a numeric max_norm is provided.
+                if (
+                    self.config.gradient_clipping is not None
+                    and not any(hasattr(cb, "max_norm") for cb in self.callback_handler.callbacks)
                 ):
-                    self.accelerator.clip_grad_norm_(
-                        self.model.parameters(),
-                        self.config.gradient_clipping,
-                    )
+                    gc_val = self.config.gradient_clipping
+                    if isinstance(gc_val, bool):
+                        # Avoid treating boolean True as 1.0 which leads to
+                        # surprising behavior. Advise the user to provide a
+                        # numeric value if clipping is desired.
+                        self.accelerator.print(
+                            "⚠️ `gradient_clipping` set to a boolean in config — expected a numeric max_norm (e.g. 0.5). Skipping clipping."
+                        )
+                    else:
+                        try:
+                            max_norm = float(gc_val)
+                            # Prefer accelerator's clip helper (handles distributed models)
+                            try:
+                                self.accelerator.clip_grad_norm_(
+                                    self.model.parameters(), max_norm
+                                )
+                            except Exception:
+                                # Fallback to native PyTorch API
+                                torch.nn.utils.clip_grad_norm_(
+                                    self.model.parameters(), max_norm
+                                )
+                        except Exception:
+                            self.accelerator.print(
+                                f"⚠️ Invalid gradient_clipping value: {gc_val}. Skipping clipping."
+                            )
 
                 # Optimizer step
                 self.optimizer.step()

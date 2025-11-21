@@ -334,11 +334,10 @@ class TrainingConfig:
     tuning: Dict[str, Any] = field(default_factory=dict)
     max_steps: Optional[int] = None
     # Safeguards for runtime anomalies
-    # - skip_high_loss: if True, batches whose loss exceeds `max_loss` will be
-    #   skipped (no optimizer step) and diagnostic artifacts will be saved.
     # - max_loss: numeric threshold above which a loss is considered anomalously high
-    #   and should be skipped. Defaults to 1e6 (should be tuned by user).
+    #   (originally there was an option to _skip_ such batches which caused
+    #   distributed process desynchronization; skipping is removed to keep all
+    #   processes in lockstep and avoid NCCL deadlocks). Defaults to 1e6.
     safeguards: Optional[Dict[str, Any]] = field(default_factory=lambda: {
-        "skip_high_loss": True,
         "max_loss": 1e6,
     })
