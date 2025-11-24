@@ -82,10 +82,10 @@ model:
       # 3: others_ovl (multiple non-target speakers)
       # 4: ns (non-speech)
 
-    positional_encoding:
-      type: rope
-      max_seq_len: 512
-      theta: 10000.0
+    # positional_encoding:
+    #   type: rope
+    #   max_seq_len: 512
+    #   theta: 10000.0
 
 training:
   # ---------------------------------------------------------------------------

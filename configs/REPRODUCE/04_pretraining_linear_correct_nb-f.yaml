@@ -39,10 +39,10 @@ model:
     # feature_redraw_interval: 1000  # Redraw random features every N steps (None = never)
     # auto_check_redraw: true        # Automatically check when to redraw
 
-    positional_encoding:
-      type: rope  # or sinusoidal, learnable, none
-      max_seq_len: 512
-      theta: 10000.0
+    # positional_encoding:
+    #   type: rope  # or sinusoidal, learnable, none
+    #   max_seq_len: 512
+    #   theta: 10000.0
 
   # ---------------------------------------------------------------------------
   # Decoder Configuration (for decoder and encoder_decoder models)
