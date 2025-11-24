@@ -388,7 +388,13 @@ class Trainer:
             # Validation
             val_metrics = {}
             if self.val_dataloaders and self.config.validation:
-                if (epoch + 1) % self.config.validation.interval == 0 or epoch == 0:
+                # Check if we should validate on epoch
+                should_validate = False
+                if self.config.validation.validate_on_epoch:
+                    if (epoch + 1) % self.config.validation.interval == 0 or epoch == 0:
+                        should_validate = True
+                
+                if should_validate:
                     val_metrics = self.validate()
 
             # Combine metrics
@@ -451,110 +457,12 @@ class Trainer:
                 # Ego-centric diarization: labels are [batch, num_frames] with class indices
                 targets = batch["labels"]
 
-                # Basic sanity check for batch data
-                try:
-                    features_ok = torch.isfinite(batch["features"]).all()
-                except Exception:
-                    features_ok = False
-
-                try:
-                    targets_ok = torch.isfinite(targets).all()
-                except Exception:
-                    targets_ok = False
-
-                if not features_ok or not targets_ok:
-                    self.accelerator.print(
-                        f"⚠️ Non-finite values found in inputs (features_ok={features_ok}, targets_ok={targets_ok}). Skipping batch {batch_idx} at epoch {self.current_epoch}."
-                    )
-                    # Zero gradients to avoid contamination
-                    try:
-                        self.optimizer.zero_grad(set_to_none=True)
-                    except Exception:
-                        self.optimizer.zero_grad()
-                    continue
-
                 # Forward pass - extract features from diarization batch
                 outputs = self.model(
                     x=batch["features"],
                     is_target=batch.get("is_target"),
                     labels=batch["labels"],
                 )
-
-                try:
-                    logits = (
-                        outputs
-                        if isinstance(outputs, torch.Tensor)
-                        else outputs.logits
-                    )
-                except Exception:
-                    logits = None
-
-                if logits is not None:
-                    if not torch.isfinite(logits).all():
-                        # Save the problematic batch and some statistics for debugging
-                        diag_dir = None
-                        try:
-                            save_root = None
-                            if self.config.checkpoint and self.config.checkpoint.save_dir:
-                                save_root = self.config.checkpoint.save_dir
-                            if save_root:
-                                diag_dir = Path(save_root) / "diag_nan_batches"
-                                diag_dir.mkdir(parents=True, exist_ok=True)
-                        except Exception:
-                            diag_dir = None
-
-                        try:
-                            if diag_dir is not None:
-                                torch.save(
-                                    {
-                                        "epoch": int(self.current_epoch),
-                                        "step": int(self.global_step),
-                                        "batch_idx": int(batch_idx),
-                                        "features": batch.get("features"),
-                                        "labels": batch.get("labels"),
-                                        "logits_min": float(torch.min(logits).cpu().item()),
-                                        "logits_max": float(torch.max(logits).cpu().item()),
-                                    },
-                                    diag_dir /
-                                    f"bad_batch_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
-                                )
-                        except Exception:
-                            pass
-
-                        self.accelerator.print(
-                            f"⚠️ Non-finite logits detected at epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}. Saving diagnostics and raising RuntimeError."
-                        )
-                        # Zero out gradients to avoid contaminating optimizer state, then continue
-                        try:
-                            # Save diagnostics
-                            save_root = None
-                            if self.config.checkpoint and self.config.checkpoint.save_dir:
-                                save_root = self.config.checkpoint.save_dir
-                            if save_root is None:
-                                raise RuntimeError(
-                                    f"Non-finite logits detected at epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}. No checkpoint save_dir available to store diagnostics."
-                                )
-                            diag_dir = Path(save_root) / "diag_nan_batches"
-                            diag_dir.mkdir(parents=True, exist_ok=True)
-                            torch.save(
-                                {
-                                    "epoch": int(self.current_epoch),
-                                    "step": int(self.global_step),
-                                    "batch_idx": int(batch_idx),
-                                    "features": batch.get("features"),
-                                    "labels": batch.get("labels"),
-                                    "logits_min": float(torch.min(logits).cpu().item()),
-                                    "logits_max": float(torch.max(logits).cpu().item()),
-                                },
-                                diag_dir /
-                                f"bad_batch_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
-                            )
-                        except Exception as e:
-                            self.accelerator.print(
-                                f"Failed saving logits diagnostics: {e}")
-                        raise RuntimeError(
-                            f"Non-finite logits detected at epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}. See diag files if saved."
-                        )
 
                 # Compute loss, ignoring the first token (enrollment)
                 loss_dict = compute_loss(
@@ -570,210 +478,42 @@ class Trainer:
 
                 loss = loss_dict["total"]
 
-                # Detect non-finite losses
-                if not torch.isfinite(loss):
-                    # Save diagnostics and skip step to avoid corrupting optimizer
-                    diag_dir = None
-                    try:
-                        save_root = None
-                        if self.config.checkpoint and self.config.checkpoint.save_dir:
-                            save_root = self.config.checkpoint.save_dir
-                        if save_root:
-                            diag_dir = Path(save_root) / "diag_nan_losses"
-                            diag_dir.mkdir(parents=True, exist_ok=True)
-                    except Exception:
-                        diag_dir = None
-
-                    try:
-                        save_root = None
-                        if self.config.checkpoint and self.config.checkpoint.save_dir:
-                            save_root = self.config.checkpoint.save_dir
-                        if save_root is None:
-                            raise RuntimeError(
-                                f"Non-finite loss detected at epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}. No checkpoint save_dir available to store diagnostics."
-                            )
-                        if diag_dir is None:
-                            diag_dir = Path(save_root) / "diag_nan_losses"
-                            diag_dir.mkdir(parents=True, exist_ok=True)
-
-                        torch.save(
-                            {
-                                "epoch": int(self.current_epoch),
-                                "step": int(self.global_step),
-                                "batch_idx": int(batch_idx),
-                                "features": batch.get("features"),
-                                "labels": batch.get("labels"),
-                                "loss_dict": {
-                                    k: float(v.item()) if isinstance(
-                                        v, torch.Tensor) else float(v)
-                                    for k, v in loss_dict.items()
-                                },
-                            },
-                            diag_dir /
-                            f"bad_loss_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
-                        )
-                    except Exception as e:
-                        self.accelerator.print(
-                            f"Failed saving loss diagnostics: {e}")
-                    self.accelerator.print(
-                        f"⚠️ Non-finite loss detected at epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}. Raising RuntimeError to surface the issue."
-                    )
-                    # If configured to skip extremely high losses we may also offer
-                    # an option to skip non-finite losses; default behavior is to
-                    # raise so failures surface during debugging.
-                    skip_non_finite = False
-                    try:
-                        safeguards = getattr(self.config, "safeguards", {}) or {}
-                        skip_non_finite = bool(safeguards.get("skip_non_finite_losses", False))
-                    except Exception:
-                        skip_non_finite = False
-
-                    if skip_non_finite:
-                        self.accelerator.print(
-                            f"⚠️ Non-finite loss detected at epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}. Skipping step per safeguards configuration."
-                        )
-                        # Best-effort save (already attempted above) and continue
-                        try:
-                            # Zero gradients to avoid optimizer contamination
-                            try:
-                                self.optimizer.zero_grad(set_to_none=True)
-                            except Exception:
-                                self.optimizer.zero_grad()
-                        except Exception:
-                            pass
-                        # Call batch end callback and increment global_step
-                        self.callback_handler.on_batch_end(self, batch, batch_idx, None)
-                        self.global_step += 1
-                        continue
-
-                    # Default behavior (do not silently continue)
-                    raise RuntimeError(
-                        f"Non-finite loss detected at epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}. See diag files if saved."
-                    )
+                # Safeguards
+                if self.config.safeguards:
+                    skip_batch = False
+                    # Check for non-finite loss
+                    if self.config.safeguards.get("skip_non_finite_losses", False):
+                        if not torch.isfinite(loss):
+                            self.accelerator.print(f"⚠️  Skipping batch with non-finite loss: {loss.item()}")
+                            skip_batch = True
                     
-                try:
-                    safeguards = getattr(self.config, "safeguards", {}) or {}
-                    max_loss = float(safeguards.get("max_loss", 1e6))
-                except Exception:
-                    max_loss = 1e6
-
-                try:
-                    loss_val = float(loss.item())
-                except Exception:
-                    loss_val = None
-
-                if loss_val is not None and loss_val > max_loss:
-                    # Save diagnostics for large loss (do NOT skip the step)
-                    self.accelerator.print(
-                        f"⚠️ Extremely large loss {loss_val:.3e} > max_loss {max_loss:.3e} detected; saving diagnostics and continuing optimizer update for epoch {self.current_epoch}, step {self.global_step}, batch {batch_idx}."
-                    )
-                    try:
-                        save_root = None
-                        if self.config.checkpoint and self.config.checkpoint.save_dir:
-                            save_root = self.config.checkpoint.save_dir
-                        if save_root:
-                            diag_dir = Path(save_root) / "diag_high_losses"
-                            diag_dir.mkdir(parents=True, exist_ok=True)
-                            torch.save(
-                                {
-                                    "epoch": int(self.current_epoch),
-                                    "step": int(self.global_step),
-                                    "batch_idx": int(batch_idx),
-                                    "features": batch.get("features"),
-                                    "labels": batch.get("labels"),
-                                    "loss_dict": {
-                                        k: float(v.item()) if isinstance(v, torch.Tensor) else float(v)
-                                        for k, v in loss_dict.items()
-                                    },
-                                },
-                                diag_dir / f"high_loss_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
-                            )
-                    except Exception as e:
-                        self.accelerator.print(f"Failed saving high-loss diagnostics: {e}")
-
-                    # Decide whether to skip this step. By default we enable
-                    # distributed-safe skipping to avoid a single rank corrupting
-                    # model state when it observes an extremely large loss.
-                    safeguards = getattr(self.config, "safeguards", {}) or {}
-                    # Backwards-compatible default: enable ddp-safe skipping for
-                    # very large losses unless explicitly disabled.
-                    skip_on_high_loss = bool(safeguards.get("skip_on_high_loss", True))
-                    ddp_sync_skip = bool(safeguards.get("ddp_sync_skip", True))
-
-                    # Local decision: do we want to skip because of a large loss?
-                    local_skip = skip_on_high_loss
-
-                    should_skip_global = local_skip
-                    if ddp_sync_skip and getattr(self.accelerator, "num_processes", 1) > 1:
+                    # Check for high loss
+                    max_loss = self.config.safeguards.get("max_loss")
+                    if not skip_batch and max_loss is not None:
+                        loss_val = loss.item()
+                        if loss_val > float(max_loss):
+                            if self.config.safeguards.get("skip_high_loss", False):
+                                self.accelerator.print(f"⚠️  Skipping batch with high loss: {loss_val} > {max_loss}")
+                                skip_batch = True
+                    
+                    # Synchronize skip_batch across all processes for DDP compatibility
+                    # If any process needs to skip, all processes must skip to maintain sync
+                    if self.accelerator.num_processes > 1:
+                        skip_tensor = torch.tensor([1.0 if skip_batch else 0.0], device=self.accelerator.device)
                         try:
-                            # Use accelerator.reduce to compute the logical OR
-                            # across processes (max reduction of integer flag).
-                            skip_tensor = torch.tensor(
-                                1 if local_skip else 0,
-                                dtype=torch.int,
-                                device=self.accelerator.device,
-                            )
-                            reduced = self.accelerator.reduce(skip_tensor, reduction="max")
-                            if isinstance(reduced, torch.Tensor):
-                                should_skip_global = bool(int(reduced.item()))
-                            else:
-                                try:
-                                    # Try converting to tensor and read scalar
-                                    should_skip_global = bool(
-                                        int(torch.as_tensor(
-                                            reduced, device=self.accelerator.device
-                                        ).item())
-                                    )
-                                except Exception:
-                                    # If conversion fails, fall back to local decision
-                                    should_skip_global = local_skip
-                        except Exception:
-                            # Fall back to local decision if reduce is unavailable
-                            should_skip_global = local_skip
+                            # Use reduce if available (newer accelerate)
+                            skip_tensor = self.accelerator.reduce(skip_tensor, reduction="max")
+                        except AttributeError:
+                            # Fallback for older accelerate versions or if reduce is not exposed
+                            import torch.distributed as dist
+                            if dist.is_initialized():
+                                dist.all_reduce(skip_tensor, op=dist.ReduceOp.MAX)
+                        
+                        if skip_tensor.item() > 0.5:
+                            skip_batch = True
 
-                    if should_skip_global:
-                        # Save an explicit message and ensure optimizer state isn't corrupted.
-                        self.accelerator.print(
-                            "⚠️ High loss detected on at least one process — skipping optimizer update for this step across all processes (DDP-safe skip)."
-                        )
-
-                        # Make a best-effort to save per-process diagnostics if not already
-                        # produced above; this is best-effort and should not cause the
-                        # training to fail.
-                        try:
-                            save_root = None
-                            if self.config.checkpoint and self.config.checkpoint.save_dir:
-                                save_root = self.config.checkpoint.save_dir
-                            if save_root:
-                                diag_dir = Path(save_root) / "diag_skipped_steps"
-                                diag_dir.mkdir(parents=True, exist_ok=True)
-                                torch.save(
-                                    {
-                                        "epoch": int(self.current_epoch),
-                                        "step": int(self.global_step),
-                                        "batch_idx": int(batch_idx),
-                                        "loss": loss_val,
-                                        "features": batch.get("features"),
-                                        "labels": batch.get("labels"),
-                                    },
-                                    diag_dir / f"skip_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
-                                )
-                        except Exception as e:
-                            self.accelerator.print(f"Failed saving skip diagnostics: {e}")
-
-                        # Clear accumulated gradients to avoid contaminating future steps
-                        try:
-                            self.optimizer.zero_grad(set_to_none=True)
-                        except Exception:
-                            self.optimizer.zero_grad()
-
-                        # Call batch-end callbacks with outputs so callbacks can record
-                        # the skip for tracing / debugging. Increase global_step so
-                        # bookkeeping remains consistent.
-                        self.callback_handler.on_batch_end(self, batch, batch_idx, outputs)
-                        self.global_step += 1
-
-                        # Continue to next batch — do not call optimizer.step() on any rank
+                    if skip_batch:
+                        self.optimizer.zero_grad()
                         continue
 
                 # Backward pass
@@ -781,179 +521,11 @@ class Trainer:
 
                 self.callback_handler.on_backward_end(self)
 
-                invalid_grad = False
-                grad_norm = None
-                param_norm = None
-                try:
-                    total_norm_sq = 0.0
-                    for p in self.model.parameters():
-                        if p.grad is not None:
-                            if not torch.isfinite(p.grad).all():
-                                invalid_grad = True
-                                break
-                            # accumulate gradient norm squared (use float to avoid overflow)
-                            g = p.grad.detach()
-                            total_norm_sq += float(g.float().norm() ** 2)
-
-                    # Compute parameter norms for diagnostics
-                    param_total_norm_sq = 0.0
-                    for p in self.model.parameters():
-                        param_total_norm_sq += float(
-                            p.detach().float().norm() ** 2)
-                    param_norm = math.sqrt(param_total_norm_sq)
-
-                    grad_norm = math.sqrt(total_norm_sq)
-                except Exception:
-                    invalid_grad = True
-
-                if invalid_grad:
-                    # Save diagnostics and raise so the failure surfaces
-                    self.accelerator.print(
-                        f"⚠️ Non-finite gradients detected at epoch {self.current_epoch}, step {self.global_step}. Saving diagnostics and raising RuntimeError."
-                    )
-                    try:
-                        save_root = None
-                        if self.config.checkpoint and self.config.checkpoint.save_dir:
-                            save_root = self.config.checkpoint.save_dir
-                        if save_root is None:
-                            raise RuntimeError(
-                                f"Non-finite gradients detected at epoch {self.current_epoch}, step {self.global_step}. No checkpoint save_dir available to store diagnostics."
-                            )
-                        diag_dir = Path(save_root) / "diag_nan_grads"
-                        diag_dir.mkdir(parents=True, exist_ok=True)
-                        # Save a subset of gradients (first 10 param grads) to avoid huge files
-                        grad_dump = {}
-                        for i, p in enumerate(self.model.parameters()):
-                            if p.grad is not None and i < 10:
-                                grad_dump[f"grad_{i}"] = p.grad.detach().cpu()
-                        torch.save(
-                            {
-                                "epoch": int(self.current_epoch),
-                                "step": int(self.global_step),
-                                "batch_idx": int(batch_idx),
-                                "grads": grad_dump,
-                                "lr": self.optimizer.param_groups[0]["lr"],
-                                "optimizer_state": {
-                                    k: v for k, v in self.optimizer.state_dict().items() if k in ["state", "param_groups"]
-                                },
-                            },
-                            diag_dir /
-                            f"bad_grads_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
-                        )
-                    except Exception as e:
-                        self.accelerator.print(
-                            f"Failed saving gradient diagnostics: {e}")
-                    raise RuntimeError(
-                        f"Non-finite gradients detected at epoch {self.current_epoch}, step {self.global_step}. See diag files if saved."
-                    )
-
-                # If gradient norm is extraordinarily large, log it and skip the update
-                if grad_norm is not None and grad_norm > 1e5:
-                    # Save diagnostics and raise to capture where gradient explosion came from
-                    self.accelerator.print(
-                        f"⚠️ Extremely large gradient norm {grad_norm:.3e} detected; raising RuntimeError to surface the issue."
-                    )
-                    try:
-                        save_root = None
-                        if self.config.checkpoint and self.config.checkpoint.save_dir:
-                            save_root = self.config.checkpoint.save_dir
-                        if save_root is None:
-                            raise RuntimeError(
-                                f"Extremely large gradient norm {grad_norm:.3e} detected at epoch {self.current_epoch}, step {self.global_step}, but no checkpoint save_dir available to store diagnostics."
-                            )
-                        diag_dir = Path(save_root) / "diag_grad_norms"
-                        diag_dir.mkdir(parents=True, exist_ok=True)
-                        torch.save(
-                            {
-                                "epoch": int(self.current_epoch),
-                                "step": int(self.global_step),
-                                "batch_idx": int(batch_idx),
-                                "grad_norm": grad_norm,
-                                "param_norm": param_norm,
-                                "lr": self.optimizer.param_groups[0]["lr"],
-                            },
-                            diag_dir /
-                            f"bad_grad_norm_epoch{self.current_epoch}_step{self.global_step}_batch{batch_idx}.pt",
-                        )
-                    except Exception as e:
-                        self.accelerator.print(
-                            f"Failed saving grad_norm diagnostics: {e}")
-                    raise RuntimeError(
-                        f"Extremely large gradient norm {grad_norm:.3e} detected at epoch {self.current_epoch}, step {self.global_step}. See diag files if saved."
-                    )
-
-                # Gradient clipping (if not using callback). Be explicit about
-                # types: a boolean value in the config (eg. `gradient_clipping: true`)
-                # should not be treated as a numeric clip value (True == 1.0),
-                # because that silently enforces clipnorm=1.0. Instead warn and
-                # skip clipping unless a numeric max_norm is provided.
-                if (
-                    self.config.gradient_clipping is not None
-                    and not any(hasattr(cb, "max_norm") for cb in self.callback_handler.callbacks)
-                ):
-                    gc_val = self.config.gradient_clipping
-                    if isinstance(gc_val, bool):
-                        # Avoid treating boolean True as 1.0 which leads to
-                        # surprising behavior. Advise the user to provide a
-                        # numeric value if clipping is desired.
-                        self.accelerator.print(
-                            "⚠️ `gradient_clipping` set to a boolean in config — expected a numeric max_norm (e.g. 0.5). Skipping clipping."
-                        )
-                    else:
-                        try:
-                            max_norm = float(gc_val)
-                            # Prefer accelerator's clip helper (handles distributed models)
-                            try:
-                                self.accelerator.clip_grad_norm_(
-                                    self.model.parameters(), max_norm
-                                )
-                            except Exception:
-                                # Fallback to native PyTorch API
-                                torch.nn.utils.clip_grad_norm_(
-                                    self.model.parameters(), max_norm
-                                )
-                        except Exception:
-                            self.accelerator.print(
-                                f"⚠️ Invalid gradient_clipping value: {gc_val}. Skipping clipping."
-                            )
 
                 # Optimizer step
                 self.optimizer.step()
 
-                # --- Parameter diagnostics: check for NaN/Inf in model params after update
-                params_invalid = False
-                try:
-                    for p in self.model.parameters():
-                        if not torch.isfinite(p).all():
-                            params_invalid = True
-                            break
-                except Exception:
-                    params_invalid = True
-
-                if params_invalid:
-                    self.accelerator.print(
-                        f"⚠️ Non-finite model parameter detected after optimizer.step() at epoch {self.current_epoch}, step {self.global_step}. Aborting training."
-                    )
-                    # Save model state & batch for debugging
-                    try:
-                        save_root = None
-                        if self.config.checkpoint and self.config.checkpoint.save_dir:
-                            save_root = self.config.checkpoint.save_dir
-                        if save_root:
-                            diagnostic_path = Path(
-                                save_root) / f"param_anomaly_epoch{self.current_epoch}_step{self.global_step}.pt"
-                            torch.save({
-                                "model_state_dict": self.accelerator.unwrap_model(self.model).state_dict(),
-                                "batch": {"features": batch.get("features"), "labels": batch.get("labels")},
-                            }, diagnostic_path)
-                            self.accelerator.print(
-                                f"Saved parameter diagnostics to: {diagnostic_path}")
-                    except Exception:
-                        pass
-                    # Stop training to avoid further corruption
-                    raise RuntimeError(
-                        "Detected NaN/Inf in model parameters after update. See saved diagnostics.")
-
+               
                 # Scheduler step
                 if self.lr_scheduler and not isinstance(
                     self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau
@@ -1007,6 +579,15 @@ class Trainer:
 
             self.callback_handler.on_batch_end(self, batch, batch_idx, outputs)
             self.global_step += 1
+
+            # Validation (Step-based)
+            if (
+                self.val_dataloaders
+                and self.config.validation
+                and not self.config.validation.validate_on_epoch
+            ):
+                if self.global_step % self.config.validation.interval == 0:
+                    self.validate()
 
             # Save checkpoint at step intervals
             if (
@@ -1079,17 +660,7 @@ class Trainer:
                     labels=batch["labels"],
                 )
 
-                # Diagnostic checks for validation as well
-                try:
-                    logits = outputs if isinstance(
-                        outputs, torch.Tensor) else outputs.logits
-                    if not torch.isfinite(logits).all():
-                        self.accelerator.print(
-                            f"⚠️ Non-finite logits detected during validation at step {batch_idx} for split {split_name}. Skipping batch."
-                        )
-                        continue
-                except Exception:
-                    pass
+         
 
                 if "labels" in batch:
                     targets = batch["labels"]
@@ -1224,18 +795,7 @@ class Trainer:
 
             outputs = self.model(x=batch["features"])
 
-            # Check for non-finite logits in test run
-            try:
-                logits = outputs if isinstance(
-                    outputs, torch.Tensor) else outputs.logits
-                if not torch.isfinite(logits).all():
-                    self.accelerator.print(
-                        "⚠️ Non-finite logits detected during testing. Skipping batch."
-                    )
-                    continue
-            except Exception:
-                pass
-
+  
             # Handle different label formats (ego-centric vs binary diarization)
             if "labels" in batch:
                 # Ego-centric diarization: labels are [batch, num_frames] with class indices

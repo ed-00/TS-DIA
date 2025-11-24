@@ -243,7 +243,7 @@ def causal_linear_attention(
     only attend to previous positions. This is done by maintaining cumulative
     sums and processing the sequence in chunks.
 
-    This version does not require CUDA kernels and works on any device.
+    This version is vectorized over chunks for efficiency, avoiding slow Python loops.
 
     Args:
         q: Tensor
@@ -253,72 +253,56 @@ def causal_linear_attention(
         v: Tensor
             Value tensor of shape (batch, heads, seq_len, dim_v)
         chunk_size: int
-            Size of chunks for processing the sequence. Larger chunks use more
-            memory but may be faster
+            Size of chunks for processing the sequence (e.g., 128).
         eps: float
             Small constant for numerical stability in normalization
 
     Returns:
         Tensor: Causal attention output of shape (batch, heads, seq_len, dim_v)
     """
-    # Streaming implementation: avoid creating a per-timestep (..., seq, d, e)
-    # context tensor which grows like seq * d * e and causes OOM. Instead
-    # maintain running aggregates: running_k (sum of keys) and
-    # running_kv (sum of outer-product key*value). We update those per
-    # timestep and compute the output for that timestep. This keeps peak
-    # memory proportional to d*e (not seq*d*e).
-
-    device = q.device
-    dtype = q.dtype
-
-    b, h, n, d = q.shape
-    _, _, _, e = v.shape
-
-    accum_dtype = torch.float32 if dtype in (torch.bfloat16, torch.float16) else dtype
-    running_k = torch.zeros((b, h, d), device=device, dtype=accum_dtype)
-    running_kv = torch.zeros((b, h, d, e), device=device, dtype=accum_dtype)
-
+    last_k_cumsum = 0
+    last_context_cumsum = 0
     outs = []
 
-    # iterate in chunks for a good time/memory tradeoff but compute each
-    # position inside the chunk incrementally so we never allocate
-    # (..., seq, d, e)
+    # Iterate over chunks of the sequence
+    # Use split to create chunks of fixed size
     for q_chunk, k_chunk, v_chunk in zip(
-        *map(lambda t: t.chunk(chunk_size, dim=-2), (q, k, v))
+        q.split(chunk_size, dim=-2),
+        k.split(chunk_size, dim=-2),
+        v.split(chunk_size, dim=-2)
     ):
-        # q_chunk/k_chunk/v_chunk shapes: (b,h,chunk_len,*)
-        chunk_len = q_chunk.shape[-2]
+        # Cumulative sum of keys within the chunk
+        k_cumsum = k_chunk.cumsum(dim=-2)
+        
+        # Add contribution from previous chunks
+        if isinstance(last_k_cumsum, torch.Tensor):
+            k_cumsum = k_cumsum + last_k_cumsum
+        
+        # Compute denominator: D = q . k_cumsum
+        # (b, h, n, d) . (b, h, n, d) -> (b, h, n)
+        D = torch.einsum('...nd,...nd->...n', q_chunk, k_cumsum)
+        D_inv = 1. / (D + eps)
 
-        # process each time step in the chunk sequentially
-        for i in range(chunk_len):
-            q_t = q_chunk[..., i, :]
-            k_t = k_chunk[..., i, :]
-            v_t = v_chunk[..., i, :]
+        # Compute context within chunk: context = k^T . v (outer product per position)
+        # (b, h, n, d) . (b, h, n, e) -> (b, h, n, d, e)
+        # Note: This intermediate tensor is (chunk_size * d * e), which is manageable
+        context = torch.einsum('...nd,...ne->...nde', k_chunk, v_chunk)
+        
+        # Cumulative sum of context
+        context_cumsum = context.cumsum(dim=-3)
+        
+        # Add contribution from previous chunks
+        if isinstance(last_context_cumsum, torch.Tensor):
+            context_cumsum = context_cumsum + last_context_cumsum
 
-            # update running sums (cast inputs to accumulator dtype first)
-            # Use in-place updates to avoid allocating large temporaries
-            k_t_acc = k_t.to(accum_dtype)
-            v_t_acc = v_t.to(accum_dtype)
-            running_k.add_(k_t_acc)
+        # Compute output: out = context_cumsum . q
+        # (b, h, n, d, e) . (b, h, n, d) -> (b, h, n, e)
+        out = torch.einsum('...nde,...nd,...n->...ne', context_cumsum, q_chunk, D_inv)
 
-            # running_kv accumulates outer products k_t.unsqueeze(-1) * v_t.unsqueeze(-2)
-            # use addcmul_ for an in-place multiply-and-add to avoid creating a
-            # full-size temporary tensor for the product which caused peak memory
-            # spikes under bf16/mixed precision workloads.
-            running_kv.addcmul_(k_t_acc.unsqueeze(-1), v_t_acc.unsqueeze(-2), value=1.0)
+        # Update last cumulative sums for next chunk
+        last_k_cumsum = k_cumsum[..., -1:, :]
+        last_context_cumsum = context_cumsum[..., -1:, :, :]
+        
+        outs.append(out)
 
-            # Use q_t in accumulator dtype to compute stable numerics
-            q_t_acc = q_t.to(accum_dtype)
-
-            # D_inv scalar per position: 1 / (q_t · running_k)
-            denom = torch.einsum("...d,...d->...", q_t_acc, running_k) + eps
-            D_inv = 1.0 / denom
-
-            # compute output for this timestep in accumulator dtype then cast back
-            out_t_acc = torch.einsum("...d,...de->...e", q_t_acc, running_kv) * D_inv.unsqueeze(-1)
-            out_t = out_t_acc.to(dtype)
-
-            outs.append(out_t.unsqueeze(-2))
-
-    # concatenate along sequence dimension
     return torch.cat(outs, dim=-2)

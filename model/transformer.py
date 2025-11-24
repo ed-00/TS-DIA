@@ -33,6 +33,7 @@ from .feedforward import FeedForward, ReZero
 from .activations import ActivationFunctions
 from .types import PerformerLayerParams, PerformerParams
 from .attention import CrossAttention, MultiHeadAttention
+from .pos_encoder import PositionalEncodingFactory, RotaryPositionEmbedding
 
 
 class PerformerLayer(nn.Module):
@@ -701,11 +702,12 @@ class EncoderDecoderTransformer(nn.Module):
             for i, is_tgt in enumerate(is_target):
                 if int(is_tgt) == 0:
                     enrollment_embeddings.append(
-                        torch.full((1, self.d_model), -1.0,
+                        torch.zeros((1, self.d_model),
                                    device=encoder_output.device)
                     )
                 else:
-                    speaker_indices = (labels[i] == 0).nonzero(
+                    # Include overlap (1) in enrollment candidates
+                    speaker_indices = ((labels[i] == 0) | (labels[i] == 1)).nonzero(
                         as_tuple=True)[0]
                     if len(speaker_indices) > self.min_enroll_len:
                         enroll_len = random.randint(
@@ -723,15 +725,15 @@ class EncoderDecoderTransformer(nn.Module):
                         )
                     else:
                         enrollment_embeddings.append(
-                            torch.full(
-                                (1, self.d_model), -1.0, device=encoder_output.device
+                            torch.zeros(
+                                (1, self.d_model), device=encoder_output.device
                             )
                         )
         else:
-            # Default to -1 if no speaker_ids or labels
+            # Default to 0 if no speaker_ids or labels
             for _ in range(encoder_output.size(0)):
                 enrollment_embeddings.append(
-                    torch.full((1, self.d_model), -1.0,
+                    torch.zeros((1, self.d_model),
                                device=encoder_output.device)
                 )
 

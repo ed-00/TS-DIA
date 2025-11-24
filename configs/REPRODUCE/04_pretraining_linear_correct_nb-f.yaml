@@ -26,7 +26,7 @@ model:
 
     # Attention configuration
     attention_type: linear # Options: softmax, linear, causal_linear
-    nb_features: 256 # Number of random features for linear attention (None = auto)
+    nb_features: 25 # Number of random features for linear attention (None = auto)
 
     # Activation function
     activation: REGLU # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
@@ -57,7 +57,7 @@ model:
 
     # Attention configuration
     attention_type: causal_linear # Options: softmax, linear, causal_linear
-    # nb_features: 256          # Number of random features for linear attention
+    nb_features: 25          # Number of random features for linear attention
 
     # Activation function
     activation: REGLU # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
@@ -242,7 +242,7 @@ training:
   # Checkpoint Configuration
   # ---------------------------------------------------------------------------
   checkpoint:
-    save_dir: ./outputs/checkpoints/linear_pretraining_large_pos_loss_patch_final_clean_no_rezero # Directory to save checkpoints
+    save_dir: ./outputs/checkpoints/linear_pretraining_large_pos_loss_patch_final_clean_no_rezero_nbf25 # Directory to save checkpoints
     interval: 2585 # Save checkpoint every N steps
     save_total_limit: 100 # Maximum number of checkpoints to keep
     resume: null # Path to checkpoint to resume from

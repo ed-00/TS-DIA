@@ -201,6 +201,7 @@ class ValidationConfig:
     max_steps: Optional[int] = None
     metric_for_best_model: str = "val_loss"
     greater_is_better: bool = False
+    validate_on_epoch: bool = True
     splits: List[str] = field(default_factory=lambda: ["val"])
     validation_dataset_map: Optional[TrainingDatasetMap] = None
 

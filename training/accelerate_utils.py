@@ -80,7 +80,7 @@ def setup_accelerator(
         gradient_accumulation_steps=training_config.gradient_accumulation_steps,
         log_with=_get_log_trackers(training_config),
         project_config=project_config,
-        kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(hours=1))],
+        # kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(Seconds=))],
     )
 
     return accelerator

@@ -272,6 +272,12 @@ class PerformerParams(TypedDict):
             adds a linear projection layer: d_model -> num_classes.
             Used for sequence/token classification (e.g., diarization, NER).
             Default None (no output projection).
+        encoding_type: PositionalEncodingType
+            Type of positional encoding to use. Default "sinusoidal".
+        max_seq_len: int
+            Maximum sequence length for positional encoding. Default 5000.
+        theta: float
+            Base value for frequency computation. Default 10000.0.
         eps: float
             Epsilon value for normalization layers. Used in LayerNorm and PreScaleNorm.
             Default 1e-5.
@@ -294,4 +300,7 @@ class PerformerParams(TypedDict):
     auto_check_redraw: bool
     input_dim: int | None
     num_classes: int | None
+    encoding_type: PositionalEncodingType
+    max_seq_len: int
+    theta: float
     eps: float
