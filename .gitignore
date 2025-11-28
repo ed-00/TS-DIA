@@ -29,7 +29,8 @@ outputs/*
 data_simu/tools/miniconda3.sh
 data_simu/tools/miniconda3
 data_simu/tools/kaldi
-
+debug_*
+visualization_*
 # Large files in data_simu directory
 data_simu/mini_librispeech/sim_rir_8k.zip
 data_simu/**/*.zip

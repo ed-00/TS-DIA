@@ -20,3 +20,4 @@ tqdm>=4.67.1
 typing-extensions>=4.15.0
 textgrid>=1.6.1
 # kaldifeat>=1.24  # Installed separately via precompiled wheel in Dockerfile
+spectralcluster>=0.2.22

@@ -26,6 +26,10 @@ AttentionType = Literal["softmax", "linear", "causal_linear"]
 PositionalEncodingType = Literal["rope", "sinusoidal", "learnable", "none"]
 
 
+# Sampling type options 
+EnrollmentStrategy = Literal['random', 'spectral_clustering', 'first'] 
+
+
 @dataclass
 class TransformerSharedParams:
     """

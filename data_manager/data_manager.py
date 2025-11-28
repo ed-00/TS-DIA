@@ -1162,6 +1162,7 @@ class DatasetManager:
         dataset: Any,
         process_function: Optional[Callable[..., Any]],
         download_function: Optional[Callable[..., Union[Path, None, Any]]],
+        exclude_splits: Optional[List[str]] = None,
     ) -> Dict[str, CutSet]:
         """
         Process a single dataset: download, manifests, features. (Main process only)
@@ -1199,6 +1200,13 @@ class DatasetManager:
         dataset_cut_sets = self._process_features_for_dataset(
             dataset, dataset_cut_sets
         )
+
+        if exclude_splits:
+            filtered_sets = {}
+            for name, cuts in dataset_cut_sets.items():
+                if not any(ex in name for ex in exclude_splits):
+                    filtered_sets[name] = cuts
+            dataset_cut_sets = filtered_sets
 
         print(f"✓ {dataset.name} ready (raw manifests)!\n")
         return dataset_cut_sets
@@ -1533,6 +1541,7 @@ class DatasetManager:
         pin_memory: bool = True,
         cache_dir: Optional[Pathlike] = None,
         validation_dataset_mapping: Optional[TrainingDatasetMap] = None,
+        exclude_splits: Optional[List[str]] = None,
     ) -> Dict[str, Dict[str, CutSet]]:
         """
         Load datasets with smart distributed caching.
@@ -1629,8 +1638,16 @@ class DatasetManager:
                 process_function, download_function = import_recipe(
                     dataset.name)
                 dataset_cut_sets = self._process_single_dataset(
-                    dataset, process_function, download_function
+                    dataset, process_function, download_function, exclude_splits=exclude_splits
                 )
+
+            if exclude_splits:
+                filtered_sets = {}
+                for name, cuts in dataset_cut_sets.items():
+                    # Check if any excluded string is a substring of the split name
+                    if not any(ex in name for ex in exclude_splits):
+                        filtered_sets[name] = cuts
+                dataset_cut_sets = filtered_sets
 
             # 2. Determine label type from global config
             label_type: LabelType = "binary"

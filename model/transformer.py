@@ -13,7 +13,7 @@ linear attention. It provides:
 The Performer uses FAVOR+ algorithm for efficient attention with O(n) complexity
 instead of O(n²) in standard transformers.
 
-References:
+References
     Paper: "Rethinking Attention with Performers" (Choromanski et al., 2020)
            https://arxiv.org/abs/2009.14794
 
@@ -26,12 +26,15 @@ import torch
 from torch import Tensor, nn
 from typing_extensions import Unpack
 import random
+import numpy as np
+from typing import List
+from spectralcluster import SpectralClusterer, RefinementOptions
 
 from .utils import ProjectionUpdater
 from .norm import PreLayerNorm, PreScaleNorm
 from .feedforward import FeedForward, ReZero
 from .activations import ActivationFunctions
-from .types import PerformerLayerParams, PerformerParams
+from .types import PerformerLayerParams, PerformerParams, EnrollmentStrategy
 from .attention import CrossAttention, MultiHeadAttention
 from .pos_encoder import PositionalEncodingFactory, RotaryPositionEmbedding
 
@@ -95,7 +98,7 @@ class PerformerLayer(nn.Module):
         self.use_cross_attention = use_cross_attention
         # Default chunk size for causal linear attention. Keep the same default
         # used in the causal implementation (128) when the caller doesn't set
-        # any value. 
+        # any value.
         causal_chunk_size = kwargs.get("causal_chunk_size", 128)
 
         self.self_attention = MultiHeadAttention(
@@ -106,7 +109,7 @@ class PerformerLayer(nn.Module):
             batch_size=batch_size,
             attention_type=attention_type,
             nb_features=nb_features,
-            causal_chunk_size=causal_chunk_size,
+            # causal_chunk_size=causal_chunk_size,
         )
 
         # Create cross-attention layer (for decoder)
@@ -647,6 +650,317 @@ class EncoderDecoderTransformer(nn.Module):
             **kwargs,
         )
 
+    def _get_continuous_speaker_segments(self, indeces: Tensor) -> List[Tensor]:
+        """Helper function to find continus segments in indices.
+
+        Args:
+            indeces (Tensor): list of indices.
+
+        Returns:
+            List[Tensor]: List of tensors containing indices for each segment.
+        """
+        if indeces.numel() == 0:
+            return []
+
+        segments = []
+        diffs = indeces[1:] - indeces[:-1]
+        breaks = torch.where(diffs > 1)[0] + 1
+        start = 0
+        for end in breaks:
+            segments.append(indeces[start:end])
+            start = end
+        segments.append(indeces[start:])
+        return segments
+
+    def estimate(self, x: torch.Tensor, enrollment_strategy: EnrollmentStrategy, min_enroll: int = 5, max_enroll: int = 10, threshold: float = 0.5, max_num_spk: int = 8, debug: bool = False, **kwargs) -> torch.Tensor:
+        """
+        Generate output sequence given input and enrollment embeddings using iterative decoding.
+
+        Args:
+            x: Tensor of shape (batch_size, seq_len, d_model)
+                Input embeddings
+            enrollment_strategy: Strategy to select enrollment segments ('random', 'first', etc.)
+            min_enroll: Minimum frames for a valid enrollment segment
+            max_enroll: Maximum frames to use for enrollment
+            threshold: Detection threshold
+            max_num_spk: Maximum number of speakers to detect
+            debug: Whether to plot debug information
+            **kwargs: Additional arguments
+
+        Returns:
+            Tensor of shape (batch_size, seq_len, max_num_spk)
+                Speaker activity probabilities for each detected speaker.
+        """
+        # Generate embeddings
+        encoder_output = self.encode(x, **kwargs)
+        batch_size, seq_len, _ = encoder_output.shape
+        device = x.device
+
+        # Imports for debug mode
+        import matplotlib.pyplot as plt
+        from sklearn.decomposition import PCA
+        import os
+
+        pca = None
+        enc_out_pca = None
+        axes = None
+        if debug:
+            os.makedirs("debug_plots", exist_ok=True)
+            
+            # Plot Encoder Output
+            enc_out_np = encoder_output[0].detach().cpu().numpy()
+            try:
+                pca = PCA(n_components=2)
+                enc_out_pca = pca.fit_transform(enc_out_np)
+                
+                plt.figure(figsize=(10, 8))
+                plt.scatter(enc_out_pca[:, 0], enc_out_pca[:, 1], alpha=0.5, s=1, label="Encoder Frames")
+                plt.title("Encoder Output PCA")
+                plt.legend()
+                plt.savefig("debug_plots/00_encoder_output_scatter.png")
+                plt.close()
+                
+                # Also save the heatmap version
+                plt.figure(figsize=(15, 5))
+                plt.imshow(enc_out_np.T, aspect='auto', cmap='viridis')
+                plt.title("Encoder Output (Raw Features)")
+                plt.colorbar()
+                plt.savefig("debug_plots/00_encoder_output_raw.png")
+                plt.close()
+                
+            except Exception as e:
+                print(f"Debug plot error (PCA): {e}")
+                pca = None
+
+        # Output tensor: (batch_size, seq_len, max_num_spk)
+        outputs = torch.zeros(
+            (batch_size, seq_len, max_num_spk), device=device)
+
+        for b in range(batch_size):
+            # Track which frames have been assigned to a speaker
+            covered_mask = torch.zeros(
+                (seq_len,), dtype=torch.bool, device=device)
+            curr_enc_out = encoder_output[b]
+
+            for spk_idx in range(max_num_spk):
+                #  Search for new speaker using Zero Enrollment
+                # Zero enrollment represents "no specific target", so model predicts "others"
+                zero_enroll = torch.zeros((1, 1, self.d_model), device=device)
+
+                # Decoder input: [Enrollment, Sequence]
+                # Note: In forward(), tgt=x. So we use x[b] as the sequence part.
+                decoder_input = torch.cat(
+                    [zero_enroll, x[b].unsqueeze(0)], dim=1)
+
+                # Decode to find "others"
+                logits = self.decode(
+                    decoder_input,
+                    encoder_output=curr_enc_out.unsqueeze(0),
+                    **kwargs
+                )
+                # Remove enrollment step from output and apply softmax
+                probs = torch.softmax(logits[:, 1:, :], dim=-1)
+
+                # Class 2 is 'others_sgl' (single speaker, not target)
+                others_sgl_prob = probs[0, :, 2]
+
+                # Class 4 is 'ns' (non-speech)
+                ns_prob = probs[0, :, 4]
+                is_speech_mask = ns_prob < threshold
+
+                # Find candidates: high 'others_sgl' prob AND not yet covered AND is speech
+                candidates_mask = (
+                    others_sgl_prob > threshold) & (~covered_mask) & is_speech_mask
+                candidate_indices = torch.where(candidates_mask)[0]
+
+                if debug and b == 0:
+                    fig, axes = plt.subplots(4, 1, figsize=(15, 12), sharex=True)
+                    
+                    # 1. Others Probability
+                    axes[0].plot(others_sgl_prob.detach().cpu().numpy(), label="Others Sgl Prob")
+                    axes[0].axhline(y=threshold, color='r', linestyle='--', label="Threshold")
+                    axes[0].set_title(f"Speaker {spk_idx}: 'Others' Probability (Zero Enrollment)")
+                    axes[0].legend()
+                    
+                    # 2. Candidates & Covered
+                    axes[1].plot(candidates_mask.detach().cpu().numpy(), label="Candidates", color='g', alpha=0.5)
+                    axes[1].plot(covered_mask.detach().cpu().numpy(), label="Already Covered", color='gray', alpha=0.5)
+                    axes[1].set_title(f"Speaker {spk_idx}: Candidates & Covered Mask")
+                    axes[1].legend()
+
+                if len(candidate_indices) < min_enroll:
+                    if debug and b == 0:
+                        plt.close()
+                    break  # No more significant speaker activity found
+
+                # Select enrollment segment
+                segments = self._get_continuous_speaker_segments(
+                    candidate_indices)
+                valid_segments = [s for s in segments if len(s) >= min_enroll]
+
+                if not valid_segments:
+                    if debug and b == 0:
+                        plt.close()
+                    break
+
+                if enrollment_strategy == 'random':
+                    selected_segment = valid_segments[np.random.randint(
+                        len(valid_segments))]
+                elif enrollment_strategy == 'first':
+                    selected_segment = valid_segments[0]
+                elif enrollment_strategy == 'spectral_clustering':
+                    # Get embeddings for candidate frames
+                    candidate_embs = curr_enc_out[candidate_indices].cpu(
+                    ).numpy()
+
+                    # Cluster the embeddings
+                    refinement_options = RefinementOptions(
+                        p_percentile=0.95,
+                        gaussian_blur_sigma=1
+                    )
+                    clusterer = SpectralClusterer(
+                        min_clusters=1,
+                        max_clusters=max_num_spk,
+                        refinement_options=refinement_options
+                    )
+                    labels = clusterer.predict(candidate_embs)
+
+                    # Find largest cluster
+                    unique_labels, counts = np.unique(
+                        labels, return_counts=True)
+                    largest_cluster_label = unique_labels[np.argmax(counts)]
+
+                    # Get indices for largest cluster
+                    cluster_indices = candidate_indices[torch.tensor(
+                        labels == largest_cluster_label, device=device)]
+
+                    # Get segments for largest cluster
+                    cluster_segments = self._get_continuous_speaker_segments(
+                        cluster_indices)
+                    valid_cluster_segments = [
+                        s for s in cluster_segments if len(s) >= min_enroll]
+
+                    if valid_cluster_segments:
+                        # Select longest segment from largest cluster
+                        lengths = [len(s) for s in valid_cluster_segments]
+                        selected_segment = valid_cluster_segments[np.argmax(
+                            lengths)]
+                    else:
+                        # Fallback if clustering yields no valid segments
+                        selected_segment = valid_segments[np.random.randint(
+                            len(valid_segments))]
+                else:
+                    # Fallback to random
+                    selected_segment = valid_segments[np.random.randint(
+                        len(valid_segments))]
+
+                # Trim to max_enroll
+                if len(selected_segment) > max_enroll:
+                    start_idx = np.random.randint(
+                        0, len(selected_segment) - max_enroll + 1)
+                    enroll_indices = selected_segment[start_idx: start_idx + max_enroll]
+                else:
+                    enroll_indices = selected_segment
+
+                if debug and b == 0 and axes is not None:
+                     # Highlight selected segment on axes[1]
+                     sel_mask = np.zeros(seq_len)
+                     sel_mask[enroll_indices.detach().cpu().numpy()] = 1
+                     axes[1].plot(sel_mask, label="Selected Enrollment", color='red', linewidth=2)
+                     axes[1].legend()
+
+                # Extract enrollment embedding from encoder output
+                new_enroll_emb = curr_enc_out[enroll_indices].mean(
+                    dim=0, keepdim=True)
+
+                #  Re-Decode with new speaker enrollment to get their full activity
+                enroll_input = new_enroll_emb.unsqueeze(0)
+                decoder_input = torch.cat(
+                    [enroll_input, x[b].unsqueeze(0)], dim=1)
+
+                logits = self.decode(
+                    decoder_input,
+                    encoder_output=curr_enc_out.unsqueeze(0),
+                    **kwargs
+                )
+                probs = torch.softmax(logits[:, 1:, :], dim=-1)
+
+                # Target activity: Class 0 (ts) + Class 1 (ts_ovl)
+                ts_activity = probs[0, :, 0] + probs[0, :, 1]
+
+                # Mask non-speech
+                ns_prob_target = probs[0, :, 4]
+                is_speech_mask_target = ns_prob_target < threshold
+                ts_activity = ts_activity * is_speech_mask_target.float()
+
+                outputs[b, :, spk_idx] = ts_activity
+
+                # Update covered mask
+                active_mask = ts_activity > threshold
+                covered_mask = covered_mask | active_mask
+
+                if debug and b == 0 and axes is not None:
+                    axes[2].plot(ts_activity.detach().cpu().numpy(), label="Target Activity")
+                    axes[2].axhline(y=threshold, color='r', linestyle='--', label="Threshold")
+                    axes[2].set_title(f"Speaker {spk_idx}: Target Activity (After Enrollment)")
+                    axes[2].legend()
+                    
+                    # 4. Updated Covered Mask
+                    axes[3].plot(covered_mask.detach().cpu().numpy(), label="Updated Covered Mask", color='black')
+                    axes[3].set_title(f"Speaker {spk_idx}: Updated Covered Mask")
+                    
+                    plt.tight_layout()
+                    plt.savefig(f"debug_plots/01_speaker_{spk_idx}_step.png")
+                    plt.close()
+
+                    # Plot Ego Labels breakdown
+                    fig_ego, axes_ego = plt.subplots(5, 1, figsize=(15, 15), sharex=True)
+                    class_names = ['ts', 'ts_ovl', 'others_sgl', 'others_ovl', 'ns']
+                    
+                    for c in range(5):
+                        prob_c = probs[0, :, c].detach().cpu().numpy()
+                        # Simple thresholding
+                        binary_c = (prob_c > threshold).astype(float)
+                        
+                        axes_ego[c].plot(prob_c, label=f"Prob {class_names[c]}", color='blue')
+                        axes_ego[c].fill_between(range(len(prob_c)), 0, binary_c, color='orange', alpha=0.3, label=f"Binary > {threshold}")
+                        axes_ego[c].axhline(y=threshold, color='r', linestyle=':', label="Threshold")
+                        axes_ego[c].set_ylabel(class_names[c])
+                        axes_ego[c].legend(loc='upper right')
+                        
+                    axes_ego[0].set_title(f"Speaker {spk_idx}: Ego Labels (Probabilities & Thresholded)")
+                    plt.tight_layout()
+                    plt.savefig(f"debug_plots/01_speaker_{spk_idx}_ego_labels.png")
+                    plt.close()
+
+                    # Plot Embedding Space
+                    if pca is not None and enc_out_pca is not None:
+                        try:
+                            enroll_emb_np = new_enroll_emb.detach().cpu().numpy()
+                            enroll_pca = pca.transform(enroll_emb_np)
+                            
+                            plt.figure(figsize=(10, 8))
+                            plt.scatter(enc_out_pca[:, 0], enc_out_pca[:, 1], alpha=0.1, s=1, color='gray', label="Encoder Frames")
+                            
+                            # Highlight selected frames
+                            selected_frames_pca = enc_out_pca[enroll_indices.detach().cpu().numpy()]
+                            plt.scatter(selected_frames_pca[:, 0], selected_frames_pca[:, 1], color='green', s=10, label="Selected Frames")
+                            
+                            # Plot enrollment vector
+                            plt.scatter(enroll_pca[:, 0], enroll_pca[:, 1], color='red', s=100, marker='X', label="Enrollment Vector")
+                            
+                            plt.title(f"Speaker {spk_idx}: Embedding Space")
+                            plt.legend()
+                            plt.savefig(f"debug_plots/01_speaker_{spk_idx}_embedding.png")
+                            plt.close()
+                        except Exception as e:
+                            print(f"Debug plot error (Embedding): {e}")
+
+        # Binarize outputs based on threshold
+        outputs = (outputs > threshold).float()
+
+        return outputs
+
     def forward(
         self,
         src: Tensor | None = None,
@@ -703,7 +1017,7 @@ class EncoderDecoderTransformer(nn.Module):
                 if int(is_tgt) == 0:
                     enrollment_embeddings.append(
                         torch.zeros((1, self.d_model),
-                                   device=encoder_output.device)
+                                    device=encoder_output.device)
                     )
                 else:
                     # Include overlap (1) in enrollment candidates
@@ -734,7 +1048,7 @@ class EncoderDecoderTransformer(nn.Module):
             for _ in range(encoder_output.size(0)):
                 enrollment_embeddings.append(
                     torch.zeros((1, self.d_model),
-                               device=encoder_output.device)
+                                device=encoder_output.device)
                 )
 
         enrollment_tensor = torch.stack(enrollment_embeddings)

@@ -180,6 +180,11 @@ class EgoCentricDiarizationDataset(IterableDataset):
                 cut, target_speakers, self.LABEL_MAP
             )
 
+            # Calculate mask for ground truth visualization
+            speaker_to_idx_map = {spk: i for i, spk in enumerate(all_speakers_in_cut)}
+            mask = cut.speakers_feature_mask(speaker_to_idx_map=speaker_to_idx_map)
+            mask_tensor = torch.from_numpy(mask).float()
+
             # Yield one example for each target speaker
             for target_spk_id in target_speakers:
                 speaker_key = target_spk_id if target_spk_id else "__none__"
@@ -192,11 +197,14 @@ class EgoCentricDiarizationDataset(IterableDataset):
                 
                 # Clone features to avoid in-place modification bugs
                 curr_features = mixture_features.clone()
+                curr_mask = mask_tensor.clone()
                 
                 if self.subsampling > 1:
                     curr_features, labels = subsample_torch(
                         curr_features, labels, subsample=self.subsampling
                     )
+                    # Subsample mask (NumSpk, T) -> (NumSpk, T_ss)
+                    curr_mask = curr_mask.transpose(0, 1)[::self.subsampling].transpose(0, 1)
 
                 curr_features = splice(
                     curr_features, context_size=self.context_size
@@ -211,6 +219,7 @@ class EgoCentricDiarizationDataset(IterableDataset):
                     "labels": labels,
                     # Keep a per-example binary indicator `is_target` for convenience (0/1)
                     "is_target": is_target_flag,
+                    "ground_truth": curr_mask,
                 }
 
     @staticmethod

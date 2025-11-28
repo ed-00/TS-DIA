@@ -204,3 +204,44 @@ class ProjectionUpdater(nn.Module):
         raise NotImplementedError(
             "ProjectionUpdater should not be used in forward pass directly"
         )
+
+
+def fix_safetensors_shared_parameters(state_dict: dict, model: nn.Module) -> dict:
+    """
+    Fix missing keys in state_dict loaded from safetensors due to shared parameters.
+    Safetensors deduplicates shared tensors (same data_ptr), so we need to restore them
+    using the model's structure.
+
+    Args:
+        state_dict: The state_dict loaded from safetensors file
+        model: The model instance to use as reference for shared parameters
+
+    Returns:
+        The fixed state_dict with restored shared parameters
+    """
+    print("Fixing state_dict for shared parameters...")
+    model_state_dict = model.state_dict()
+
+    # Map data_ptr to list of keys in the model
+    ptr_to_keys = {}
+    for k, v in model_state_dict.items():
+        ptr = v.data_ptr()
+        if ptr not in ptr_to_keys:
+            ptr_to_keys[ptr] = []
+        ptr_to_keys[ptr].append(k)
+
+    # Fill in missing keys
+    fixed_count = 0
+    for k in model_state_dict.keys():
+        if k not in state_dict:
+            # Find a sibling key that might be in the state_dict
+            ptr = model_state_dict[k].data_ptr()
+            siblings = ptr_to_keys.get(ptr, [])
+
+            for sibling in siblings:
+                if sibling in state_dict:
+                    state_dict[k] = state_dict[sibling]
+                    fixed_count += 1
+                    break
+    print(f"Restored {fixed_count} missing shared keys.")
+    return state_dict
