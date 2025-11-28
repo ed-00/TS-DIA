@@ -412,9 +412,9 @@ def training_parser():
             training_config.optimizer.weight_decay = args.weight_decay
 
         # Scheduler overrides
-        if args.warmup_steps is not None:
+        if args.warmup_steps is not None and training_config.scheduler:
             training_config.scheduler.warmup_steps = args.warmup_steps
-        if args.min_lr is not None:
+        if args.min_lr is not None and training_config.scheduler:
             training_config.scheduler.min_lr = args.min_lr
 
         # Training behavior overrides
@@ -500,11 +500,11 @@ if __name__ == "__main__":
     print(f"  Type: {config.optimizer.type}")
     print(f"  Learning rate: {config.optimizer.lr}")
     print(f"  Weight decay: {config.optimizer.weight_decay}")
-
-    print("\n📊 Scheduler:")
-    print(f"  Type: {config.scheduler.type}")
-    print(f"  Warmup steps: {config.scheduler.warmup_steps}")
-    print(f"  Min LR: {config.scheduler.min_lr}")
+    if config.scheduler:
+        print("\n📊 Scheduler:")
+        print(f"  Type: {config.scheduler.type}")
+        print(f"  Warmup steps: {config.scheduler.warmup_steps}")
+        print(f"  Min LR: {config.scheduler.min_lr}")
 
     if config.checkpoint:
         print("\n💾 Checkpoints:")
