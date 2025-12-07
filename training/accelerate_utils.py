@@ -101,10 +101,9 @@ def prepare_for_training(
     accelerator: Accelerator,
     model: torch.nn.Module,
     optimizer: Optimizer,
-    train_dataloader: DataLoader,
+    train_dataloader: Optional[DataLoader],
     val_dataloader: Optional[DataLoader] = None,
     lr_scheduler: Optional[Any] = None,
-
 ) -> Tuple:
     """
     Prepare model, optimizer, and dataloaders for training with Accelerate.
@@ -113,46 +112,41 @@ def prepare_for_training(
         accelerator: Accelerator instance
         model: PyTorch model
         optimizer: Optimizer
-        train_dataloader: Training dataloader
+        train_dataloader: Training dataloader (optional)
         val_dataloader: Validation dataloader (optional)
         lr_scheduler: Learning rate scheduler (optional)
 
     Returns:
         Tuple of prepared (model, optimizer, train_dataloader, val_dataloader, lr_scheduler)
-
-    Example:
-        ```python
-        model, optimizer, train_dl, val_dl, scheduler = prepare_for_training(
-            accelerator, model, optimizer, train_dl, val_dl, scheduler
-        )
-        ```
     """
     # Prepare model/optimizer/scheduler only; keep Lhotse DataLoaders unwrapped so custom sampler is preserved.
+    args = [model, optimizer]
     if lr_scheduler is not None:
-        args = [model, optimizer, lr_scheduler, train_dataloader]
-        accelerator.print("preparing with lr_scheduler")
-        if val_dataloader is not None:
-            args.append(val_dataloader)
-        prepared = accelerator.prepare(*args)
-
-        if val_dataloader is not None:
-            model, optimizer, lr_scheduler, train_dataloader, val_dataloader = prepared
-        else:
-            model, optimizer, lr_scheduler, train_dataloader = prepared
-            val_dataloader = None
-    else:
-        args = [model, optimizer, train_dataloader]
-        accelerator.print("preparing without lr_scheduler")
-        if val_dataloader is not None:
-            args.append(val_dataloader)
-        prepared = accelerator.prepare(*args)
-
-        if val_dataloader is not None:
-            model, optimizer, train_dataloader, val_dataloader = prepared
-        else:
-            model, optimizer, train_dataloader = prepared
-            val_dataloader = None
-
+        args.append(lr_scheduler)
+    
+    if train_dataloader is not None:
+        args.append(train_dataloader)
+        
+    if val_dataloader is not None:
+        args.append(val_dataloader)
+        
+    prepared = accelerator.prepare(*args)
+    
+    # Unpack
+    prepared_iter = iter(prepared)
+    
+    model = next(prepared_iter)
+    optimizer = next(prepared_iter)
+    
+    if lr_scheduler is not None:
+        lr_scheduler = next(prepared_iter)
+        
+    if train_dataloader is not None:
+        train_dataloader = next(prepared_iter)
+        
+    if val_dataloader is not None:
+        val_dataloader = next(prepared_iter)
+        
     return model, optimizer, train_dataloader, val_dataloader, lr_scheduler
 
 

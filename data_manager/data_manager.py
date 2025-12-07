@@ -220,7 +220,7 @@ class DatasetManager:
     """
 
     def _try_load_existing_manifests(
-        self, output_dir: Path, dataset_name: str, storage_path: Optional[Path] = None
+        self, output_dir: Path, dataset_name: str, storage_path: Optional[Path] = None, allowed_splits: Optional[List[str]] = None
     ) -> Optional[Dict[str, Dict[str, Union[RecordingSet, SupervisionSet, CutSet]]]]:
         """
         Try to load existing manifests from disk to skip re-preparation.
@@ -266,6 +266,9 @@ class DatasetManager:
                     split_name = filename[start_pos:end_pos]
 
                     if not split_name:
+                        continue
+
+                    if allowed_splits and split_name not in allowed_splits:
                         continue
 
                     try:
@@ -318,6 +321,9 @@ class DatasetManager:
 
         manifests = {}
         for split_name in splits:
+            if allowed_splits and split_name not in allowed_splits:
+                continue
+
             split_manifests = {}
 
             recordings_patterns = [
@@ -1473,6 +1479,7 @@ class DatasetManager:
     def _load_precomputed_dataset(
         self,
         dataset: Any,
+        allowed_splits: Optional[List[str]] = None,
     ) -> Dict[str, CutSet]:
         """Load a dataset from precomputed manifests. (Main process only)"""
 
@@ -1506,7 +1513,7 @@ class DatasetManager:
             global_config, 'storage_path') else None
 
         manifests = self._try_load_existing_manifests(
-            manifest_dir, dataset.name, storage_path
+            manifest_dir, dataset.name, storage_path, allowed_splits
         )
 
         if manifests is None:
@@ -1542,6 +1549,7 @@ class DatasetManager:
         cache_dir: Optional[Pathlike] = None,
         validation_dataset_mapping: Optional[TrainingDatasetMap] = None,
         exclude_splits: Optional[List[str]] = None,
+        strict_splits: bool = False,
     ) -> Dict[str, Dict[str, CutSet]]:
         """
         Load datasets with smart distributed caching.
@@ -1607,6 +1615,10 @@ class DatasetManager:
 
             # If no splits found for this dataset, skip cache check
             if not splits_to_check:
+                if strict_splits:
+                    print(f"→ {dataset.name}: No splits configured and strict_splits=True. Skipping.")
+                    continue
+
                 print(
                     f"→ {dataset.name}: No splits configured in mappings, will process all available splits")
                 is_fully_cached = False
@@ -1633,7 +1645,7 @@ class DatasetManager:
 
             # 1. Load/Compute base CutSets (Download -> Manifests -> Features)
             if getattr(dataset, "precomputed_only", False):
-                dataset_cut_sets = self._load_precomputed_dataset(dataset)
+                dataset_cut_sets = self._load_precomputed_dataset(dataset, allowed_splits=splits_to_check)
             else:
                 process_function, download_function = import_recipe(
                     dataset.name)
@@ -1646,6 +1658,15 @@ class DatasetManager:
                 for name, cuts in dataset_cut_sets.items():
                     # Check if any excluded string is a substring of the split name
                     if not any(ex in name for ex in exclude_splits):
+                        filtered_sets[name] = cuts
+                dataset_cut_sets = filtered_sets
+
+            # Filter dataset_cut_sets to only include requested splits if specified
+            if splits_to_check:
+                print(f"→ {dataset.name}: Filtering splits to match configuration: {splits_to_check}")
+                filtered_sets = {}
+                for name, cuts in dataset_cut_sets.items():
+                    if name in splits_to_check:
                         filtered_sets[name] = cuts
                 dataset_cut_sets = filtered_sets
 

@@ -86,17 +86,21 @@ class Trainer:
     def __init__(
         self,
         model: nn.Module,
-        train_dataloader: Tuple[DataLoader, int],
         config: TrainingConfig,
         accelerator: Accelerator,
+        train_dataloader: Optional[Tuple[DataLoader, int]] = None,
         val_dataloader: Optional[Union[DataLoader,
                                        Dict[str, Tuple[DataLoader, int]]]] = None,
         test_dataloader: Optional[DataLoader] = None,
         config_path: Optional[str] = None,
     ):
         self.config = config
-        self.train_dataloader = train_dataloader[0]
-        self.total_training_size = math.ceil(train_dataloader[1] / 2)
+        if train_dataloader:
+            self.train_dataloader = train_dataloader[0]
+            self.total_training_size = math.ceil(train_dataloader[1] / 2)
+        else:
+            self.train_dataloader = None
+            self.total_training_size = 0
         self.test_dataloader = test_dataloader
         self.config_path = config_path
 
@@ -478,44 +482,6 @@ class Trainer:
 
                 loss = loss_dict["total"]
 
-                # Safeguards
-                if self.config.safeguards:
-                    skip_batch = False
-                    # Check for non-finite loss
-                    if self.config.safeguards.get("skip_non_finite_losses", False):
-                        if not torch.isfinite(loss):
-                            self.accelerator.print(f"⚠️  Skipping batch with non-finite loss: {loss.item()}")
-                            skip_batch = True
-                    
-                    # Check for high loss
-                    max_loss = self.config.safeguards.get("max_loss")
-                    if not skip_batch and max_loss is not None:
-                        loss_val = loss.item()
-                        if loss_val > float(max_loss):
-                            if self.config.safeguards.get("skip_high_loss", False):
-                                self.accelerator.print(f"⚠️  Skipping batch with high loss: {loss_val} > {max_loss}")
-                                skip_batch = True
-                    
-                    # Synchronize skip_batch across all processes for DDP compatibility
-                    # If any process needs to skip, all processes must skip to maintain sync
-                    if self.accelerator.num_processes > 1:
-                        skip_tensor = torch.tensor([1.0 if skip_batch else 0.0], device=self.accelerator.device)
-                        try:
-                            # Use reduce if available (newer accelerate)
-                            skip_tensor = self.accelerator.reduce(skip_tensor, reduction="max")
-                        except AttributeError:
-                            # Fallback for older accelerate versions or if reduce is not exposed
-                            import torch.distributed as dist
-                            if dist.is_initialized():
-                                dist.all_reduce(skip_tensor, op=dist.ReduceOp.MAX)
-                        
-                        if skip_tensor.item() > 0.5:
-                            skip_batch = True
-
-                    if skip_batch:
-                        self.optimizer.zero_grad()
-                        continue
-
                 # Backward pass
                 self.accelerator.backward(loss)
 
@@ -550,14 +516,7 @@ class Trainer:
                     "main_loss": loss_dict["main"].item(),
                 }
 
-                # Add grad/param norms if available
-                try:
-                    if grad_norm is not None:
-                        metrics["grad_norm"] = float(grad_norm)
-                    if param_norm is not None:
-                        metrics["param_norm"] = float(param_norm)
-                except Exception:
-                    pass
+
 
                 # Add auxiliary losses
                 for aux_name, aux_loss in loss_dict.items():
