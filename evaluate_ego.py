@@ -230,8 +230,6 @@ def main():
         print("Loading Datasets...")
         data_manager = DatasetManager()
 
-        # We use the dataset configs from the model config
-        # Pass empty training map and strict_splits=True to avoid loading training data
         cut_sets = data_manager.load_datasets(
             datasets=dataset_configs,
             global_config=train_global_config,
@@ -240,7 +238,6 @@ def main():
             strict_splits=True
         )
 
-        # Create Validation Dataloaders
         label_type = "ego"
 
         val_dataloaders = data_manager.create_validation_dataloaders(
@@ -251,6 +248,10 @@ def main():
             accelerator=accelerator,
             label_type=label_type
         )
+
+        # Prepare dataloaders with accelerator
+        for key, (dataloader, size) in val_dataloaders.items():
+            val_dataloaders[key] = (accelerator.prepare(dataloader), size)
 
         if not val_dataloaders:
             print("No validation dataloaders created. Check dataset config and splits.")
@@ -264,9 +265,6 @@ def main():
             checkpoints = glob.glob(os.path.join(save_dir, "**", "checkpoint*"), recursive=True)
         else:
             checkpoints = glob.glob(os.path.join(save_dir, "checkpoint*"))
-
-        
-
 
         checkpoints.sort(key=get_step)
 
@@ -297,7 +295,8 @@ def main():
                     continue
 
             # Ensure model is on device
-            model.to(accelerator.device)
+            model = accelerator.prepare(model)
+
             model.eval()
 
             metrics = validate_model(model, val_dataloaders, training_config, accelerator)
