@@ -26,7 +26,7 @@ model:
 
     # Attention configuration
     attention_type: linear # Options: softmax, linear, causal_linear
-    nb_features: 256 # Number of random features for linear attention (None = auto)
+    nb_features: 25 # Number of random features for linear attention (None = auto)
 
     # Activation function
     activation: REGLU # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
@@ -39,7 +39,10 @@ model:
     # feature_redraw_interval: 1000  # Redraw random features every N steps (None = never)
     # auto_check_redraw: true        # Automatically check when to redraw
 
-
+    # positional_encoding:
+    #   type: rope  # or sinusoidal, learnable, none
+    #   max_seq_len: 512
+    #   theta: 10000.0
 
   # ---------------------------------------------------------------------------
   # Decoder Configuration (for decoder and encoder_decoder models)
@@ -54,7 +57,7 @@ model:
 
     # Attention configuration
     attention_type: causal_linear # Options: softmax, linear, causal_linear
-    # nb_features: 256          # Number of random features for linear attention
+    nb_features: 25          # Number of random features for linear attention
 
     # Activation function
     activation: REGLU # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
@@ -79,10 +82,10 @@ model:
       # 3: others_ovl (multiple non-target speakers)
       # 4: ns (non-speech)
 
-    # positional_encoding:
-    #   type: rope
-    #   max_seq_len: 512
-    #   theta: 10000.0
+    positional_encoding:
+      type: rope
+      max_seq_len: 512
+      theta: 10000.0
 
 training:
   # ---------------------------------------------------------------------------
@@ -93,9 +96,11 @@ training:
   random_seed: 42 # Random seed for reproducibility
   max_steps: null # Maximum training steps (null = use epochs)
   training_dataset_map:
-    combine: true # Combine training sets if multiple datasets are used
-    splits: []
-
+    combine: true
+    splits:
+      - dataset_name: "ava_avd"
+        split_name: "train"
+        subset_ratio: 1.0
 
 
   # ---------------------------------------------------------------------------
@@ -103,7 +108,7 @@ training:
   # ---------------------------------------------------------------------------
   optimizer:
     type: adamw # Options: adam, adamw, sgd, adagrad, rmsprop, adadelta
-    lr: 0.0001 # Learning rate
+    lr: 0.00001 # Learning rate
     weight_decay: 0.1 # Weight decay / L2 regularization
     betas: [0.9, 0.95] # Beta parameters for Adam-style optimizers
     epsilon: 0.00000001 # Epsilon for numerical stability (1e-8)
@@ -113,11 +118,8 @@ training:
   # Learning Rate Scheduler Configuration (no secduler)
   # ---------------------------------------------------------------------------
   scheduler:
-    type: cosine
-    min_lr: 0.00003      
-    warmup_steps: 206800
-    max_lr: null
-    num_cycles: 1
+    type: constant
+    warmup_steps: 0
 
   # ---------------------------------------------------------------------------
   # Gradient Management
@@ -163,51 +165,9 @@ training:
     metric_for_best_model: val_loss # Metric to track for best model
     greater_is_better: false # Whether higher metric is better
     validation_dataset_map:
-      combine: false # Keep validation splits separate
+      combine: false
       splits:
-        # - dataset_name: "simu_1spk"
-        #   split_name: "dev_b2_mix500"
-        #   subset_ratio: 1.0
-        # - dataset_name: "simu_2spk"
-        #   split_name: "dev_b2_mix500"
-        #   subset_ratio: 1.0
-        # - dataset_name: "simu_2spk"
-        #   split_name: "dev_b3_mix500"
-        #   subset_ratio: 1.0
-        # - dataset_name: "simu_2spk"
-        #   split_name: "dev_b5_mix500"
-        #   subset_ratio: 1.0
-        # - dataset_name: "simu_3spk"
-        #   split_name: "dev_b5_mix500"
-        #   subset_ratio: 1.0
-        # - dataset_name: "simu_3spk"
-        #   split_name: "dev_b7_mix500"
-        #   subset_ratio: 1.0
-        # - dataset_name: "simu_3spk"
-        #   split_name: "dev_b11_mix500"
-        #   subset_ratio: 1.0
-        # - dataset_name: "simu_4spk"
-        #   split_name: "dev_b9_mix500"
-        #   subset_ratio: 1.0
-        # - dataset_name: "simu_5spk"
-        #   split_name: "dev_b13_mix500"
-        #   subset_ratio: 1.0
         - dataset_name: "ava_avd"
-          split_name: "val"
-          subset_ratio: 1.0
-        - dataset_name: "ami"
-          split_name: "val"
-          subset_ratio: 1.0
-        - dataset_name: "icsi"
-          split_name: "val"
-          subset_ratio: 1.0
-        # - dataset_name: "aishell4"
-        #   split_name: "test"
-        #   subset_ratio: 1.0
-        - dataset_name: "voxconverse"
-          split_name: "val"
-          subset_ratio: 1.0
-        - dataset_name: "mswild"
           split_name: "val"
           subset_ratio: 1.0
 
@@ -225,10 +185,10 @@ training:
   # Checkpoint Configuration
   # ---------------------------------------------------------------------------
   checkpoint:
-    save_dir: ./outputs/checkpoints/linear_pretraining_large_pos_loss_patch_final_clean_no_rezero/checkpoints # Directory to save checkpoints
+    save_dir: ./outputs/checkpoints/finetune_softmax_linear_model_correct_nbf_ava_avd # Directory to save checkpoints
     interval: 2585 # Save checkpoint every N steps
     save_total_limit: 100 # Maximum number of checkpoints to keep
-    resume: null # Path to checkpoint to resume from
+    resume: ./outputs/checkpoints/linear_pretraining_large_pos_loss_patch_final_clean_no_rezero_nbf25/checkpoints/checkpoint_19 # Path to checkpoint to resume from
 
   # ---------------------------------------------------------------------------
   # Safeguards (runtime protection against data spikes / FP16/BF16 anomalies)
@@ -372,190 +332,8 @@ global_config:
       prefetch_factor: 4
 
 datasets:
-  # - name: simu_1spk
-  # - name: simu_2spk
-  # - name: simu_4spk
-  # - name: simu_3spk
-  # - name: simu_5spk
-
   - name: ava_avd
     download_params:
       download_annotations: true
       download_videos: true
-  - name: ami
-    download_params:
-      # Microphone type: ihm (individual headset), sdm (single distant), mdm (multiple distant)
-      mic: ihm-mix
-      url: http://groups.inf.ed.ac.uk/ami
-      annotations: null # Auto-downloaded
 
-    process_params:
-      # Microphone type to process (must match download)
-      mic: ihm-mix
-
-      # Partition selection
-      # Options: full-corpus, full-corpus-asr, scenario-only
-      partition: full-corpus
-
-      # Text normalization
-      # Options: none, upper, kaldi
-      normalize_text: none
-
-      # Segmentation options
-      max_words_per_segment: null # null = no splitting
-      merge_consecutive: false # Merge same-speaker consecutive segments
-
-  - name: icsi
-    download_params:
-      # Microphone type: ihm (individual headset), mdm (multiple distant)
-      mic: ihm-mix
-      url: http://groups.inf.ed.ac.uk/ami
-      transcripts_dir: ./outputs/data/icsi/ICSI
-
-    process_params:
-      # Microphone type to process
-      mic: ihm-mix
-
-      # Text normalization
-      # Options: none, upper, kaldi
-      normalize_text: none
-
-      # Audio format conversion
-      save_to_wav: true # Convert SPH files to WAV if needed
-      output_dir: ./outputs/manifests/icsi
-      audio_dir: ./outputs/data/icsi/speech
-      transcripts_dir: ./outputs/data/icsi/ICSI
-
-  - name: aishell4
-    download_params:
-      # Base URL for downloads
-      base_url: http://www.openslr.org/resources
-
-    process_params:
-      # Chinese text normalization
-      normalize_text: false # Set true to normalize Chinese characters
-
-  - name: voxconverse
-    download_params:
-      corpus_dir: null # Will use global_config corpus_dir/voxconverse
-
-    process_params:
-      split_test: false # Whether to split test set
-
-  - name: mswild
-    download_params:
-      # Multi-modal data downloads
-      download_audio: true  # ~7.56 GB (required)
-      download_video: false  # ~43.14 GB (manual download required)
-      download_faces: false  # ~14.49 GB (manual download required)
-
-    process_params:
-      # Split name to RTTM pattern mapping
-      # Default: {"train": "few_train", "dev": "few_val", "test": "many_val"}
-      splits:
-        train: few_train
-        dev: few_val
-        test: many_val
-
-
-  - name: ego4d
-    download_params:
-      # Dataset parts to download
-      # Options: clips, annotations, metadata, takes, captures, etc.
-      dataset_parts: ["clips", "annotations"]
-
-      # Auto-install Ego4D CLI if not available
-      install_cli: true
-
-      # Download timeout (seconds)
-      timeout: 3600
-
-      # Path to .env file for environment variables
-      env_file: ./.env  # Load AWS credentials from project .env file
-
-    process_params:
-      # Audio extraction settings
-      extract_audio: true
-      audio_sample_rate: 16000
-
-      # Segment duration constraints
-      min_segment_duration: 0.5  # seconds
-      max_segment_duration: 30.0  # seconds
-
-      # Limit number of clips for testing (0 = no limit)
-      max_clips: 0
-
-      # Filter annotations by type (e.g., "av" for audio-visual)
-      annotation_subset: "av"  # null = all annotations
-
-  - name: voxceleb1
-    download_params: {}
-
-    # Note: VoxCeleb processing combines voxceleb1 and voxceleb2
-    # Use voxceleb1_root in process_params
-    process_params: {}
-
-  - name: voxceleb2
-    download_params: {}
-
-    # Note: VoxCeleb processing combines voxceleb1 and voxceleb2
-    # Use voxceleb2_root in process_params
-    process_params: {}
-
-  - name: tedlium
-    download_params: {}
-
-    process_params:
-      # TED-LIUM root directory
-      tedlium_root: null
-
-      # Dataset parts to process
-      # Options: null (auto-detect), or specific parts
-      dataset_parts: null
-
-      # Text normalization
-      # Options: none, upper, lower, kaldi
-      normalize_text: none
-
-  - name: libricss
-    download_params: {}
-
-    process_params:
-      # Recording type
-      # Options: mdm (multiple distant microphone)
-      type: ihm-mix
-
-      # Generate segmented cuts
-      segmented_cuts: false
-
-  - name: chime6
-    download_params: {}
-
-    process_params:
-      # Dataset parts to process
-      # Options: all, train, dev, eval
-      dataset_parts: all
-
-      # Microphone type: mdm (multiple distant microphone)
-      mic: ihm-mix
-
-      # Use reference array
-      use_reference_array: false
-
-      # Perform array synchronization
-      perform_array_sync: false
-
-      # Verify MD5 checksums
-      verify_md5_checksums: false
-
-      # Number of threads per job
-      num_threads_per_job: 1
-
-      # Path to sox binary
-      sox_path: /usr/bin/sox
-
-      # Text normalization
-      normalize_text: null
-
-      # Use CHiME-7 split
-      use_chime7_split: false

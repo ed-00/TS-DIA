@@ -1,0 +1,49 @@
+#!/bin/bash
+
+# To run this script in the background and keep it running after closing the terminal:
+# nohup ./run_finetune_softmax_linear_correct_nbf.sh > logs/softmax_linear_model_correct_nbf.log 2>&1 &
+
+mkdir -p logs
+
+echo "Starting training for configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_aishell4.yaml..."
+accelerate launch --config_file configs/accelerate/accelerate-8gpus.yaml train.py --config configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_aishell4.yaml
+if [ $? -ne 0 ]; then
+    echo "Training failed for configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_aishell4.yaml. Continuing to next job..."
+fi
+echo "--------------------------------------------------"
+
+echo "Starting training for configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_ami.yaml..."
+accelerate launch --config_file configs/accelerate/accelerate-8gpus.yaml train.py --config configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_ami.yaml
+if [ $? -ne 0 ]; then
+    echo "Training failed for configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_ami.yaml. Continuing to next job..."
+fi
+echo "--------------------------------------------------"
+
+echo "Starting training for configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_ava_avd.yaml..."
+accelerate launch --config_file configs/accelerate/accelerate-8gpus.yaml train.py --config configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_ava_avd.yaml
+if [ $? -ne 0 ]; then
+    echo "Training failed for configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_ava_avd.yaml. Continuing to next job..."
+fi
+echo "--------------------------------------------------"
+
+echo "Starting training for configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_combined.yaml..."
+accelerate launch --config_file configs/accelerate/accelerate-8gpus.yaml train.py --config configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_combined.yaml
+if [ $? -ne 0 ]; then
+    echo "Training failed for configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_combined.yaml. Continuing to next job..."
+fi
+echo "--------------------------------------------------"
+
+echo "Starting training for configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_icsi.yaml..."
+accelerate launch --config_file configs/accelerate/accelerate-8gpus.yaml train.py --config configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_icsi.yaml
+if [ $? -ne 0 ]; then
+    echo "Training failed for configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_icsi.yaml. Continuing to next job..."
+fi
+echo "--------------------------------------------------"
+
+echo "Starting training for configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_mswild.yaml..."
+accelerate launch --config_file configs/accelerate/accelerate-8gpus.yaml train.py --config configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_mswild.yaml
+if [ $? -ne 0 ]; then
+    echo "Training failed for configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_mswild.yaml. Continuing to next job..."
+fi
+echo "--------------------------------------------------"
+

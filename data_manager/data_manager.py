@@ -210,6 +210,18 @@ def resolve_manifest(patterns: List[Path], glob_suffix: str, manifest_dir: Path)
 
 
 
+def mix_down_to_mono(cut):
+    """Helper to mix down multi-channel cuts to mono."""
+    if cut.num_channels == 1:
+        return cut
+    # to_mono() returns a list of MonoCuts (one per channel)
+    mono_cuts = cut.to_mono()
+    # Mix them all together
+    mixed = mono_cuts[0]
+    for c in mono_cuts[1:]:
+        mixed = mixed.mix(c)
+    return mixed
+
 class DatasetManager:
     """
     Dataset manager with hybrid typed + dict parameter support.
@@ -273,6 +285,11 @@ class DatasetManager:
 
                     try:
                         cuts = CutSet.from_jsonl_lazy(manifest_file)
+                        # Verify not empty
+                        next(iter(cuts))
+                    except StopIteration:
+                        print(f"→ Ignoring empty cached CutSet: {manifest_file}")
+                        continue
                     except Exception as exc:
                         print(
                             f"→ Failed to load cached CutSet from {manifest_file}: {exc}"
@@ -392,16 +409,29 @@ class DatasetManager:
         """
         Load cached CutSet with pre-computed features. (Main process only)
         """
-        cache_path = storage_path / \
+        # Check subdirectory first (preferred)
+        cache_path = storage_path / dataset_name / \
             f"{dataset_name}_{split_name}_with_feats.jsonl.gz"
+        
+        if not cache_path.exists():
+            # Check root
+            cache_path = storage_path / \
+                f"{dataset_name}_{split_name}_with_feats.jsonl.gz"
 
         if cache_path.exists():
-            print(
-                f"✓ {split_name}: Loaded from cache (lazy loading)")
-            return CutSet.from_jsonl_lazy(cache_path)
+            try:
+                cuts = CutSet.from_jsonl_lazy(cache_path)
+                # Verify not empty
+                next(iter(cuts))
+                print(f"✓ {split_name}: Loaded from cache (lazy loading)")
+                return cuts
+            except StopIteration:
+                print(f"→ {split_name}: Cached file exists but is empty: {cache_path}")
+            except Exception as exc:
+                print(f"→ {split_name}: Failed to load cache: {exc}")
 
         print(
-            f"→ {split_name}: No cache found (will extract features)")
+            f"→ {split_name}: No valid cache found (will extract features)")
         return None
 
     def _compute_and_cache_features_for_split(
@@ -417,6 +447,12 @@ class DatasetManager:
         Compute features for a single split and cache. (Main process only)
         """
         first_cut = next(iter(cuts))
+
+        if first_cut.num_channels > 1:
+            print(f"Converting {first_cut.num_channels}-channel audio to mono for feature extraction")
+            # Mix all channels down to a single mono channel
+            cuts = cuts.map(mix_down_to_mono)
+
         if first_cut.sampling_rate != feature_cfg.sampling_rate:
             print(
                 f"Resampling audio {first_cut.sampling_rate} -> {feature_cfg.sampling_rate}")
@@ -512,7 +548,7 @@ class DatasetManager:
             extractor=extractor,
             storage_path=dataset_storage_path / split_name,
             storage_type=storage_writer_cls,
-            num_workers=feature_cfg.num_workers or 4,
+            num_workers=feature_cfg.num_workers if feature_cfg.num_workers is not None else 4,
             manifest_path=manifest_path,
             batch_duration=feature_cfg.batch_duration,
             overwrite=feature_cfg.overwrite,
@@ -962,49 +998,43 @@ class DatasetManager:
         # Iterate through splits and compute features only when needed
         processed_cut_sets: Dict[str, CutSet] = {}
         for split_name, cuts in dataset_cut_sets.items():
-            try:
-                if cuts is None:
-                    processed_cut_sets[split_name] = cuts
-                    continue
-
-                # Quick check: if there's a cache with features, use it
-                cached = self._load_cached_cuts_with_features(storage_root, split_name, dataset.name)
-                if cached is not None:
-                    processed_cut_sets[split_name] = cached
-                    continue
-
-                # Next, inspect the first cut to see if features already exist
-                has_features = False
-                try:
-                    first_cut = next(iter(cuts))
-                    # Lhotse Cut may expose .features or .has_features
-                    if hasattr(first_cut, "has_features"):
-                        has_features = bool(getattr(first_cut, "has_features", False))
-                    elif hasattr(first_cut, "features"):
-                        features_attr = getattr(first_cut, "features", None)
-                        has_features = features_attr is not None
-                except StopIteration:
-                    # Empty cutset
-                    has_features = False
-                except Exception:
-                    has_features = False
-
-                if has_features:
-                    processed_cut_sets[split_name] = cuts
-                    continue
-
-                print(f"→ {dataset.name}:{split_name}: No features found — computing features...")
-
-                # Compute and cache features for this split
-                computed = self._compute_and_cache_features_for_split(
-                    cuts, dataset.name, split_name, feature_cfg, storage_root
-                )
-                processed_cut_sets[split_name] = computed
-            except Exception as exc:
-                print(
-                    f"⚠️  Warning: Failed computing features for {dataset.name}:{split_name}: {exc} — falling back to original cuts"
-                )
+            if cuts is None:
                 processed_cut_sets[split_name] = cuts
+                continue
+
+            # Quick check: if there's a cache with features, use it
+            cached = self._load_cached_cuts_with_features(storage_root, split_name, dataset.name)
+            if cached is not None:
+                processed_cut_sets[split_name] = cached
+                continue
+
+            # Next, inspect the first cut to see if features already exist
+            has_features = False
+            try:
+                first_cut = next(iter(cuts))
+                # Lhotse Cut may expose .features or .has_features
+                if hasattr(first_cut, "has_features"):
+                    has_features = bool(getattr(first_cut, "has_features", False))
+                elif hasattr(first_cut, "features"):
+                    features_attr = getattr(first_cut, "features", None)
+                    has_features = features_attr is not None
+            except StopIteration:
+                # Empty cutset
+                has_features = False
+            except Exception:
+                has_features = False
+
+            if has_features:
+                processed_cut_sets[split_name] = cuts
+                continue
+
+            print(f"→ {dataset.name}:{split_name}: No features found — computing features...")
+
+            # Compute and cache features for this split
+            computed = self._compute_and_cache_features_for_split(
+                cuts, dataset.name, split_name, feature_cfg, storage_root
+            )
+            processed_cut_sets[split_name] = computed
 
         return processed_cut_sets
 

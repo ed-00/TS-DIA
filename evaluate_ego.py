@@ -172,8 +172,16 @@ def validate_model(
             for k in numeric_keys:
                 metrics[k] = float(np.mean([m[k] for m in split_metrics.values()]))
 
+        # Add per-split metrics
+        for split_name, split_results in split_metrics.items():
+            for k, v in split_results.items():
+                if isinstance(v, numbers.Number):
+                    metrics[f"{split_name}/{k}"] = v
+
     if accelerator.is_local_main_process:
-        metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics.items())
+        # Filter out per-split metrics for the average print
+        avg_metrics = {k: v for k, v in metrics.items() if "/" not in k}
+        metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in avg_metrics.items())
         print(f"Validation (avg) | {metrics_str}")
         
     return metrics
