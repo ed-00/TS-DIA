@@ -5,12 +5,12 @@
 
 mkdir -p logs
 
-echo "Starting training for configs/FINETUNE/softmax_linear_model/softmax_linear_model_aishell4.yaml..."
-accelerate launch --config_file configs/accelerate/accelerate-8gpus.yaml train.py --config configs/FINETUNE/softmax_linear_model/softmax_linear_model_aishell4.yaml
-if [ $? -ne 0 ]; then
-    echo "Training failed for configs/FINETUNE/softmax_linear_model/softmax_linear_model_aishell4.yaml. Continuing to next job..."
-fi
-echo "--------------------------------------------------"
+# echo "Starting training for configs/FINETUNE/softmax_linear_model/softmax_linear_model_aishell4.yaml..."
+# accelerate launch --config_file configs/accelerate/accelerate-8gpus.yaml train.py --config configs/FINETUNE/softmax_linear_model/softmax_linear_model_aishell4.yaml
+# if [ $? -ne 0 ]; then
+#     echo "Training failed for configs/FINETUNE/softmax_linear_model/softmax_linear_model_aishell4.yaml. Continuing to next job..."
+# fi
+# echo "--------------------------------------------------"
 
 echo "Starting training for configs/FINETUNE/softmax_linear_model/softmax_linear_model_ami.yaml..."
 accelerate launch --config_file configs/accelerate/accelerate-8gpus.yaml train.py --config configs/FINETUNE/softmax_linear_model/softmax_linear_model_ami.yaml

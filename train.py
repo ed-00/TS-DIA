@@ -73,11 +73,16 @@ def main():
     accelerator.print("\n" + "="*70)
     accelerator.print("Loading Datasets")
     accelerator.print("="*70)
+    # Load training and validation dataset splits (validation map is optional)
+    accelerator.print(
+        training_config.validation.validation_dataset_map if training_config.validation else "No validation dataset map provided")
     cut_sets = DataManager.load_datasets(
         datasets=dataset_configs,
         global_config=global_config,
         cache_dir=global_config.cache_dir if global_config.cache_dir else None,
-        training_dataset_mapping=training_config.training_dataset_map
+        training_dataset_mapping=training_config.training_dataset_map,
+        validation_dataset_mapping=(training_config.validation.validation_dataset_map
+                                    if training_config.validation else None),
     )
     accelerator.print(f"✓ Loaded {len(cut_sets)} dataset(s)")
 

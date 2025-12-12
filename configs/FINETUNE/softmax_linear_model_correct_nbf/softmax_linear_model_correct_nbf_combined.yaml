@@ -97,22 +97,22 @@ training:
   max_steps: null # Maximum training steps (null = use epochs)
   training_dataset_map:
     combine: true
-    splits:
-      - dataset_name: "ava_avd"
-        split_name: "train"
-        subset_ratio: 1.0
-      - dataset_name: "ami"
-        split_name: "train"
-        subset_ratio: 1.0
-      - dataset_name: "icsi"
-        split_name: "train"
-        subset_ratio: 1.0
-      - dataset_name: "mswild"
-        split_name: "train"
-        subset_ratio: 1.0
-      - dataset_name: "aishell4"
-        split_name: "train_L"
-        subset_ratio: 1.0
+    splits:[]
+      # - dataset_name: "ava_avd"
+      #   split_name: "train"
+      #   subset_ratio: 1.0
+      # - dataset_name: "ami"
+      #   split_name: "train"
+      #   subset_ratio: 1.0
+      # - dataset_name: "icsi"
+      #   split_name: "train"
+      #   subset_ratio: 1.0
+      # - dataset_name: "mswild"
+      #   split_name: "train"
+      #   subset_ratio: 1.0
+      # - dataset_name: "aishell4"
+      #   split_name: "train_L"
+      #   subset_ratio: 1.0
 
 
   # ---------------------------------------------------------------------------
@@ -171,8 +171,8 @@ training:
   # Validation Configuration
   # ---------------------------------------------------------------------------
   validation:
-    interval: 2585 # Validate every N epochs
-    validate_on_epoch: false # If true, interval is in epochs. If false, in steps.
+    interval: 1 # Validate every N epochs
+    validate_on_epoch: true # If true, interval is in epochs. If false, in steps.
     batch_size: 256 # Validation batch size (matching training)
     metric_for_best_model: val_loss # Metric to track for best model
     greater_is_better: false # Whether higher metric is better
@@ -191,9 +191,9 @@ training:
         - dataset_name: "mswild"
           split_name: "val"
           subset_ratio: 1.0
-        - dataset_name: "aishell4"
-          split_name: "test"
-          subset_ratio: 1.0
+        # - dataset_name: "aishell4"
+        #   split_name: "test"
+        #   subset_ratio: 1.0
 
   # ---------------------------------------------------------------------------
   # Early Stopping Configuration
@@ -209,9 +209,13 @@ training:
   # Checkpoint Configuration
   # ---------------------------------------------------------------------------
   checkpoint:
+    resume_restore_optimizer: false
+    resume_restore_scheduler: false
+    resume_restore_trainer_state: false
     save_dir: ./outputs/checkpoints/finetune_softmax_linear_model_correct_nbf_combined # Directory to save checkpoints
-    interval: 2585 # Save checkpoint every N steps
-    save_total_limit: 100 # Maximum number of checkpoints to keep
+    interval: 1 # Save checkpoint every N epochs
+    interval_in_epochs: true    
+    save_total_limit: 500 # Maximum number of checkpoints to keep
     resume: ./outputs/checkpoints/linear_pretraining_large_pos_loss_patch_final_clean_no_rezero_nbf25/checkpoints/checkpoint_19 # Path to checkpoint to resume from
 
   # ---------------------------------------------------------------------------
@@ -420,12 +424,12 @@ datasets:
         dev: few_val
         test: many_val
 
-  - name: aishell4
-    download_params:
-      # Base URL for downloads
-      base_url: http://www.openslr.org/resources
+  # - name: aishell4
+  #   download_params:
+  #     # Base URL for downloads
+  #     base_url: http://www.openslr.org/resources
 
-    process_params:
-      # Chinese text normalization
-      normalize_text: false # Set true to normalize Chinese characters
+  #   process_params:
+  #     # Chinese text normalization
+  #     normalize_text: false # Set true to normalize Chinese characters
 

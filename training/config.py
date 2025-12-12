@@ -56,6 +56,7 @@ class SchedulerConfig:
     """
     Learning rate scheduler configuration.
 
+
     Attributes:
         type: Scheduler type (cosine, linear, exponential, step, plateau, etc.)
         min_lr: Minimum learning rate
@@ -149,6 +150,18 @@ class CheckpointConfig:
     snapshot_features: bool = True
     save_best_only: bool = False
     monitor_metric: Optional[str] = None
+    # Control what to restore when resuming from a checkpoint. This is useful for
+    # finetuning where you want to reuse model weights but use fresh optimizer
+    # state, scheduler, and starting epoch from the current config.
+    # Defaults keep previous behavior (restore everything).
+    resume_restore_optimizer: bool = True
+    resume_restore_scheduler: bool = True
+    resume_restore_trainer_state: bool = True
+    # When True, `checkpoint.interval` is interpreted as number of epochs.
+    # When False, `checkpoint.interval` is interpreted as number of steps (default).
+    # This allows users to choose whether checkpoints are saved every N steps
+    # or every N epochs with a simple flag.
+    interval_in_epochs: bool = False
 
 
 @dataclass

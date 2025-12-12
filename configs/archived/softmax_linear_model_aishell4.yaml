@@ -26,7 +26,7 @@ model:
 
     # Attention configuration
     attention_type: linear # Options: softmax, linear, causal_linear
-    nb_features: 25 # Number of random features for linear attention (None = auto)
+    nb_features: 256 # Number of random features for linear attention (None = auto)
 
     # Activation function
     activation: REGLU # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
@@ -38,11 +38,6 @@ model:
     # Linear attention feature management
     # feature_redraw_interval: 1000  # Redraw random features every N steps (None = never)
     # auto_check_redraw: true        # Automatically check when to redraw
-
-    # positional_encoding:
-    #   type: rope  # or sinusoidal, learnable, none
-    #   max_seq_len: 512
-    #   theta: 10000.0
 
   # ---------------------------------------------------------------------------
   # Decoder Configuration (for decoder and encoder_decoder models)
@@ -57,7 +52,7 @@ model:
 
     # Attention configuration
     attention_type: causal_linear # Options: softmax, linear, causal_linear
-    nb_features: 25          # Number of random features for linear attention
+    # nb_features: 256          # Number of random features for linear attention
 
     # Activation function
     activation: REGLU # Options: GELU, RELU, SILU, GEGLU, REGLU, SWIGLU
@@ -82,10 +77,10 @@ model:
       # 3: others_ovl (multiple non-target speakers)
       # 4: ns (non-speech)
 
-    positional_encoding:
-      type: rope
-      max_seq_len: 512
-      theta: 10000.0
+    # positional_encoding:
+    #   type: rope
+    #   max_seq_len: 512
+    #   theta: 10000.0
 
 training:
   # ---------------------------------------------------------------------------
@@ -102,7 +97,6 @@ training:
         split_name: "train_L"
         subset_ratio: 1.0
 
-
   # ---------------------------------------------------------------------------
   # Optimizer Configuration
   # ---------------------------------------------------------------------------
@@ -112,7 +106,6 @@ training:
     weight_decay: 0.1 # Weight decay / L2 regularization
     betas: [0.9, 0.95] # Beta parameters for Adam-style optimizers
     epsilon: 0.00000001 # Epsilon for numerical stability (1e-8)
-
 
   # ---------------------------------------------------------------------------
   # Learning Rate Scheduler Configuration (no secduler)
@@ -145,7 +138,7 @@ training:
   loss:
     main: cross_entropy # Options: cross_entropy, mse, mae, bce, bce_with_logits
     reduction: mean # Options: mean, sum, null
-    label_smoothing: 0.1            # Label smoothing factor (0.0 = no smoothing)
+    label_smoothing: 0.1 # Label smoothing factor (0.0 = no smoothing)
 
     # # Auxiliary losses (optional)
     # auxiliary:
@@ -159,8 +152,8 @@ training:
   # Validation Configuration
   # ---------------------------------------------------------------------------
   validation:
-    interval: 2585 # Validate every N epochs
-    validate_on_epoch: false # If true, interval is in epochs. If false, in steps.
+    interval: 1 # Validate every N epochs
+    validate_on_epoch: true # If true, interval is in epochs. If false, in steps.
     batch_size: 256 # Validation batch size (matching training)
     metric_for_best_model: val_loss # Metric to track for best model
     greater_is_better: false # Whether higher metric is better
@@ -185,10 +178,10 @@ training:
   # Checkpoint Configuration
   # ---------------------------------------------------------------------------
   checkpoint:
-    save_dir: ./outputs/checkpoints/finetune_softmax_linear_model_correct_nbf_aishell4 # Directory to save checkpoints
-    interval: 2585 # Save checkpoint every N steps
-    save_total_limit: 100 # Maximum number of checkpoints to keep
-    resume: ./outputs/checkpoints/linear_pretraining_large_pos_loss_patch_final_clean_no_rezero_nbf25/checkpoints/checkpoint_19 # Path to checkpoint to resume from
+    save_dir: ./outputs/checkpoints/finetune_softmax_linear_model_aishell4 # Directory to save checkpoints
+    interval: 1000 # Save checkpoint every N steps
+    save_total_limit: 500 # Maximum number of checkpoints to keep
+    resume: ./outputs/checkpoints/linear_pretraining_large_pos_loss_patch_final_clean_no_rezero/checkpoints/checkpoint_19 # Path to checkpoint to resume from
 
   # ---------------------------------------------------------------------------
   # Safeguards (runtime protection against data spikes / FP16/BF16 anomalies)

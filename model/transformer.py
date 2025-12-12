@@ -696,43 +696,6 @@ class EncoderDecoderTransformer(nn.Module):
         batch_size, seq_len, _ = encoder_output.shape
         device = x.device
 
-        # Imports for debug mode
-        import matplotlib.pyplot as plt
-        from sklearn.decomposition import PCA
-        import os
-
-        pca = None
-        enc_out_pca = None
-        axes = None
-        if debug:
-            os.makedirs("debug_plots", exist_ok=True)
-            
-            # Plot Encoder Output
-            enc_out_np = encoder_output[0].detach().cpu().numpy()
-            try:
-                pca = PCA(n_components=2)
-                enc_out_pca = pca.fit_transform(enc_out_np)
-                
-                plt.figure(figsize=(10, 8))
-                plt.scatter(enc_out_pca[:, 0], enc_out_pca[:, 1], alpha=0.5, s=1, label="Encoder Frames")
-                plt.title("Encoder Output PCA")
-                plt.legend()
-                plt.savefig("debug_plots/00_encoder_output_scatter.png")
-                plt.close()
-                
-                # Also save the heatmap version
-                plt.figure(figsize=(15, 5))
-                plt.imshow(enc_out_np.T, aspect='auto', cmap='viridis')
-                plt.title("Encoder Output (Raw Features)")
-                plt.colorbar()
-                plt.savefig("debug_plots/00_encoder_output_raw.png")
-                plt.close()
-                
-            except Exception as e:
-                print(f"Debug plot error (PCA): {e}")
-                pca = None
-
-        # Output tensor: (batch_size, seq_len, max_num_spk)
         outputs = torch.zeros(
             (batch_size, seq_len, max_num_spk), device=device)
 
@@ -773,24 +736,8 @@ class EncoderDecoderTransformer(nn.Module):
                     others_sgl_prob > threshold) & (~covered_mask) & is_speech_mask
                 candidate_indices = torch.where(candidates_mask)[0]
 
-                if debug and b == 0:
-                    fig, axes = plt.subplots(4, 1, figsize=(15, 12), sharex=True)
-                    
-                    # 1. Others Probability
-                    axes[0].plot(others_sgl_prob.detach().cpu().numpy(), label="Others Sgl Prob")
-                    axes[0].axhline(y=threshold, color='r', linestyle='--', label="Threshold")
-                    axes[0].set_title(f"Speaker {spk_idx}: 'Others' Probability (Zero Enrollment)")
-                    axes[0].legend()
-                    
-                    # 2. Candidates & Covered
-                    axes[1].plot(candidates_mask.detach().cpu().numpy(), label="Candidates", color='g', alpha=0.5)
-                    axes[1].plot(covered_mask.detach().cpu().numpy(), label="Already Covered", color='gray', alpha=0.5)
-                    axes[1].set_title(f"Speaker {spk_idx}: Candidates & Covered Mask")
-                    axes[1].legend()
-
                 if len(candidate_indices) < min_enroll:
-                    if debug and b == 0:
-                        plt.close()
+
                     break  # No more significant speaker activity found
 
                 # Select enrollment segment
@@ -799,8 +746,7 @@ class EncoderDecoderTransformer(nn.Module):
                 valid_segments = [s for s in segments if len(s) >= min_enroll]
 
                 if not valid_segments:
-                    if debug and b == 0:
-                        plt.close()
+
                     break
 
                 if enrollment_strategy == 'random':
@@ -862,13 +808,6 @@ class EncoderDecoderTransformer(nn.Module):
                 else:
                     enroll_indices = selected_segment
 
-                if debug and b == 0 and axes is not None:
-                     # Highlight selected segment on axes[1]
-                     sel_mask = np.zeros(seq_len)
-                     sel_mask[enroll_indices.detach().cpu().numpy()] = 1
-                     axes[1].plot(sel_mask, label="Selected Enrollment", color='red', linewidth=2)
-                     axes[1].legend()
-
                 # Extract enrollment embedding from encoder output
                 new_enroll_emb = curr_enc_out[enroll_indices].mean(
                     dim=0, keepdim=True)
@@ -898,63 +837,6 @@ class EncoderDecoderTransformer(nn.Module):
                 # Update covered mask
                 active_mask = ts_activity > threshold
                 covered_mask = covered_mask | active_mask
-
-                if debug and b == 0 and axes is not None:
-                    axes[2].plot(ts_activity.detach().cpu().numpy(), label="Target Activity")
-                    axes[2].axhline(y=threshold, color='r', linestyle='--', label="Threshold")
-                    axes[2].set_title(f"Speaker {spk_idx}: Target Activity (After Enrollment)")
-                    axes[2].legend()
-                    
-                    # 4. Updated Covered Mask
-                    axes[3].plot(covered_mask.detach().cpu().numpy(), label="Updated Covered Mask", color='black')
-                    axes[3].set_title(f"Speaker {spk_idx}: Updated Covered Mask")
-                    
-                    plt.tight_layout()
-                    plt.savefig(f"debug_plots/01_speaker_{spk_idx}_step.png")
-                    plt.close()
-
-                    # Plot Ego Labels breakdown
-                    fig_ego, axes_ego = plt.subplots(5, 1, figsize=(15, 15), sharex=True)
-                    class_names = ['ts', 'ts_ovl', 'others_sgl', 'others_ovl', 'ns']
-                    
-                    for c in range(5):
-                        prob_c = probs[0, :, c].detach().cpu().numpy()
-                        # Simple thresholding
-                        binary_c = (prob_c > threshold).astype(float)
-                        
-                        axes_ego[c].plot(prob_c, label=f"Prob {class_names[c]}", color='blue')
-                        axes_ego[c].fill_between(range(len(prob_c)), 0, binary_c, color='orange', alpha=0.3, label=f"Binary > {threshold}")
-                        axes_ego[c].axhline(y=threshold, color='r', linestyle=':', label="Threshold")
-                        axes_ego[c].set_ylabel(class_names[c])
-                        axes_ego[c].legend(loc='upper right')
-                        
-                    axes_ego[0].set_title(f"Speaker {spk_idx}: Ego Labels (Probabilities & Thresholded)")
-                    plt.tight_layout()
-                    plt.savefig(f"debug_plots/01_speaker_{spk_idx}_ego_labels.png")
-                    plt.close()
-
-                    # Plot Embedding Space
-                    if pca is not None and enc_out_pca is not None:
-                        try:
-                            enroll_emb_np = new_enroll_emb.detach().cpu().numpy()
-                            enroll_pca = pca.transform(enroll_emb_np)
-                            
-                            plt.figure(figsize=(10, 8))
-                            plt.scatter(enc_out_pca[:, 0], enc_out_pca[:, 1], alpha=0.1, s=1, color='gray', label="Encoder Frames")
-                            
-                            # Highlight selected frames
-                            selected_frames_pca = enc_out_pca[enroll_indices.detach().cpu().numpy()]
-                            plt.scatter(selected_frames_pca[:, 0], selected_frames_pca[:, 1], color='green', s=10, label="Selected Frames")
-                            
-                            # Plot enrollment vector
-                            plt.scatter(enroll_pca[:, 0], enroll_pca[:, 1], color='red', s=100, marker='X', label="Enrollment Vector")
-                            
-                            plt.title(f"Speaker {spk_idx}: Embedding Space")
-                            plt.legend()
-                            plt.savefig(f"debug_plots/01_speaker_{spk_idx}_embedding.png")
-                            plt.close()
-                        except Exception as e:
-                            print(f"Debug plot error (Embedding): {e}")
 
         # Binarize outputs based on threshold
         outputs = (outputs > threshold).float()

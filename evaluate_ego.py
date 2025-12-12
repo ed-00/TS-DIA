@@ -33,9 +33,12 @@ sys.path.append(os.getcwd())
 
 # Constants
 MODEL_CONFIGS = [
-    "configs/REPRODUCE_eval_only/02_pretraining_softmax.yaml",
-    "configs/REPRODUCE_eval_only/03_pretraining_linear.yaml",
-    "configs/REPRODUCE_eval_only/04_pretraining_linear_correct_nb-f.yaml"
+    "configs/FINETUNE/softmax_linear_model/softmax_linear_model_combined.yaml",
+    "configs/FINETUNE/softmax_linear_model_correct_nbf/softmax_linear_model_correct_nbf_combined.yaml" ,
+    "configs/FINETUNE/softmax_pretraining_model/softmax_pretraining_model_combined.yaml"
+    # "configs/REPRODUCE_eval_only/02_pretraining_softmax.yaml",
+    # "configs/REPRODUCE_eval_only/03_pretraining_linear.yaml",
+    # "configs/REPRODUCE_eval_only/04_pretraining_linear_correct_nb-f.yaml"
 ]
 
 
@@ -190,6 +193,14 @@ def validate_model(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--recursive_checkpoints", action="store_true", help="Recursively search for checkpoints in save_dir")
+    parser.add_argument(
+        "--ckpt",
+        action="append",
+        help=(
+            "Checkpoint selection mapping in the form 'config_basename:step1,step2' or 'config_basename:step'. "
+            "Can be provided multiple times. If provided and --recursive_checkpoints is NOT set, the script will evaluate only the listed checkpoint steps for the matching config."
+        ),
+    )
     args = parser.parse_args()
 
     # Initialize results list
@@ -197,6 +208,18 @@ def main():
 
     # Initialize wandb
     wandb.init(project="ego_evaluation", name="eval_all_models_checkpoints")
+
+    # Parse ckpt mappings once before processing all configs and keep track of used mappings
+    ckpt_map = {}
+    used_ckpt_keys = set()
+    if args.ckpt:
+        for mapping in args.ckpt:
+            try:
+                key, steps = mapping.split(":", 1)
+                steps_list = [int(s.strip()) for s in steps.split(",") if s.strip()]
+                ckpt_map[key.strip()] = steps_list
+            except Exception:
+                print(f"Warning: Could not parse checkpoint mapping '{mapping}'. Expected format 'config:step1,step2'. Skipping this mapping.")
 
     for config_path in MODEL_CONFIGS:
         print(f"\n{'='*80}")
@@ -268,6 +291,7 @@ def main():
             raise ValueError("training_config.checkpoint: was not provided in the config...")
         
         # Find Checkpoints
+        # ckpt_map was parsed before the loop; use it here
         save_dir = training_config.checkpoint.save_dir
         if args.recursive_checkpoints:
             checkpoints = glob.glob(os.path.join(save_dir, "**", "checkpoint*"), recursive=True)
@@ -275,6 +299,42 @@ def main():
             checkpoints = glob.glob(os.path.join(save_dir, "checkpoint*"))
 
         checkpoints.sort(key=get_step)
+
+        # If not running recursive checkpoint search and the user provided mappings,
+        # use them to filter which checkpoints to evaluate for each config.
+        config_basename = os.path.basename(config_path)
+        config_basename_noext = os.path.splitext(config_basename)[0]
+        desired_steps = None
+        if not args.recursive_checkpoints and ckpt_map:
+            # Accept matches keyed by either the basename with or without extension
+            if config_basename in ckpt_map:
+                desired_steps = ckpt_map[config_basename]
+                used_ckpt_keys.add(config_basename)
+            elif config_basename_noext in ckpt_map:
+                desired_steps = ckpt_map[config_basename_noext]
+                used_ckpt_keys.add(config_basename_noext)
+            else:
+                # Also allow user to specify the path suffix (e.g., directories included)
+                # Check each key to see if it is contained in the config_path
+                for k, v in ckpt_map.items():
+                    if k in config_path:
+                        desired_steps = v
+                        used_ckpt_keys.add(k)
+                        break
+                # Finally, allow matching on the model_config.name in case the user used that
+                if desired_steps is None and hasattr(model_config, "name"):
+                    if model_config.name in ckpt_map:
+                        desired_steps = ckpt_map[model_config.name]
+                        used_ckpt_keys.add(model_config.name)
+
+        if desired_steps is not None:
+            filtered_checkpoints = [p for p in checkpoints if get_step(p) in desired_steps]
+            if filtered_checkpoints:
+                checkpoints = filtered_checkpoints
+                print(f"Filtering checkpoints for {config_basename} to steps {desired_steps} -> found {len(checkpoints)} matching checkpoint(s)")
+            else:
+                print(f"Warning: No checkpoints matching steps {desired_steps} found in {save_dir} for {config_basename}. Skipping this config.")
+                continue
 
         print(f"Found {len(checkpoints)} checkpoints in {save_dir} (recursive={args.recursive_checkpoints})")
 
@@ -329,6 +389,12 @@ def main():
         print(f"\nResults saved to {output_csv}")
     else:
         print("\nNo results collected.")
+
+    # Report any unused checkpoint mappings provided by the user
+    if ckpt_map:
+        unused_keys = set(ckpt_map.keys()) - used_ckpt_keys
+        if unused_keys:
+            print(f"Warning: The following checkpoint mappings were provided but not used: {list(unused_keys)}")
 
 
 if __name__ == "__main__":

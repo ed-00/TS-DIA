@@ -21,8 +21,9 @@ import numbers
 import random
 import shutil
 from pathlib import Path
-from typing import Dict, Optional, Union, Tuple
+from typing import Dict, Optional, Union, Tuple, cast
 import math
+import yaml
 
 import numpy as np
 import torch
@@ -38,7 +39,7 @@ from .accelerate_utils import (
     setup_accelerator,
 )
 from .callbacks import CallbackHandler, create_callbacks_from_config
-from .config import TrainingConfig
+from .config import TrainingConfig, SchedulerConfig
 from .logging_utils import (
     init_trackers,
     log_hyperparameters,
@@ -103,6 +104,8 @@ class Trainer:
             self.total_training_size = 0
         self.test_dataloader = test_dataloader
         self.config_path = config_path
+        # Flag used to skip restoring trainer state on resume (epoch/global_step)
+        self._ignore_loaded_trainer_state = False
 
         # Normalize validation dataloaders input for multi-split evaluation
         self.val_dataloaders: Dict[str, DataLoader] = {}
@@ -337,6 +340,13 @@ class Trainer:
         }
 
     def load_state_dict(self, state_dict):
+        # Optionally ignore trainer state's epoch/step loaded from checkpoint
+        if getattr(self, "_ignore_loaded_trainer_state", False):
+            self.accelerator.print(
+                "Skipping restoration of trainer epoch/step/best_metric from checkpoint (finetune policy)."
+            )
+            return
+
         self.current_epoch = state_dict["current_epoch"]
         self.global_step = state_dict["global_step"]
         self.best_metric = state_dict["best_metric"]
@@ -366,9 +376,118 @@ class Trainer:
 
     def _resume_from_checkpoint(self, checkpoint_path: str):
         """Resume training from checkpoint."""
-        self.accelerator.print(
-            f"📂 Resuming from checkpoint: {checkpoint_path}")
+        self.accelerator.print(f"📂 Resuming from checkpoint: {checkpoint_path}")
+
+        # Auto-detect mismatch between checkpoint config and current config.
+        # If mismatch is detected, assume we want to finetune (restore model weights
+        # only) and therefore ignore the optimizer/scheduler/trainer saved state.
+        try:
+            checkpoint_config_path = Path(checkpoint_path) / "config.yml"
+            checkpoint_cfg = None
+            if checkpoint_config_path.exists():
+                with open(checkpoint_config_path, "r") as fh:
+                    checkpoint_cfg = yaml.safe_load(fh)
+            # Determine whether pretraining config differs from current config
+            mismatch_detected = False
+            if checkpoint_cfg is not None:
+                # Compare optimizer lr and epochs conservatively
+                ck_opt = checkpoint_cfg.get("optimizer", {})
+                ck_lr = ck_opt.get("lr") if isinstance(ck_opt, dict) else None
+                ck_epochs = checkpoint_cfg.get("epochs")
+                ck_scheduler = checkpoint_cfg.get("scheduler", {})
+                ck_scheduler_type = (
+                    ck_scheduler.get("type") if isinstance(ck_scheduler, dict) else None
+                )
+
+                cfg_lr = getattr(self.config.optimizer, "lr", None)
+                cfg_epochs = getattr(self.config, "epochs", None)
+                cfg_scheduler_type = (
+                    getattr(getattr(self.config, "scheduler", None), "type", None)
+                )
+
+                # If values exist and differ, mark mismatch
+                if ck_lr is not None and cfg_lr is not None and float(ck_lr) != float(cfg_lr):
+                    mismatch_detected = True
+                if ck_epochs is not None and cfg_epochs is not None and int(ck_epochs) != int(cfg_epochs):
+                    mismatch_detected = True
+                if ck_scheduler_type is not None and cfg_scheduler_type is not None and ck_scheduler_type != cfg_scheduler_type:
+                    mismatch_detected = True
+
+                if mismatch_detected:
+                    self.accelerator.print(
+                        "Detected differences between checkpoint config and current config (likely finetune). "
+                        "Will restore model weights only and skip optimizer/scheduler/trainer state unless explicitly allowed in the config."
+                    )
+        except Exception as e:
+            # Do not prevent resume on parsing errors; just log
+            self.accelerator.print(f"Warning: failed to read checkpoint config for auto-detection: {e}")
+            mismatch_detected = False
+
+        # Decide what to restore: use explicit config flags first, otherwise use heuristics
+        resume_cfg = self.config.checkpoint
+        restore_optimizer = True if resume_cfg is None else getattr(resume_cfg, "resume_restore_optimizer", True)
+        restore_scheduler = True if resume_cfg is None else getattr(resume_cfg, "resume_restore_scheduler", True)
+        restore_trainer_state = True if resume_cfg is None else getattr(resume_cfg, "resume_restore_trainer_state", True)
+
+        if mismatch_detected:
+            # Override to not restore optimizer/scheduler/trainer state when mismatch found
+            restore_optimizer = False
+            restore_scheduler = False
+            restore_trainer_state = False
+
+        # If ignoring trainer state, set flag so load_state won't overwrite epoch/step
+        if not restore_trainer_state:
+            self._ignore_loaded_trainer_state = True
+
+        # Let Accelerate restore from checkpoint (this restores model and all registered objects)
         self.accelerator.load_state(checkpoint_path)
+
+        # Post-load: selectively reset or reconfigure optimizer/scheduler/trainer
+        if not restore_optimizer:
+            try:
+                # Clear optimizer state dict (faster than re-creating wrapped optimizer)
+                if hasattr(self.optimizer, "state"):
+                    self.optimizer.state.clear()
+                # Reset optimizer param_group hyperparameters to current config
+                for pg in getattr(self.optimizer, "param_groups", []):
+                    if getattr(self.config, "optimizer", None):
+                        pg["lr"] = self.config.optimizer.lr
+                        if getattr(self.config.optimizer, "weight_decay", None) is not None:
+                            pg["weight_decay"] = self.config.optimizer.weight_decay
+                self.accelerator.print("Optimizer state cleared and hyperparameters reset to current config.")
+            except Exception as e:
+                self.accelerator.print(f"Warning: failed to reset optimizer after checkpoint load: {e}")
+
+        if not restore_scheduler:
+            try:
+                # Create a scheduler using current config to override pretraining scheduler
+                if getattr(self.config, "scheduler", None):
+                    # Re-create scheduler with current config and newly-reset optimizer
+                    num_scheduler_steps = self.safe_total_steps * self.config.epochs
+                    new_scheduler = create_scheduler(
+                        self.optimizer,
+                        cast(SchedulerConfig, self.config.scheduler),
+                        num_training_steps=num_scheduler_steps,
+                    )
+                    self.lr_scheduler = new_scheduler
+                    # Register new scheduler to be checkpointed moving forward
+                    try:
+                        self.accelerator.register_for_checkpointing(self.lr_scheduler)
+                    except Exception:
+                        # Non-fatal: ignore registration errors
+                        pass
+                    self.accelerator.print("Scheduler replaced with new scheduler built from current config.")
+            except Exception as e:
+                self.accelerator.print(f"Warning: failed to replace scheduler after checkpoint load: {e}")
+
+        if not restore_trainer_state:
+            # Reset trainer bookkeeping (start fresh for finetune)
+            self.current_epoch = 0
+            self.global_step = 0
+            self.best_metric = float("inf")
+            # Reset the flag so future load_state calls behave normally
+            self._ignore_loaded_trainer_state = False
+            self.accelerator.print("Trainer state (epoch/step/best_metric) reset for finetuning run.")
 
     def _set_seed(self, seed: int):
         """Set random seeds for reproducibility."""
@@ -412,9 +531,10 @@ class Trainer:
                 self.accelerator.print("Early stopping triggered")
                 break
 
-            # Save checkpoint
+            # Save checkpoint (epoch-based)
             if (
                 self.config.checkpoint
+                and getattr(self.config.checkpoint, "interval_in_epochs", False)
                 and (epoch + 1) % self.config.checkpoint.interval == 0
             ):
                 self.save_checkpoint()
@@ -548,9 +668,10 @@ class Trainer:
                 if self.global_step % self.config.validation.interval == 0:
                     self.validate()
 
-            # Save checkpoint at step intervals
+            # Save checkpoint at step intervals only when interval is defined in steps
             if (
                 self.config.checkpoint
+                and not getattr(self.config.checkpoint, "interval_in_epochs", False)
                 and self.global_step % self.config.checkpoint.interval == 0
             ):
                 self.save_checkpoint()
